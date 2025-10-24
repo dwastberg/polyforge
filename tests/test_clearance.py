@@ -245,9 +245,9 @@ class TestFixNarrowProtrusion:
         """Test fixing very thin protrusion."""
         # Polygon with very thin spike
         coords = [
-            (0, 0), (10, 0), (10, 5),
-            (10, 4.99), (15, 5), (10, 5.01),  # Very thin
-            (10, 10), (0, 10)
+            (0, 0), (10, 0), (10, 4),
+            (10, 4.99), (15, 5), (10, 5.01),  # Very thin spike
+            (10, 6), (0, 6)
         ]
         poly = Polygon(coords)
 
