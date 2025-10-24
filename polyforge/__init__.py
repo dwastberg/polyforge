@@ -19,6 +19,7 @@ from .simplify import (
 from .clearance import (
     fix_hole_too_close,
     fix_narrow_protrusion,
+    remove_narrow_protrusions,
     fix_sharp_intrusion,
     fix_narrow_passage,
     fix_near_self_intersection,
@@ -47,6 +48,7 @@ __all__ = [
     # Clearance fixing
     'fix_hole_too_close',
     'fix_narrow_protrusion',
+    'remove_narrow_protrusions',
     'fix_sharp_intrusion',
     'fix_narrow_passage',
     'fix_near_self_intersection',

@@ -47,20 +47,6 @@ class TestFixGeometry:
 
         assert result.is_valid
 
-    def test_unclosed_ring(self):
-        """Test fixing polygon with unclosed ring."""
-        # Create polygon with manually unclosed coordinates
-        # (Shapely usually auto-closes, but we can test the logic)
-        coords = [(0, 0), (1, 0), (1, 1), (0, 1)]  # Not closed
-        try:
-            poly = Polygon(coords)
-            # If Shapely creates it, it should be valid
-            if not poly.is_valid:
-                result = fix_geometry(poly)
-                assert result.is_valid
-        except Exception:
-            # If Shapely rejects it, that's also acceptable
-            pass
 
     def test_buffer_strategy(self):
         """Test explicit buffer strategy."""

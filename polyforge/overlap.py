@@ -68,7 +68,6 @@ def remove_overlaps(
             poly_i = result[i]
 
             # Query spatial index for potential overlaps
-            # This is much faster than checking all n polygons
             candidate_indices = tree.query(poly_i, predicate='intersects')
 
             for j in candidate_indices:
@@ -91,7 +90,6 @@ def remove_overlaps(
             break
 
         # Find independent pairs (no polygon appears in multiple pairs)
-        # This allows us to resolve multiple overlaps in parallel
         processed_indices = set()
         pairs_to_resolve = []
 
