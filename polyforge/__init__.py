@@ -28,6 +28,12 @@ from .clearance import (
 # Split overlap functions
 from .split import split_overlap
 
+# Overlap removal functions
+from .overlap import remove_overlaps, count_overlaps, find_overlapping_groups
+
+# Geometry fixing functions
+from .fix import fix_geometry, diagnose_geometry, batch_fix_geometries, GeometryFixError
+
 __all__ = [
 
     # Simplification
@@ -46,6 +52,15 @@ __all__ = [
     'fix_near_self_intersection',
     'fix_parallel_close_edges',
 
-    # Overlap splitting
+    # Overlap handling
     'split_overlap',
+    'remove_overlaps',
+    'count_overlaps',
+    'find_overlapping_groups',
+
+    # Geometry fixing
+    'fix_geometry',
+    'diagnose_geometry',
+    'batch_fix_geometries',
+    'GeometryFixError',
 ]
