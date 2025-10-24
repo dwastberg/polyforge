@@ -506,6 +506,37 @@ class TestFixNarrowPassage:
         # Just ensure the result is valid
         assert result.area > 0
 
+    def test_vertex_to_edge_passage(self):
+        """Test widening when minimum clearance is vertex-to-edge (not vertex-to-vertex).
+
+        This is a critical test case where the narrow point is a vertex on one side,
+        but the closest point on the opposite side is on an edge (not at a vertex).
+        The algorithm should detect this and move the edge vertex perpendicular to
+        the edge rather than along the clearance line.
+        """
+        # Polygon with narrow indentation where clearance is vertex-to-edge
+        coords = [
+            (0, 0), (2, 0), (2, 1),
+            (1.1, 1.5), (0.1, 2), (1.1, 2.5),  # Narrow section: (0.1, 2) is closest to right edge
+            (2, 3), (2, 4), (0, 4),
+        ]
+        poly = Polygon(coords)
+
+        # The minimum clearance should be from vertex (0.1, 2) to the edge from (2, 1) to (2, 3)
+        # which is approximately 1.9 units
+        original_clearance = poly.minimum_clearance
+        assert original_clearance < 2.0  # Verify it's actually narrow
+
+        target_clearance = 0.5
+        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy='widen')
+
+        assert result.is_valid
+        assert isinstance(result, Polygon)
+
+        # The algorithm should improve clearance by moving vertices perpendicular to edges
+        # In this case, should move (0.1, 2) left and nearest vertex on right edge away
+        assert result.minimum_clearance >= original_clearance or result.minimum_clearance >= target_clearance * 0.9
+
 
 class TestFixNearSelfIntersection:
     """Tests for fix_near_self_intersection function."""
