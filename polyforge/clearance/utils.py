@@ -93,6 +93,56 @@ def _point_to_segment_distance(
     return float(np.linalg.norm(point - projection))
 
 
+def _point_to_line_perpendicular_distance(
+    point: np.ndarray,
+    line_start: np.ndarray,
+    line_end: np.ndarray
+) -> float:
+    """Calculate perpendicular distance from a point to an infinite line.
+
+    Unlike _point_to_segment_distance which clamps to the segment endpoints,
+    this calculates the perpendicular distance to the infinite line passing
+    through the two points. Useful for aspect ratio calculations.
+
+    Args:
+        point: Point coordinates (2D)
+        line_start: Point on the line (2D)
+        line_end: Another point on the line (2D)
+
+    Returns:
+        Perpendicular distance from point to line (always >= 0)
+
+    Examples:
+        >>> # Point above a horizontal line
+        >>> point = np.array([5.0, 3.0])
+        >>> line_start = np.array([0.0, 0.0])
+        >>> line_end = np.array([10.0, 0.0])
+        >>> dist = _point_to_line_perpendicular_distance(point, line_start, line_end)
+        >>> abs(dist - 3.0) < 0.01  # Distance is 3.0
+        True
+    """
+    # Vector from line_start to line_end
+    line_vec = line_end - line_start
+    line_length = np.linalg.norm(line_vec)
+
+    if line_length < 1e-10:
+        # Degenerate line (single point)
+        return float(np.linalg.norm(point - line_start))
+
+    # Normalize line vector
+    line_vec_normalized = line_vec / line_length
+
+    # Vector from line_start to point
+    point_vec = point - line_start
+
+    # Calculate perpendicular distance using cross product formula
+    # For 2D: distance = |cross product| / |line vector|
+    # But since line_vec is normalized, distance = |cross product|
+    cross = abs(line_vec_normalized[0] * point_vec[1] - line_vec_normalized[1] * point_vec[0])
+
+    return float(cross)
+
+
 def _get_vertex_neighborhood(
     center_idx: int,
     coords: np.ndarray,

@@ -9,13 +9,24 @@ from shapely.geometry import Polygon
 
 from plot_geometry import plot_comparison
 
-base = [(0, 0), (10, 0), (10, 4), (10, 6), (0, 6)]
-spike = [(10, 4.9), (12, 5), (10, 5.1)]  # Narrow spike
+# base = [(0, 0), (10, 0), (10, 4), (10, 6), (0, 6)]
+# spike = [(10, 4.9), (12, 5), (10, 5.1)]  # Narrow spike
+#
+# # Insert spike into base
+# coords = base[:3] + spike + base[3:]
+# poly = Polygon(coords)
+# print("Original clearance", shapely.minimum_clearance(poly))
+# fixed = (polyforge.fix_narrow_protrusion(poly, min_clearance=0.5))
+# print("Fixed clearance", shapely.minimum_clearance(fixed))
+# plot_comparison(poly, fixed, )
 
-# Insert spike into base
-coords = base[:3] + spike + base[3:]
+coords = [
+            (0, 0), (2, 0), (2, 1),
+            (1.1, 1.5), (0.1, 2), (1.1, 2.5),  # Narrow section
+            (2, 3), (2, 4), (0, 4),
+        ]
 poly = Polygon(coords)
-print("Original clearance", shapely.minimum_clearance(poly))
-fixed = (polyforge.fix_narrow_protrusion(poly, min_clearance=0.5))
-print("Fixed clearance", shapely.minimum_clearance(fixed))
-plot_comparison(poly, fixed, )
+print ("Original clearance", shapely.minimum_clearance(poly))
+result = polyforge.fix_narrow_passage(poly, min_clearance=0.5, strategy='widen')
+print ("Fixed clearance", shapely.minimum_clearance(result))
+plot_comparison(poly, result)

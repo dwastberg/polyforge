@@ -104,7 +104,8 @@ def _move_hole_away_from_exterior(
 ) -> Optional[Polygon]:
     """Move hole away from exterior to achieve target distance.
 
-    This is complex and may not always succeed.
+    Uses actual boundary distances (not centroids) to determine movement direction.
+    Moves the hole perpendicular to the line connecting the closest boundary points.
 
     Args:
         hole: Hole polygon
@@ -113,44 +114,73 @@ def _move_hole_away_from_exterior(
 
     Returns:
         Moved hole polygon, or None if move not possible
+
+    Note:
+        Fixed in Phase 1.1: Now uses actual closest boundary points instead of
+        centroids, providing correct movement direction for irregularly shaped holes.
     """
     from shapely.affinity import translate
 
-    # Find nearest point on exterior to hole
-    hole_centroid = hole.centroid
-    exterior_poly = Polygon(exterior)
+    # Find the actual closest points between hole boundary and exterior boundary
+    hole_ring = LinearRing(hole.exterior.coords)
+    exterior_ring = LinearRing(exterior.coords)
 
-    # Find nearest point on exterior to centroid
-    nearest_geom = shapely.ops.nearest_points(hole_centroid, exterior_poly.boundary)
-    nearest_point = nearest_geom[1]
+    # Get closest points on both boundaries
+    pt_on_hole, pt_on_exterior = shapely.ops.nearest_points(hole_ring, exterior_ring)
 
-    # Calculate move direction (away from nearest point)
-    move_direction = np.array(hole_centroid.coords[0]) - np.array(nearest_point.coords[0])
-    move_norm = np.linalg.norm(move_direction)
+    # Calculate current minimum distance
+    current_distance = pt_on_hole.distance(pt_on_exterior)
 
-    if move_norm == 0:
-        return None  # Can't determine direction
-
-    move_direction = move_direction / move_norm
-
-    # Current distance
-    current_distance = hole_centroid.distance(Point(nearest_point))
-
-    # How far to move
-    move_distance = target_distance - current_distance
-
-    if move_distance <= 0:
+    if current_distance >= target_distance:
         return hole  # Already far enough
 
-    # Translate hole
+    # Calculate move direction: from exterior point toward hole point, then beyond
+    move_vec = np.array(pt_on_hole.coords[0]) - np.array(pt_on_exterior.coords[0])
+    move_dist = np.linalg.norm(move_vec)
+
+    if move_dist < 1e-10:
+        return None  # Points coincide, can't determine direction
+
+    # Normalize move direction
+    move_direction = move_vec / move_dist
+
+    # Calculate required movement: need to increase distance from current to target
+    required_move = target_distance - current_distance
+
+    # Add small buffer to ensure we exceed target
+    required_move *= 1.1
+
+    # Translate hole away from exterior
     moved_hole = translate(
         hole,
-        xoff=move_direction[0] * move_distance,
-        yoff=move_direction[1] * move_distance
+        xoff=move_direction[0] * required_move,
+        yoff=move_direction[1] * required_move
     )
 
     # Verify hole is still inside exterior
-    if Polygon(exterior).contains(moved_hole):
+    exterior_poly = Polygon(exterior)
+    if not exterior_poly.contains(moved_hole):
+        return None  # Move would put hole outside exterior
+
+    # Verify the move actually achieved the target distance
+    new_distance = _calculate_hole_to_exterior_distance(moved_hole, exterior)
+
+    if new_distance >= target_distance:
         return moved_hole
     else:
-        return None  # Can't move safely
+        # Move didn't achieve target (might happen with complex shapes)
+        # Try with larger movement factor
+        for multiplier in [1.5, 2.0, 3.0]:
+            larger_move = translate(
+                hole,
+                xoff=move_direction[0] * required_move * multiplier,
+                yoff=move_direction[1] * required_move * multiplier
+            )
+
+            if exterior_poly.contains(larger_move):
+                new_distance = _calculate_hole_to_exterior_distance(larger_move, exterior)
+                if new_distance >= target_distance:
+                    return larger_move
+
+        # Could not achieve target distance
+        return None

@@ -24,6 +24,7 @@ from .utils import (
     _find_nearest_vertex_index,
     _find_nearest_edge_index,
     _point_to_segment_distance,
+    _point_to_line_perpendicular_distance,
     _get_vertex_neighborhood,
     _calculate_curvature_at_vertex,
     _remove_vertices_between

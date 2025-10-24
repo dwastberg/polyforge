@@ -8,6 +8,8 @@ import numpy as np
 from shapely.geometry import Polygon
 from typing import Optional
 
+from .utils import _point_to_line_perpendicular_distance
+
 
 def remove_narrow_protrusions(
     geometry: Polygon,
@@ -144,13 +146,13 @@ def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.n
     # Calculate height from the opposite vertex to the longest edge
     if max_edge == edge3:
         # Base is pt1-pt3, measure distance from pt2 to this line
-        height = _point_to_line_distance(pt2, pt1, pt3)
+        height = _point_to_line_perpendicular_distance(pt2, pt1, pt3)
     elif max_edge == edge1:
         # Base is pt1-pt2, measure distance from pt3 to this line
-        height = _point_to_line_distance(pt3, pt1, pt2)
+        height = _point_to_line_perpendicular_distance(pt3, pt1, pt2)
     else:  # max_edge == edge2
         # Base is pt2-pt3, measure distance from pt1 to this line
-        height = _point_to_line_distance(pt1, pt2, pt3)
+        height = _point_to_line_perpendicular_distance(pt1, pt2, pt3)
 
     # Avoid division by zero
     if height < 1e-10:
@@ -160,43 +162,3 @@ def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.n
     aspect_ratio = max_edge / height
 
     return aspect_ratio
-
-
-def _point_to_line_distance(point: np.ndarray, line_start: np.ndarray, line_end: np.ndarray) -> float:
-    """Calculate perpendicular distance from a point to a line.
-
-    Args:
-        point: Point coordinates [x, y]
-        line_start: Line start point [x, y]
-        line_end: Line end point [x, y]
-
-    Returns:
-        Perpendicular distance from point to line
-    """
-    # Vector from line_start to line_end
-    line_vec = line_end - line_start
-    line_length = np.linalg.norm(line_vec)
-
-    if line_length < 1e-10:
-        # Degenerate line (point)
-        return np.linalg.norm(point - line_start)
-
-    # Normalize line vector
-    line_vec = line_vec / line_length
-
-    # Vector from line_start to point
-    point_vec = point - line_start
-
-    # Project point onto line
-    projection_length = np.dot(point_vec, line_vec)
-
-    # Calculate perpendicular distance
-    # projection = line_start + projection_length * line_vec
-    # perpendicular_vec = point - projection
-
-    # Using cross product for 2D (more efficient)
-    # Distance = |cross product| / |line vector|
-    cross = abs(line_vec[0] * point_vec[1] - line_vec[1] * point_vec[0])
-    distance = cross * line_length
-
-    return distance
