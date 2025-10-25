@@ -18,6 +18,7 @@ from .passages import (
     fix_near_self_intersection,
     fix_parallel_close_edges
 )
+from .auto_fix import fix_clearance, diagnose_clearance
 
 # Import utility functions for backwards compatibility with tests
 from .utils import (
@@ -32,6 +33,8 @@ from .utils import (
 
 __all__ = [
     # Main public API
+    'fix_clearance',  # Auto-detection and fixing
+    'diagnose_clearance',  # Diagnosis without fixing
     'fix_hole_too_close',
     'fix_narrow_protrusion',
     'remove_narrow_protrusions',

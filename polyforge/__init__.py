@@ -17,6 +17,7 @@ from .simplify import (
 
 # Clearance fixing functions
 from .clearance import (
+    fix_clearance,
     fix_hole_too_close,
     fix_narrow_protrusion,
     remove_narrow_protrusions,
@@ -49,6 +50,7 @@ __all__ = [
     'remove_small_holes',
 
     # Clearance fixing
+    'fix_clearance',
     'fix_hole_too_close',
     'fix_narrow_protrusion',
     'remove_narrow_protrusions',
