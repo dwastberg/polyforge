@@ -32,6 +32,9 @@ from .split import split_overlap
 # Overlap removal functions
 from .overlap import remove_overlaps, count_overlaps, find_overlapping_groups
 
+# Merge functions
+from .merge import merge_close_polygons
+
 # Geometry fixing functions
 from .fix import fix_geometry, diagnose_geometry, batch_fix_geometries, GeometryFixError
 
@@ -59,6 +62,9 @@ __all__ = [
     'remove_overlaps',
     'count_overlaps',
     'find_overlapping_groups',
+
+    # Merge
+    'merge_close_polygons',
 
     # Geometry fixing
     'fix_geometry',
