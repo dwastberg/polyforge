@@ -36,6 +36,9 @@ from .overlap import remove_overlaps, count_overlaps, find_overlapping_groups
 # Merge functions
 from .merge import merge_close_polygons
 
+# Topology functions
+from .topology import conform_boundaries
+
 # Geometry fixing functions
 from .fix import fix_geometry, diagnose_geometry, batch_fix_geometries, GeometryFixError
 
@@ -67,6 +70,9 @@ __all__ = [
 
     # Merge
     'merge_close_polygons',
+
+    # Topology
+    'conform_boundaries',
 
     # Geometry fixing
     'fix_geometry',

@@ -103,7 +103,8 @@ def process_geometry(geometry: BaseGeometry, process_function, *args, **kwargs) 
         for interior in geometry.interiors:
             interior_coords = np.array(interior.coords)
             processed_interior = _process_coords(interior_coords, process_function, *args, **kwargs)
-            processed_interiors.append(processed_interior)
+            if len(processed_interior) >= 4:  # Valid ring must have at least 4 points
+                processed_interiors.append(processed_interior)
 
         return Polygon(processed_exterior, holes=processed_interiors)
 

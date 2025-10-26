@@ -20,7 +20,7 @@ from simplification.cutil import (
     simplify_coords_vwp as _vwp_simplify
 )
 
-from .process import process_geometry
+from polyforge.process import process_geometry
 
 
 # ============================================================================

@@ -18,7 +18,7 @@ from .passages import (
     fix_near_self_intersection,
     fix_parallel_close_edges
 )
-from .auto_fix import fix_clearance, diagnose_clearance
+from .fix_clearance import fix_clearance, diagnose_clearance
 
 # Import utility functions for backwards compatibility with tests
 from .utils import (
