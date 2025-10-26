@@ -15,3 +15,6 @@ dev = [
     "pytest>=8.4.2",
     "matplotlib>=3.7.0",
 ]
+
+[tool.setuptools]
+packages = ["polyforge"]
