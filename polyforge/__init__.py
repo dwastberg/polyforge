@@ -10,8 +10,8 @@ from .simplify import (
     simplify_rdp,
     simplify_vw,
     simplify_vwp,
-    snap_short_edges,
-    remove_duplicate_vertices,
+    collapse_short_edges,
+    deduplicate_vertices,
     remove_small_holes,
 )
 
@@ -37,10 +37,16 @@ from .overlap import remove_overlaps, count_overlaps, find_overlapping_groups
 from .merge import merge_close_polygons
 
 # Topology functions
-from .topology import conform_boundaries
+from .topology import align_boundaries
 
-# Geometry fixing functions
-from .fix import fix_geometry, diagnose_geometry, batch_fix_geometries, GeometryFixError
+# Geometry repair functions
+from .fix import (
+    repair_geometry,
+    analyze_geometry,
+    batch_repair_geometries,
+    GeometryRepairError,
+    GeometryFixError,  # Alias for backward compatibility
+)
 
 __all__ = [
 
@@ -48,8 +54,8 @@ __all__ = [
     'simplify_rdp',
     'simplify_vw',
     'simplify_vwp',
-    'snap_short_edges',
-    'remove_duplicate_vertices',
+    'collapse_short_edges',
+    'deduplicate_vertices',
     'remove_small_holes',
 
     # Clearance fixing
@@ -72,11 +78,12 @@ __all__ = [
     'merge_close_polygons',
 
     # Topology
-    'conform_boundaries',
+    'align_boundaries',
 
-    # Geometry fixing
-    'fix_geometry',
-    'diagnose_geometry',
-    'batch_fix_geometries',
-    'GeometryFixError',
+    # Geometry repair
+    'repair_geometry',
+    'analyze_geometry',
+    'batch_repair_geometries',
+    'GeometryRepairError',
+    'GeometryFixError',  # Alias
 ]

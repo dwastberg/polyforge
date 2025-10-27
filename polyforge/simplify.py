@@ -210,12 +210,12 @@ def _remove_duplicate_vertices(
 # Public API functions (work with Shapely geometries)
 # ============================================================================
 
-def snap_short_edges(
+def collapse_short_edges(
     geometry: BaseGeometry,
     min_length: float,
     snap_mode: Literal['midpoint', 'first', 'last'] = 'midpoint'
 ) -> BaseGeometry:
-    """Snap vertices together if the edge between them is shorter than min_length.
+    """Collapse edges shorter than min_length by snapping vertices together.
 
     This function cleans up geometries by collapsing very short edges. This is useful
     for removing noise, fixing numerical issues, or simplifying geometries with
@@ -232,25 +232,38 @@ def snap_short_edges(
     Returns:
         New Shapely geometry of the same type with short edges removed
 
+    Examples:
+        >>> poly = Polygon([(0, 0), (10, 0), (10, 0.01), (10, 10), (0, 10)])
+        >>> clean = collapse_short_edges(poly, min_length=0.1)
+        >>> # Edge from (10, 0) to (10, 0.01) is collapsed
+
     """
     return process_geometry(geometry, _snap_short_edges, min_length=min_length, snap_mode=snap_mode)
 
 
-def remove_duplicate_vertices(
+def deduplicate_vertices(
     geometry: BaseGeometry,
     tolerance: float = 1e-10
 ) -> BaseGeometry:
     """Remove consecutive duplicate vertices within tolerance.
 
-    This is a simpler version of snap_short_edges that only removes exact
-    duplicates (within numerical tolerance) without snapping.
+    This removes exact duplicates (within numerical tolerance) without snapping
+    non-duplicate vertices together. For collapsing short edges, use
+    collapse_short_edges() instead.
 
     Args:
         geometry: Shapely geometry to process (any type)
         tolerance: Distance tolerance for considering vertices as duplicates
+            (default: 1e-10)
 
     Returns:
         New Shapely geometry with duplicates removed
+
+    Examples:
+        >>> coords = [(0, 0), (0, 0), (10, 0), (10, 10), (0, 10)]
+        >>> poly = Polygon(coords)
+        >>> clean = deduplicate_vertices(poly)
+        >>> # Duplicate (0, 0) vertex removed
 
     """
     return process_geometry(geometry, _remove_duplicate_vertices, tolerance=tolerance)
