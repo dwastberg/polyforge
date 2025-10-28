@@ -5,6 +5,7 @@ from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 
 from ...simplify import simplify_vwp
+from ...core.geometry_utils import remove_holes
 
 
 def merge_simple_buffer(
@@ -44,12 +45,7 @@ def merge_simple_buffer(
     result = merged.buffer(-buffer_dist, quad_segs=16)
 
     # Handle holes
-    if not preserve_holes and isinstance(result, Polygon) and result.interiors:
-        # Remove holes
-        result = Polygon(result.exterior)
-    elif not preserve_holes and isinstance(result, MultiPolygon):
-        # Remove holes from all polygons
-        result = MultiPolygon([Polygon(p.exterior) for p in result.geoms])
+    result = remove_holes(result, preserve_holes)
 
     if simplify:
         result = simplify_vwp(result, threshold=margin / 2)

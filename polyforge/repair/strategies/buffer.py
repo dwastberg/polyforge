@@ -1,9 +1,10 @@
 """Buffer repair strategy - uses buffer(0) trick."""
 
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 
 from ...core.errors import RepairError
+from ...core.geometry_utils import to_single_polygon
 
 
 def fix_with_buffer(
@@ -19,19 +20,9 @@ def fix_with_buffer(
         # Try buffer(0) first
         fixed = geometry.buffer(buffer_distance)
 
-        # Handle MultiPolygon results
-        if isinstance(fixed, MultiPolygon) and isinstance(geometry, Polygon):
-            # Return largest piece
-            fixed = max(fixed.geoms, key=lambda p: p.area)
-
-        # Handle GeometryCollection
-        if isinstance(fixed, GeometryCollection):
-            # Extract polygons
-            polygons = [g for g in fixed.geoms if g.geom_type == 'Polygon']
-            if polygons:
-                fixed = max(polygons, key=lambda p: p.area)
-            else:
-                raise RepairError("Buffer produced no valid polygons")
+        # Convert to single polygon if needed
+        if isinstance(geometry, Polygon):
+            fixed = to_single_polygon(fixed)
 
         return fixed
 

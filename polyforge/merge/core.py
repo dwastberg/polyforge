@@ -1,10 +1,10 @@
 """Core merge orchestration logic."""
 
-from typing import List, Tuple, Union, Set
+from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
-from shapely.strtree import STRtree
 
 from ..core.types import MergeStrategy
+from ..core.spatial_utils import build_adjacency_graph, find_connected_components
 from .strategies.simple_buffer import merge_simple_buffer
 from .strategies.selective_buffer import merge_selective_buffer
 from .strategies.vertex_movement import merge_vertex_movement
@@ -150,53 +150,11 @@ def find_close_polygon_groups(
     if not polygons:
         return [], []
 
-    n = len(polygons)
+    # Build adjacency graph using shared utility
+    adjacency = build_adjacency_graph(polygons, margin)
 
-    # Build spatial index
-    tree = STRtree(polygons)
-
-    # Build adjacency graph of close polygons
-    adjacency: dict[int, Set[int]] = {i: set() for i in range(n)}
-
-    for i in range(n):
-        poly_i = polygons[i]
-
-        # Query spatial index with buffered polygon for proximity
-        if margin > 0:
-            # Buffer to find candidates within margin
-            # Use a slightly larger buffer for the query to ensure we catch everything
-            search_geom = poly_i.buffer(margin * 1.01)
-            candidate_indices = tree.query(search_geom, predicate='intersects')
-        else:
-            # Only find overlapping polygons
-            candidate_indices = tree.query(poly_i, predicate='intersects')
-
-        # Check actual distance for each candidate
-        for j in candidate_indices:
-            if i != j and j not in adjacency[i]:
-                # Check actual distance
-                distance = polygons[i].distance(polygons[j])
-                if distance <= margin:
-                    adjacency[i].add(j)
-                    adjacency[j].add(i)
-
-    # Find connected components using DFS
-    visited = set()
-    groups = []
-
-    def dfs(node: int, current_group: List[int]):
-        """Depth-first search to find connected component."""
-        visited.add(node)
-        current_group.append(node)
-        for neighbor in adjacency[node]:
-            if neighbor not in visited:
-                dfs(neighbor, current_group)
-
-    for i in range(n):
-        if i not in visited:
-            group = []
-            dfs(i, group)
-            groups.append(sorted(group))
+    # Find connected components using shared utility
+    groups = find_connected_components(adjacency)
 
     # Separate isolated polygons from merge groups
     isolated = [g[0] for g in groups if len(g) == 1]

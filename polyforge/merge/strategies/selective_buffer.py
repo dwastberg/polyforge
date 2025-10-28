@@ -5,6 +5,7 @@ from shapely.geometry import Polygon, MultiPolygon, LineString
 from shapely.ops import unary_union
 
 from ...simplify import simplify_vwp
+from ...core.geometry_utils import remove_holes
 from ..utils.boundary_analysis import find_close_boundary_pairs
 
 
@@ -72,10 +73,7 @@ def merge_selective_buffer(
     result = unary_union(all_geoms)
 
     # Handle holes
-    if not preserve_holes and isinstance(result, Polygon) and result.interiors:
-        result = Polygon(result.exterior)
-    elif not preserve_holes and isinstance(result, MultiPolygon):
-        result = MultiPolygon([Polygon(p.exterior) for p in result.geoms])
+    result = remove_holes(result, preserve_holes)
 
     if simplify:
         result = simplify_vwp(result, threshold=margin / 2)

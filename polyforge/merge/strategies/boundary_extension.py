@@ -5,6 +5,7 @@ import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point
 from shapely.ops import unary_union
 
+from ...core.geometry_utils import remove_holes
 from ..utils.edge_detection import find_parallel_close_edges
 from .selective_buffer import merge_selective_buffer
 
@@ -118,10 +119,7 @@ def merge_boundary_extension(
     result = unary_union(all_geoms)
 
     # Handle holes
-    if not preserve_holes and isinstance(result, Polygon) and result.interiors:
-        result = Polygon(result.exterior)
-    elif not preserve_holes and isinstance(result, MultiPolygon):
-        result = MultiPolygon([Polygon(p.exterior) for p in result.geoms])
+    result = remove_holes(result, preserve_holes)
 
     return result
 

@@ -11,6 +11,7 @@ from shapely.geometry import Polygon, LineString, Point, MultiPolygon
 from shapely.ops import split, unary_union
 
 from .core.types import OverlapStrategy
+from .core.geometry_utils import to_single_polygon
 
 
 def split_overlap(
@@ -245,21 +246,10 @@ def _safe_union(geom1, geom2) -> Polygon:
 
     result = unary_union([geom1, geom2])
 
-    if isinstance(result, MultiPolygon):
-        # Return the largest piece
-        return max(result.geoms, key=lambda p: p.area)
-
-    return result if isinstance(result, Polygon) else Polygon()
+    # Convert to single polygon
+    return to_single_polygon(result)
 
 
-def _to_polygon(geom) -> Polygon:
-    """Convert a geometry to a Polygon, taking the largest piece if MultiPolygon."""
-    if isinstance(geom, Polygon):
-        return geom
-    elif isinstance(geom, MultiPolygon):
-        return max(geom.geoms, key=lambda p: p.area)
-    else:
-        return Polygon()
 
 
 def _split_overlap_simple(poly1, poly2, overlap, poly1_only, poly2_only) -> Tuple[Polygon, Polygon]:

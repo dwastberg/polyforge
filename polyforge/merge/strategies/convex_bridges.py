@@ -4,6 +4,7 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point, MultiPoint
 from shapely.ops import unary_union, nearest_points
 
+from ...core.geometry_utils import remove_holes
 from ..utils.boundary_analysis import get_boundary_points_near
 
 
@@ -98,10 +99,7 @@ def merge_convex_bridges(
     result = unary_union(all_geoms)
 
     # Handle holes
-    if not preserve_holes and isinstance(result, Polygon) and result.interiors:
-        result = Polygon(result.exterior)
-    elif not preserve_holes and isinstance(result, MultiPolygon):
-        result = MultiPolygon([Polygon(p.exterior) for p in result.geoms])
+    result = remove_holes(result, preserve_holes)
 
     return result
 
