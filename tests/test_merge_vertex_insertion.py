@@ -8,12 +8,12 @@ import pytest
 import numpy as np
 from shapely.geometry import Polygon
 from polyforge import merge_close_polygons
-from polyforge.merge import _insert_connection_vertices
+from polyforge.merge.utils import insert_connection_vertices
 from polyforge.core.types import MergeStrategy
 
 
 class TestVertexInsertion:
-    """Test the _insert_connection_vertices helper function."""
+    """Test the insert_connection_vertices helper function."""
 
     def test_basic_vertex_insertion(self):
         """Test that vertices are inserted at closest points on edges."""
@@ -21,7 +21,7 @@ class TestVertexInsertion:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
-        result = _insert_connection_vertices([poly1, poly2], margin=3.0)
+        result = insert_connection_vertices([poly1, poly2], margin=3.0)
 
         assert len(result) == 2
 
@@ -44,7 +44,7 @@ class TestVertexInsertion:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(10.005, 0), (20, 0), (20, 10), (10.005, 10)])  # Very close to vertex
 
-        result = _insert_connection_vertices([poly1, poly2], margin=1.0, tolerance=0.01)
+        result = insert_connection_vertices([poly1, poly2], margin=1.0, tolerance=0.01)
 
         # Should not insert vertices (closest point is within 0.01 of existing vertex)
         assert len(result[0].exterior.coords) == len(poly1.exterior.coords)
@@ -58,7 +58,7 @@ class TestVertexInsertion:
         poly1 = Polygon(exterior, [hole])
         poly2 = Polygon([(22, 0), (32, 0), (32, 20), (22, 20)])
 
-        result = _insert_connection_vertices([poly1, poly2], margin=3.0)
+        result = insert_connection_vertices([poly1, poly2], margin=3.0)
 
         assert len(result) == 2
         # First polygon should still have its hole
@@ -71,7 +71,7 @@ class TestVertexInsertion:
         poly1 = Polygon([(0, 0, 0), (10, 0, 10), (10, 10, 10), (0, 10, 0)])
         poly2 = Polygon([(12, 0, 0), (22, 0, 10), (22, 10, 10), (12, 10, 0)])
 
-        result = _insert_connection_vertices([poly1, poly2], margin=3.0)
+        result = insert_connection_vertices([poly1, poly2], margin=3.0)
 
         assert len(result) == 2
 
@@ -87,7 +87,7 @@ class TestVertexInsertion:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(50, 0), (60, 0), (60, 10), (50, 10)])
 
-        result = _insert_connection_vertices([poly1, poly2], margin=5.0)
+        result = insert_connection_vertices([poly1, poly2], margin=5.0)
 
         # Polygons are too far apart, should be unchanged
         assert len(result[0].exterior.coords) == len(poly1.exterior.coords)
@@ -97,7 +97,7 @@ class TestVertexInsertion:
         """Test that single polygon is returned unchanged."""
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
-        result = _insert_connection_vertices([poly], margin=5.0)
+        result = insert_connection_vertices([poly], margin=5.0)
 
         assert len(result) == 1
         assert len(result[0].exterior.coords) == len(poly.exterior.coords)

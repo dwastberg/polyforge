@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point
 from shapely.validation import explain_validity
-from polyforge.fix import (
+from polyforge.repair import (
     repair_geometry,
     analyze_geometry,
     batch_repair_geometries,

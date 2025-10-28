@@ -8,6 +8,7 @@ import polyforge
 from shapely.geometry import Polygon
 
 from plot_geometry import plot_comparison
+from polyforge.core.types import PassageStrategy
 
 # base = [(0, 0), (10, 0), (10, 4), (10, 6), (0, 6)]
 # spike = [(10, 4.9), (12, 5), (10, 5.1)]  # Narrow spike
@@ -27,6 +28,6 @@ coords = [
         ]
 poly = Polygon(coords)
 print ("Original clearance", shapely.minimum_clearance(poly))
-result = polyforge.fix_narrow_passage(poly, min_clearance=0.5, strategy='widen')
+result = polyforge.fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
 print ("Fixed clearance", shapely.minimum_clearance(result))
 plot_comparison(poly, result)

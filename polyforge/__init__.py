@@ -40,7 +40,7 @@ from .merge import merge_close_polygons
 from .topology import align_boundaries
 
 # Geometry repair functions
-from .fix import (
+from .repair import (
     repair_geometry,
     analyze_geometry,
     batch_repair_geometries,

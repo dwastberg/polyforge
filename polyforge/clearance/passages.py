@@ -146,6 +146,342 @@ def _calculate_edge_perpendicular(
         return perp2
 
 
+def _split_narrow_passage(
+    geometry: Polygon
+) -> Union[Polygon, MultiPolygon]:
+    """Split a polygon at its narrowest passage.
+
+    Args:
+        geometry: Input polygon
+
+    Returns:
+        Split result (MultiPolygon if successful) or original polygon
+    """
+    clearance_line = shapely.minimum_clearance_line(geometry)
+
+    if not clearance_line.is_empty:
+        # Extend the line slightly to ensure it cuts through
+        from shapely.affinity import scale
+        extended_line = scale(clearance_line, xfact=1.5, yfact=1.5)
+
+        try:
+            result = shapely.ops.split(geometry, extended_line)
+            if result.is_valid and not result.is_empty:
+                return result
+        except Exception:
+            pass
+
+    # If split failed, return original
+    return geometry
+
+
+def _create_polygon_with_new_coords(
+    new_coords: np.ndarray,
+    original_geometry: Polygon,
+    min_area: float
+) -> Union[Polygon, None]:
+    """Create and validate a polygon from modified coordinates.
+
+    Args:
+        new_coords: Modified coordinate array
+        original_geometry: Original polygon (for preserving holes)
+        min_area: Minimum acceptable area
+
+    Returns:
+        Valid polygon or None if validation fails
+    """
+    try:
+        if len(original_geometry.interiors) > 0:
+            holes = [list(interior.coords) for interior in original_geometry.interiors]
+            new_poly = Polygon(new_coords, holes=holes)
+        else:
+            new_poly = Polygon(new_coords)
+
+        # Validate and fix if needed
+        if not new_poly.is_valid:
+            new_poly = new_poly.buffer(0)
+            if new_poly.geom_type == 'MultiPolygon':
+                new_poly = max(new_poly.geoms, key=lambda p: p.area)
+
+        # Check validity constraints
+        if (new_poly.is_valid and
+            not new_poly.is_empty and
+            new_poly.geom_type == 'Polygon' and
+            new_poly.area > min_area):
+            return new_poly
+        else:
+            return None
+
+    except Exception:
+        return None
+
+
+def _move_single_vertex_perpendicular(
+    coords: np.ndarray,
+    vertex_idx: int,
+    pt2: np.ndarray,
+    movement_distance: float,
+    original_geometry: Polygon,
+    current_clearance: float
+) -> Union[Polygon, None]:
+    """Move a single vertex perpendicular to its adjacent edge.
+
+    Used when both clearance points map to the same vertex
+    (clearance from vertex to adjacent edge).
+
+    Args:
+        coords: Polygon coordinate array
+        vertex_idx: Index of vertex to move
+        pt2: Point on adjacent edge (to move away from)
+        movement_distance: How far to move the vertex
+        original_geometry: Original polygon for validation
+        current_clearance: Current minimum clearance
+
+    Returns:
+        New polygon or None if unsuccessful
+    """
+    n = len(coords) - 1  # Exclude closing vertex
+    prev_idx = (vertex_idx - 1) % n
+    next_idx = (vertex_idx + 1) % n
+
+    # Calculate perpendicular direction away from pt2
+    direction = _calculate_edge_perpendicular(
+        coords[vertex_idx],
+        coords[prev_idx],
+        coords[next_idx],
+        pt2
+    )
+
+    # Move vertex in calculated direction
+    new_coords = coords.copy()
+    vertex_pos = coords[vertex_idx][:2]
+    new_position = vertex_pos + direction * movement_distance
+
+    # Update vertex (preserve Z if 3D)
+    if coords.shape[1] > 2:
+        new_coords[vertex_idx] = np.array([new_position[0], new_position[1], coords[vertex_idx][2]])
+    else:
+        new_coords[vertex_idx] = new_position
+
+    # Update closing vertex if needed
+    if vertex_idx == 0:
+        new_coords[-1] = new_coords[0]
+
+    # Create and validate polygon
+    min_area = original_geometry.area * 0.5
+    new_poly = _create_polygon_with_new_coords(new_coords, original_geometry, min_area)
+
+    if new_poly is not None:
+        # Only return if clearance improved
+        new_clearance = new_poly.minimum_clearance
+        if new_clearance > current_clearance:
+            return new_poly
+
+    return None
+
+
+def _determine_movement_direction(
+    is_at_vertex: bool,
+    clearance_direction: np.ndarray,
+    coords: np.ndarray,
+    vertex_idx: int,
+    opposite_clearance_pt: np.ndarray
+) -> np.ndarray:
+    """Determine direction to move a vertex for passage widening.
+
+    Args:
+        is_at_vertex: Whether clearance point is at the vertex
+        clearance_direction: Normalized clearance line direction
+        coords: Polygon coordinate array
+        vertex_idx: Index of vertex to move
+        opposite_clearance_pt: Opposite endpoint of clearance line
+
+    Returns:
+        Normalized movement direction vector
+    """
+    if is_at_vertex:
+        # Point is at vertex - move along clearance line
+        return clearance_direction[:2]
+    else:
+        # Point is on edge - move vertex perpendicular to edge
+        n = len(coords) - 1  # Exclude closing vertex
+        prev_idx = (vertex_idx - 1) % n
+        next_idx = (vertex_idx + 1) % n
+        return _calculate_edge_perpendicular(
+            coords[vertex_idx],
+            coords[prev_idx],
+            coords[next_idx],
+            opposite_clearance_pt
+        )
+
+
+def _move_two_vertices(
+    coords: np.ndarray,
+    vertex_idx_1: int,
+    vertex_idx_2: int,
+    is_near_1: bool,
+    is_near_2: bool,
+    pt1: np.ndarray,
+    pt2: np.ndarray,
+    clearance_direction: np.ndarray,
+    movement_distance: float,
+    original_geometry: Polygon,
+    current_clearance: float
+) -> Union[Polygon, None]:
+    """Move two vertices apart to widen a narrow passage.
+
+    Args:
+        coords: Polygon coordinate array
+        vertex_idx_1: Index of first vertex
+        vertex_idx_2: Index of second vertex
+        is_near_1: Whether pt1 is at vertex_idx_1 (vs on edge)
+        is_near_2: Whether pt2 is at vertex_idx_2 (vs on edge)
+        pt1: First clearance point
+        pt2: Second clearance point
+        clearance_direction: Normalized direction from pt1 to pt2
+        movement_distance: How far to move each vertex
+        original_geometry: Original polygon for validation
+        current_clearance: Current minimum clearance
+
+    Returns:
+        New polygon or None if unsuccessful
+    """
+    # Determine movement direction for each vertex
+    direction_1 = _determine_movement_direction(
+        is_near_1, -clearance_direction, coords, vertex_idx_1, pt2
+    )
+    direction_2 = _determine_movement_direction(
+        is_near_2, clearance_direction, coords, vertex_idx_2, pt1
+    )
+
+    # Create new coordinates
+    new_coords = coords.copy()
+
+    # Move vertex 1
+    vertex_1 = coords[vertex_idx_1][:2]
+    new_position_1 = vertex_1 + direction_1 * movement_distance
+
+    if coords.shape[1] > 2:
+        new_coords[vertex_idx_1] = np.array([new_position_1[0], new_position_1[1], coords[vertex_idx_1][2]])
+    else:
+        new_coords[vertex_idx_1] = new_position_1
+
+    # Move vertex 2
+    vertex_2 = coords[vertex_idx_2][:2]
+    new_position_2 = vertex_2 + direction_2 * movement_distance
+
+    if coords.shape[1] > 2:
+        new_coords[vertex_idx_2] = np.array([new_position_2[0], new_position_2[1], coords[vertex_idx_2][2]])
+    else:
+        new_coords[vertex_idx_2] = new_position_2
+
+    # Update closing vertex if needed
+    if vertex_idx_1 == 0 or vertex_idx_2 == 0:
+        new_coords[-1] = new_coords[0]
+
+    # Create and validate polygon
+    min_area = original_geometry.area * 0.5
+    new_poly = _create_polygon_with_new_coords(new_coords, original_geometry, min_area)
+
+    if new_poly is not None:
+        # Only return if clearance improved
+        new_clearance = new_poly.minimum_clearance
+        if new_clearance > current_clearance:
+            return new_poly
+
+    return None
+
+
+def _widen_narrow_passage(
+    geometry: Polygon,
+    min_clearance: float,
+    max_iterations: int = 10
+) -> Polygon:
+    """Widen a narrow passage by iteratively moving vertices apart.
+
+    Args:
+        geometry: Input polygon
+        min_clearance: Target minimum clearance
+        max_iterations: Maximum number of widening iterations
+
+    Returns:
+        Widened polygon
+    """
+    result = geometry
+
+    for iteration in range(max_iterations):
+        current_clearance = result.minimum_clearance
+
+        if current_clearance >= min_clearance:
+            return result
+
+        # Get minimum clearance line
+        try:
+            clearance_line = shapely.minimum_clearance_line(result)
+        except Exception:
+            return result
+
+        if clearance_line is None or clearance_line.is_empty:
+            return result
+
+        # Get clearance line endpoints
+        coords_list = list(clearance_line.coords)
+        if len(coords_list) != 2:
+            return result
+
+        pt1 = np.array(coords_list[0])
+        pt2 = np.array(coords_list[1])
+
+        # Calculate clearance direction
+        clearance_vector = pt2 - pt1
+        clearance_distance = np.linalg.norm(clearance_vector)
+
+        if clearance_distance < 1e-10:
+            return result
+
+        clearance_direction = clearance_vector / clearance_distance
+
+        # Find nearest vertices
+        coords = np.array(result.exterior.coords)
+        threshold = min_clearance * 0.05
+        is_near_1, vertex_idx_1 = _is_point_near_vertex(pt1, coords, threshold)
+        is_near_2, vertex_idx_2 = _is_point_near_vertex(pt2, coords, threshold)
+
+        # Special case: both points map to same vertex (vertex to adjacent edge)
+        if vertex_idx_1 == vertex_idx_2:
+            required_increase = min_clearance - current_clearance
+            movement_distance = required_increase * 1.1
+
+            new_poly = _move_single_vertex_perpendicular(
+                coords, vertex_idx_2, pt2, movement_distance,
+                geometry, current_clearance
+            )
+
+            if new_poly is not None:
+                result = new_poly
+                continue
+            else:
+                return result
+
+        # General case: move two vertices apart
+        required_increase = min_clearance - current_clearance
+        movement_distance = required_increase * 0.55  # 55% = half + buffer
+
+        new_poly = _move_two_vertices(
+            coords, vertex_idx_1, vertex_idx_2,
+            is_near_1, is_near_2, pt1, pt2,
+            clearance_direction, movement_distance,
+            geometry, current_clearance
+        )
+
+        if new_poly is not None:
+            result = new_poly
+        else:
+            return result
+
+    return result
+
+
 def fix_narrow_passage(
     geometry: Polygon,
     min_clearance: float,
@@ -160,14 +496,14 @@ def fix_narrow_passage(
         geometry: Input polygon
         min_clearance: Target minimum clearance
         strategy: How to fix the passage:
-            - 'widen': Move vertices apart at narrow point to widen passage (default)
-            - 'split': Split into separate polygons at narrow point
+            - PassageStrategy.WIDEN: Move vertices apart at narrow point (default)
+            - PassageStrategy.SPLIT: Split into separate polygons at narrow point
 
     Returns:
         Fixed geometry (Polygon if widened, MultiPolygon if split)
 
     Note:
-        The 'widen' strategy uses minimum_clearance_line to identify the
+        The WIDEN strategy uses minimum_clearance_line to identify the
         narrow point and moves the nearest vertices apart. This preserves
         the overall polygon shape better than buffering.
 
@@ -177,231 +513,11 @@ def fix_narrow_passage(
         - Same vertex (vertex to adjacent edge): moves vertex perpendicular to edge
 
         Uses 5% of min_clearance as threshold to detect edge vs vertex cases.
-        Special handling for degenerate cases where both clearance points map to
-        the same vertex (clearance from vertex to its adjacent edge).
-
     """
     if strategy == PassageStrategy.SPLIT:
-        # Split at the narrow point
-        clearance_line = shapely.minimum_clearance_line(geometry)
-
-        if not clearance_line.is_empty:
-            # Extend the line slightly to ensure it cuts through
-            from shapely.affinity import scale
-            extended_line = scale(clearance_line, xfact=1.5, yfact=1.5)
-
-            try:
-                result = shapely.ops.split(geometry, extended_line)
-                if result.is_valid and not result.is_empty:
-                    return result
-            except Exception:
-                pass
-
-        # If split failed, return original
-        return geometry
-
-    else:  # 'widen' strategy
-        # Move vertices apart at the narrow passage to widen it
-        # This preserves the overall polygon shape better than buffering
-        result = geometry
-
-        for iteration in range(10):  # Max 10 iterations
-            current_clearance = result.minimum_clearance
-
-            if current_clearance >= min_clearance:
-                return result
-
-            # Get the minimum clearance line - connects the two closest points
-            try:
-                clearance_line = shapely.minimum_clearance_line(result)
-            except Exception:
-                return result
-
-            if clearance_line is None or clearance_line.is_empty:
-                return result
-
-            # Get the two endpoints of the clearance line
-            coords_list = list(clearance_line.coords)
-            if len(coords_list) != 2:
-                return result
-
-            pt1 = np.array(coords_list[0])
-            pt2 = np.array(coords_list[1])
-
-            # Calculate clearance direction
-            clearance_vector = pt2 - pt1
-            clearance_distance = np.linalg.norm(clearance_vector)
-
-            if clearance_distance < 1e-10:
-                return result
-
-            clearance_direction = clearance_vector / clearance_distance
-
-            # Find the vertices closest to these two points
-            coords = np.array(result.exterior.coords)
-
-            # Check if clearance points are at vertices or on edges
-            # Use 5% of min_clearance as threshold
-            threshold = min_clearance * 0.05
-            is_near_1, vertex_idx_1 = _is_point_near_vertex(pt1, coords, threshold)
-            is_near_2, vertex_idx_2 = _is_point_near_vertex(pt2, coords, threshold)
-
-            # Special case: both clearance points map to the same vertex
-            # This happens when clearance is from a vertex to an adjacent edge
-            if vertex_idx_1 == vertex_idx_2:
-                # Only move the vertex based on pt2's position (on the edge)
-                # Use perpendicular movement from the adjacent edge
-                n = len(coords) - 1  # Exclude closing vertex
-                prev_idx = (vertex_idx_2 - 1) % n
-                next_idx = (vertex_idx_2 + 1) % n
-
-                # Move vertex perpendicular to its adjacent edge, away from pt2
-                direction = _calculate_edge_perpendicular(
-                    coords[vertex_idx_2],
-                    coords[prev_idx],
-                    coords[next_idx],
-                    pt2
-                )
-
-                required_increase = min_clearance - current_clearance
-                movement_distance = required_increase * 1.1  # Move full distance + buffer
-
-                new_coords = coords.copy()
-                vertex_pos = coords[vertex_idx_2][:2]
-                new_position = vertex_pos + direction * movement_distance
-
-                if coords.shape[1] > 2:
-                    new_coords[vertex_idx_2] = np.array([new_position[0], new_position[1], coords[vertex_idx_2][2]])
-                else:
-                    new_coords[vertex_idx_2] = new_position
-
-                # Update closing vertex if needed
-                if vertex_idx_2 == 0:
-                    new_coords[-1] = new_coords[0]
-
-                # Create new polygon and continue to validation
-                try:
-                    if len(result.interiors) > 0:
-                        holes = [list(interior.coords) for interior in result.interiors]
-                        new_poly = Polygon(new_coords, holes=holes)
-                    else:
-                        new_poly = Polygon(new_coords)
-
-                    if not new_poly.is_valid:
-                        new_poly = new_poly.buffer(0)
-                        if new_poly.geom_type == 'MultiPolygon':
-                            new_poly = max(new_poly.geoms, key=lambda p: p.area)
-
-                    if (new_poly.is_valid and
-                        not new_poly.is_empty and
-                        new_poly.geom_type == 'Polygon' and
-                        new_poly.area > geometry.area * 0.5):
-
-                        new_clearance = new_poly.minimum_clearance
-                        if new_clearance > current_clearance:
-                            result = new_poly
-                            continue
-                        else:
-                            return result
-                    else:
-                        return result
-                except Exception:
-                    return result
-
-            # Calculate movement distance (each vertex moves half the required distance)
-            required_increase = min_clearance - current_clearance
-            movement_distance = required_increase * 0.55  # 55% = half + 10% buffer
-
-            # Determine movement direction for vertex 1
-            if is_near_1:
-                # pt1 is at a vertex - move along clearance line
-                direction_1 = -clearance_direction[:2]
-            else:
-                # pt1 is on an edge - move nearest vertex perpendicular to edge
-                n = len(coords) - 1  # Exclude closing vertex
-                prev_idx = (vertex_idx_1 - 1) % n
-                next_idx = (vertex_idx_1 + 1) % n
-                direction_1 = _calculate_edge_perpendicular(
-                    coords[vertex_idx_1],
-                    coords[prev_idx],
-                    coords[next_idx],
-                    pt2  # Move away from opposite clearance point
-                )
-
-            # Determine movement direction for vertex 2
-            if is_near_2:
-                # pt2 is at a vertex - move along clearance line
-                direction_2 = clearance_direction[:2]
-            else:
-                # pt2 is on an edge - move nearest vertex perpendicular to edge
-                n = len(coords) - 1  # Exclude closing vertex
-                prev_idx = (vertex_idx_2 - 1) % n
-                next_idx = (vertex_idx_2 + 1) % n
-                direction_2 = _calculate_edge_perpendicular(
-                    coords[vertex_idx_2],
-                    coords[prev_idx],
-                    coords[next_idx],
-                    pt1  # Move away from opposite clearance point
-                )
-
-            # Create new coordinates
-            new_coords = coords.copy()
-
-            # Move vertex 1 in calculated direction
-            vertex_1 = coords[vertex_idx_1][:2]
-            new_position_1 = vertex_1 + direction_1 * movement_distance
-
-            if coords.shape[1] > 2:
-                new_coords[vertex_idx_1] = np.array([new_position_1[0], new_position_1[1], coords[vertex_idx_1][2]])
-            else:
-                new_coords[vertex_idx_1] = new_position_1
-
-            # Move vertex 2 in calculated direction
-            vertex_2 = coords[vertex_idx_2][:2]
-            new_position_2 = vertex_2 + direction_2 * movement_distance
-
-            if coords.shape[1] > 2:
-                new_coords[vertex_idx_2] = np.array([new_position_2[0], new_position_2[1], coords[vertex_idx_2][2]])
-            else:
-                new_coords[vertex_idx_2] = new_position_2
-
-            # Update closing vertex if needed
-            if vertex_idx_1 == 0 or vertex_idx_2 == 0:
-                new_coords[-1] = new_coords[0]
-
-            # Create new polygon (preserve holes if present)
-            try:
-                if len(result.interiors) > 0:
-                    holes = [list(interior.coords) for interior in result.interiors]
-                    new_poly = Polygon(new_coords, holes=holes)
-                else:
-                    new_poly = Polygon(new_coords)
-
-                # Validate result
-                if not new_poly.is_valid:
-                    new_poly = new_poly.buffer(0)
-                    if new_poly.geom_type == 'MultiPolygon':
-                        new_poly = max(new_poly.geoms, key=lambda p: p.area)
-
-                if (new_poly.is_valid and
-                    not new_poly.is_empty and
-                    new_poly.geom_type == 'Polygon' and
-                    new_poly.area > geometry.area * 0.5):
-
-                    new_clearance = new_poly.minimum_clearance
-
-                    # Only accept if clearance improved
-                    if new_clearance > current_clearance:
-                        result = new_poly
-                    else:
-                        return result
-                else:
-                    return result
-
-            except Exception:
-                return result
-
-        return result
+        return _split_narrow_passage(geometry)
+    else:
+        return _widen_narrow_passage(geometry, min_clearance)
 
 
 def fix_near_self_intersection(
