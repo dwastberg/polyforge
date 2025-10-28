@@ -11,6 +11,7 @@ import shapely
 import shapely.ops
 
 from .utils import _find_nearest_vertex_index
+from polyforge.core.types import PassageStrategy, IntersectionStrategy, EdgeStrategy
 
 
 def _validate_holes_after_buffer(
@@ -148,7 +149,7 @@ def _calculate_edge_perpendicular(
 def fix_narrow_passage(
     geometry: Polygon,
     min_clearance: float,
-    strategy: str = 'widen'
+    strategy: PassageStrategy = PassageStrategy.WIDEN
 ) -> Union[Polygon, MultiPolygon]:
     """Fix narrow passages (hourglass/neck shapes) that cause low clearance.
 
@@ -180,7 +181,7 @@ def fix_narrow_passage(
         the same vertex (clearance from vertex to its adjacent edge).
 
     """
-    if strategy == 'split':
+    if strategy == PassageStrategy.SPLIT:
         # Split at the narrow point
         clearance_line = shapely.minimum_clearance_line(geometry)
 
@@ -406,7 +407,7 @@ def fix_narrow_passage(
 def fix_near_self_intersection(
     geometry: Polygon,
     min_clearance: float,
-    strategy: str = 'simplify'
+    strategy: IntersectionStrategy = IntersectionStrategy.SIMPLIFY
 ) -> Polygon:
     """Fix near self-intersections where edges come very close.
 
@@ -432,7 +433,7 @@ def fix_near_self_intersection(
         >>> fixed.is_valid
         True
     """
-    if strategy == 'buffer':
+    if strategy == IntersectionStrategy.BUFFER:
         # Use small buffer to push edges apart
         current_clearance = geometry.minimum_clearance
 
@@ -475,7 +476,7 @@ def fix_near_self_intersection(
         best_clearance = geometry.minimum_clearance
 
         # Use gentler epsilon for smoothing
-        if strategy == 'smooth':
+        if strategy == IntersectionStrategy.SMOOTH:
             base_epsilon = min_clearance / 3
         else:
             base_epsilon = min_clearance / 2
@@ -516,7 +517,7 @@ def fix_near_self_intersection(
 def fix_parallel_close_edges(
     geometry: Polygon,
     min_clearance: float,
-    strategy: str = 'simplify'
+    strategy: IntersectionStrategy = IntersectionStrategy.SIMPLIFY
 ) -> Polygon:
     """Fix parallel edges that run too close to each other.
     """

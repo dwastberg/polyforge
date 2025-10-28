@@ -8,12 +8,13 @@ import numpy as np
 from typing import Optional
 from shapely.geometry import Polygon, LinearRing, Point
 import shapely.ops
+from polyforge.core.types import HoleStrategy
 
 
 def fix_hole_too_close(
     geometry: Polygon,
     min_clearance: float,
-    strategy: str = 'remove'
+    strategy: HoleStrategy = HoleStrategy.REMOVE
 ) -> Polygon:
     """Fix holes that are too close to the polygon exterior.
 
@@ -53,11 +54,11 @@ def fix_hole_too_close(
             good_holes.append(hole.coords)
         else:
             # Hole is too close
-            if strategy == 'remove':
+            if strategy == HoleStrategy.REMOVE:
                 # Don't add to good_holes (removed)
                 continue
 
-            elif strategy == 'shrink':
+            elif strategy == HoleStrategy.SHRINK:
                 # Shrink hole by buffering inward
                 shrink_amount = min_clearance - distance
                 shrunk_hole = hole_poly.buffer(-shrink_amount)
@@ -67,7 +68,7 @@ def fix_hole_too_close(
                         good_holes.append(shrunk_hole.exterior.coords)
                 # else: hole shrunk to nothing, effectively removed
 
-            elif strategy == 'move':
+            elif strategy == HoleStrategy.MOVE:
                 # Move hole away from exterior
                 moved_hole = _move_hole_away_from_exterior(
                     hole_poly, exterior, min_clearance

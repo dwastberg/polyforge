@@ -14,6 +14,7 @@ from .protrusions import fix_narrow_protrusion
 from .remove_protrusions import remove_narrow_protrusions
 from .passages import fix_narrow_passage, fix_near_self_intersection, fix_parallel_close_edges
 from .utils import _find_nearest_vertex_index, _calculate_curvature_at_vertex
+from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy, EdgeStrategy
 
 
 def fix_clearance(
@@ -293,7 +294,7 @@ def _apply_clearance_fix(
     """
     if issue_type == 'hole_too_close':
         # Remove holes that are too close
-        return fix_hole_too_close(geometry, min_clearance, strategy='remove')
+        return fix_hole_too_close(geometry, min_clearance, strategy=HoleStrategy.REMOVE)
 
     elif issue_type == 'narrow_protrusion':
         # Try to remove narrow protrusions
@@ -307,15 +308,15 @@ def _apply_clearance_fix(
 
     elif issue_type == 'narrow_passage':
         # Widen the narrow passage
-        return fix_narrow_passage(geometry, min_clearance, strategy='widen')
+        return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
     elif issue_type == 'narrow_passage_widen':
         # Explicit widen strategy (used as fallback)
-        return fix_narrow_passage(geometry, min_clearance, strategy='widen')
+        return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
     elif issue_type == 'near_self_intersection':
         # Fix near self-intersection
-        return fix_near_self_intersection(geometry, min_clearance, strategy='simplify')
+        return fix_near_self_intersection(geometry, min_clearance, strategy=IntersectionStrategy.SIMPLIFY)
 
     elif issue_type == 'parallel_close_edges':
         # Fix parallel edges running close together
@@ -323,7 +324,7 @@ def _apply_clearance_fix(
 
     else:
         # Unknown issue - try general widening
-        return fix_narrow_passage(geometry, min_clearance, strategy='widen')
+        return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
 
 def diagnose_clearance(

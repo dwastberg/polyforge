@@ -12,6 +12,7 @@ from polyforge.clearance import (
     fix_near_self_intersection,
     fix_parallel_close_edges
 )
+from polyforge.core.types import HoleStrategy, PassageStrategy, IntrusionStrategy, IntersectionStrategy, EdgeStrategy
 
 
 class TestFixHoleTooClose:
@@ -25,7 +26,7 @@ class TestFixHoleTooClose:
         hole = [(0.5, 4), (1.5, 4), (1.5, 6), (0.5, 6)]
 
         poly = Polygon(exterior, holes=[hole])
-        result = fix_hole_too_close(poly, min_clearance=1.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=1.0, strategy=HoleStrategy.REMOVE)
 
         # Hole should be removed
         assert len(result.interiors) == 0
@@ -38,7 +39,7 @@ class TestFixHoleTooClose:
         hole = [(4, 4), (6, 4), (6, 6), (4, 6)]
 
         poly = Polygon(exterior, holes=[hole])
-        result = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
 
         # Hole should be kept (distance from edges is ~4)
         assert len(result.interiors) == 1
@@ -53,7 +54,7 @@ class TestFixHoleTooClose:
         hole3 = [(10, 18), (11, 18), (11, 19), (10, 19)]  # Close to top edge
 
         poly = Polygon(exterior, holes=[hole1, hole2, hole3])
-        result = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
 
         # All holes should be removed
         assert len(result.interiors) == 0
@@ -66,7 +67,7 @@ class TestFixHoleTooClose:
         far_hole = [(8, 8), (12, 8), (12, 12), (8, 12)]  # Distance ~8
 
         poly = Polygon(exterior, holes=[close_hole, far_hole])
-        result = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
 
         # Only far hole should remain
         assert len(result.interiors) == 1
@@ -77,7 +78,7 @@ class TestFixHoleTooClose:
         exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
         poly = Polygon(exterior)
 
-        result = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
 
         assert len(result.interiors) == 0
         assert result.exterior.coords[:] == poly.exterior.coords[:]
@@ -89,7 +90,7 @@ class TestFixHoleTooClose:
         hole = [(2, 2), (4, 2), (4, 4), (2, 4)]  # Distance ~2
 
         poly = Polygon(exterior, holes=[hole])
-        result = fix_hole_too_close(poly, min_clearance=3.0, strategy='shrink')
+        result = fix_hole_too_close(poly, min_clearance=3.0, strategy=HoleStrategy.SHRINK)
 
         # Hole should be shrunk but still exist
         # (may shrink to nothing if too much shrinkage needed)
@@ -109,7 +110,7 @@ class TestFixHoleTooClose:
 
         poly = Polygon(exterior, holes=[hole])
         # Shrink amount larger than hole size
-        result = fix_hole_too_close(poly, min_clearance=5.0, strategy='shrink')
+        result = fix_hole_too_close(poly, min_clearance=5.0, strategy=HoleStrategy.SHRINK)
 
         # Hole should shrink to nothing (removed)
         assert len(result.interiors) == 0
@@ -122,7 +123,7 @@ class TestFixHoleTooClose:
         hole = [(2, 8), (4, 8), (4, 10), (2, 10)]
 
         poly = Polygon(exterior, holes=[hole])
-        result = fix_hole_too_close(poly, min_clearance=5.0, strategy='move')
+        result = fix_hole_too_close(poly, min_clearance=5.0, strategy=HoleStrategy.MOVE)
 
         # Hole should be moved (or removed if can't move safely)
         assert result.is_valid
@@ -142,11 +143,11 @@ class TestFixHoleTooClose:
         poly = Polygon(exterior, holes=[hole])
 
         # At threshold = 2.0, should be kept (distance >= threshold)
-        result_keep = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result_keep = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
         assert len(result_keep.interiors) == 1
 
         # Just above threshold, should be removed
-        result_remove = fix_hole_too_close(poly, min_clearance=2.1, strategy='remove')
+        result_remove = fix_hole_too_close(poly, min_clearance=2.1, strategy=HoleStrategy.REMOVE)
         assert len(result_remove.interiors) == 0
 
     def test_preserves_exterior(self):
@@ -155,7 +156,7 @@ class TestFixHoleTooClose:
         hole = [(1, 1), (2, 1), (2, 2), (1, 2)]
 
         poly = Polygon(exterior, holes=[hole])
-        result = fix_hole_too_close(poly, min_clearance=2.0, strategy='remove')
+        result = fix_hole_too_close(poly, min_clearance=2.0, strategy=HoleStrategy.REMOVE)
 
         # Exterior coordinates should be identical
         np.testing.assert_array_almost_equal(
@@ -283,7 +284,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         # Intrusion should be improved (fewer or equal vertices)
@@ -301,7 +302,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.8, strategy='smooth')
+        result = fix_sharp_intrusion(poly, min_clearance=0.8, strategy=IntrusionStrategy.SMOOTH)
 
         assert result.is_valid
         # Smoothing preserves vertex count but modifies positions
@@ -318,7 +319,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Simplification removes vertices
@@ -338,7 +339,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         # Intrusions should be improved (fewer or equal vertices)
@@ -350,7 +351,7 @@ class TestFixSharpIntrusion:
         coords = [(0, 0), (10, 0), (10, 10), (0, 10)]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=1.0, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=1.0, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         # Should be similar to original
@@ -363,7 +364,7 @@ class TestFixSharpIntrusion:
         hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
         poly = Polygon(exterior, holes=[hole])
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         assert len(result.interiors) == 1  # Hole preserved
@@ -379,7 +380,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         # Deep intrusion should be improved or filled (area similar or increased)
@@ -396,7 +397,7 @@ class TestFixSharpIntrusion:
         poly = Polygon(coords)
 
         target_clearance = 1.0
-        result = fix_sharp_intrusion(poly, min_clearance=target_clearance, strategy='fill')
+        result = fix_sharp_intrusion(poly, min_clearance=target_clearance, strategy=IntrusionStrategy.FILL)
 
         assert result.is_valid
         # Should meet or exceed target (or be close)
@@ -419,7 +420,7 @@ class TestFixNarrowPassage:
         poly = Polygon(coords)
         original_clearance = poly.minimum_clearance
 
-        result = fix_narrow_passage(poly, min_clearance=0.5, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         assert isinstance(result, Polygon)
@@ -436,7 +437,7 @@ class TestFixNarrowPassage:
         poly = Polygon(coords)
         target_clearance = 0.5
 
-        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         # Should improve toward target
@@ -455,7 +456,7 @@ class TestFixNarrowPassage:
         ]
         poly = Polygon(coords)
 
-        result = fix_narrow_passage(poly, min_clearance=0.5, strategy='split')
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.SPLIT)
 
         assert result.is_valid
         # May return various geometry types depending on split success
@@ -468,7 +469,7 @@ class TestFixNarrowPassage:
         coords = [(0, 0), (10, 0), (10, 10), (0, 10)]
         poly = Polygon(coords)
 
-        result = fix_narrow_passage(poly, min_clearance=2.0, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=2.0, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         # Should be essentially unchanged
@@ -481,7 +482,7 @@ class TestFixNarrowPassage:
         hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
         poly = Polygon(exterior, holes=[hole])
 
-        result = fix_narrow_passage(poly, min_clearance=0.5, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         # Holes should be preserved
@@ -499,7 +500,7 @@ class TestFixNarrowPassage:
         ]
         poly = Polygon(coords)
 
-        result = fix_narrow_passage(poly, min_clearance=0.5, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         # Clearance may improve or stay similar (buffering doesn't always help narrow passages)
@@ -528,7 +529,7 @@ class TestFixNarrowPassage:
         assert original_clearance < 2.0  # Verify it's actually narrow
 
         target_clearance = 0.5
-        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy='widen')
+        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy=PassageStrategy.WIDEN)
 
         assert result.is_valid
         assert isinstance(result, Polygon)
@@ -549,7 +550,7 @@ class TestFixNearSelfIntersection:
         ]
         poly = Polygon(coords)
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should reduce vertices or maintain
@@ -561,7 +562,7 @@ class TestFixNearSelfIntersection:
         coords = [(0, 0), (4, 0), (4, 1), (1, 1), (1, 2), (4, 2), (4, 3), (0, 3)]
         poly = Polygon(coords)
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy='buffer')
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntersectionStrategy.BUFFER)
 
         assert result.is_valid
         # Area should increase slightly
@@ -577,7 +578,7 @@ class TestFixNearSelfIntersection:
         ]
         poly = Polygon(coords)
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy='smooth')
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntrusionStrategy.SMOOTH)
 
         assert result.is_valid
         # Should smooth out the zigzag
@@ -589,7 +590,7 @@ class TestFixNearSelfIntersection:
         coords = [(0, 0), (10, 0), (10, 10), (0, 10)]
         poly = Polygon(coords)
 
-        result = fix_near_self_intersection(poly, min_clearance=1.0, strategy='simplify')
+        result = fix_near_self_intersection(poly, min_clearance=1.0, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should be unchanged
@@ -602,7 +603,7 @@ class TestFixNearSelfIntersection:
         hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
         poly = Polygon(exterior, holes=[hole])
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Hole should remain (though it might be buffered if using buffer strategy)
@@ -619,7 +620,7 @@ class TestFixNearSelfIntersection:
         poly = Polygon(coords)
         original_clearance = poly.minimum_clearance
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should improve or maintain clearance
@@ -639,7 +640,7 @@ class TestFixParallelCloseEdges:
         ]
         poly = Polygon(coords)
 
-        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should simplify
@@ -651,7 +652,7 @@ class TestFixParallelCloseEdges:
         coords = [(0, 0), (5, 0), (5, 0.2), (0, 0.2)]
         poly = Polygon(coords)
 
-        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy='buffer')
+        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy=IntersectionStrategy.BUFFER)
 
         assert result.is_valid
         # Buffer increases area
@@ -667,7 +668,7 @@ class TestFixParallelCloseEdges:
         ]
         poly = Polygon(coords)
 
-        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should improve clearance
@@ -679,7 +680,7 @@ class TestFixParallelCloseEdges:
         coords = [(0, 0), (5, 0), (2.5, 5)]
         poly = Polygon(coords)
 
-        result = fix_parallel_close_edges(poly, min_clearance=1.0, strategy='simplify')
+        result = fix_parallel_close_edges(poly, min_clearance=1.0, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Should be essentially unchanged
@@ -696,6 +697,6 @@ class TestFixParallelCloseEdges:
         ]
         poly = Polygon(coords)
 
-        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy='simplify')
+        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid

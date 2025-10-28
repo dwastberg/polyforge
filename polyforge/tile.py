@@ -8,6 +8,7 @@ def tile_polygon(polygon: Polygon, tile_count: Optional[Union[Tuple[int, int], i
                  tile_size: Optional[Tuple[float, float], float] = None, axis_oriented=False) -> Polygon:
     if axis_oriented:
         tiling_bbox = Box(*polygon.bounds)
+        angle = 0.0
     else:
         tiling_bbox = shapely.oriented_envelope(polygon)
         angle = atan2(
@@ -26,7 +27,7 @@ def tile_polygon(polygon: Polygon, tile_count: Optional[Union[Tuple[int, int], i
 
 def _tile_box(box: Polygon, tile_count: Optional[Union[Tuple[int, int], int]] = None,
               tile_size: Optional[Tuple[float, float], float] = None) -> List[Polygon]:
-    minx, miny, maxx, maxy = polygon.bounds
+    minx, miny, maxx, maxy = box.bounds
     width = maxx - minx
     height = maxy - miny
 
