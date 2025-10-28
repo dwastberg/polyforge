@@ -162,3 +162,8 @@ def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.n
     aspect_ratio = max_edge / height
 
     return aspect_ratio
+
+
+__all__ = [
+    'remove_narrow_protrusions',
+]

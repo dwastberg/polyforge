@@ -523,3 +523,10 @@ def fix_parallel_close_edges(
     # Parallel close edges are essentially a type of near-self-intersection
     # We can reuse the same fixing logic
     return fix_near_self_intersection(geometry, min_clearance, strategy)
+
+
+__all__ = [
+    'fix_narrow_passage',
+    'fix_near_self_intersection',
+    'fix_parallel_close_edges',
+]

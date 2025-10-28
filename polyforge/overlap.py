@@ -4,16 +4,17 @@ This module provides efficient algorithms for resolving overlaps in large
 collections of polygons using spatial indexing.
 """
 
-from typing import List, Literal
+from typing import List, Literal, Union
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
 from .split import split_overlap
+from .core.types import OverlapStrategy
 
 
 def remove_overlaps(
     polygons: List[Polygon],
-    overlap_strategy: Literal['split', 'largest', 'smallest'] = 'split',
+    overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
     max_iterations: int = 100
 ) -> List[Polygon]:
     """Remove all overlaps from a list of polygons efficiently.
@@ -35,15 +36,25 @@ def remove_overlaps(
     Args:
         polygons: List of polygons (potentially overlapping)
         overlap_strategy: How to handle overlaps:
-            - 'split': Split overlap equally (50/50) between polygons
-            - 'largest': Assign overlap to the larger polygon
-            - 'smallest': Assign overlap to the smaller polygon
+            - OverlapStrategy.SPLIT: Split overlap equally (50/50) between polygons
+            - OverlapStrategy.LARGEST: Assign overlap to the larger polygon
+            - OverlapStrategy.SMALLEST: Assign overlap to the smaller polygon
         max_iterations: Maximum number of iterations to prevent infinite loops
             (default: 100)
 
     Returns:
         List of polygons with all overlaps removed. The order and number of
         polygons is preserved.
+
+    Examples:
+        >>> from shapely.geometry import Polygon
+        >>> from polyforge.core.types import OverlapStrategy
+        >>> poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        >>> poly2 = Polygon([(1, 0), (3, 0), (3, 2), (1, 2)])
+        >>> result = remove_overlaps([poly1, poly2])
+
+        >>> # Using specific strategy
+        >>> result = remove_overlaps([poly1, poly2], overlap_strategy=OverlapStrategy.LARGEST)
     """
     if not polygons:
         return []
@@ -204,3 +215,10 @@ def find_overlapping_groups(polygons: List[Polygon], tolerance: float = 1e-10) -
             groups.append(sorted(group))
 
     return groups
+
+
+__all__ = [
+    'remove_overlaps',
+    'count_overlaps',
+    'find_overlapping_groups',
+]

@@ -7,6 +7,7 @@ from being created when merging separated rectangular polygons.
 import pytest
 from shapely.geometry import Polygon
 from polyforge import merge_close_polygons
+from polyforge.core.types import MergeStrategy
 
 
 class TestConvexBridgesFix:
@@ -22,7 +23,7 @@ class TestConvexBridgesFix:
         poly1 = Polygon([(0, 5), (9, 5), (9, 15), (0, 15)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=5.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2], margin=5.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         merged = result[0]
@@ -44,7 +45,7 @@ class TestConvexBridgesFix:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (3, 7), (0, 5)])
         poly2 = Polygon([(7, 2), (12, 2), (12, 8), (7, 8)])
 
-        result = merge_close_polygons([poly1, poly2], margin=3.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2], margin=3.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         merged = result[0]
@@ -60,7 +61,7 @@ class TestConvexBridgesFix:
         poly2 = Polygon([(7, 0), (12, 0), (12, 5), (7, 5)])
         poly3 = Polygon([(14, 0), (19, 0), (19, 5), (14, 5)])
 
-        result = merge_close_polygons([poly1, poly2, poly3], margin=3.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2, poly3], margin=3.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         merged = result[0]
@@ -76,7 +77,7 @@ class TestConvexBridgesFix:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
 
-        result = merge_close_polygons([poly1, poly2], margin=0.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2], margin=0.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         merged = result[0]
@@ -91,7 +92,7 @@ class TestConvexBridgesFix:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
         poly2 = Polygon([(5, 0), (10, 0), (10, 5), (5, 5)])
 
-        result = merge_close_polygons([poly1, poly2], margin=0.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2], margin=0.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         merged = result[0]
@@ -106,7 +107,7 @@ class TestConvexBridgesFix:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
         poly2 = Polygon([(20, 0), (25, 0), (25, 5), (20, 5)])
 
-        result = merge_close_polygons([poly1, poly2], margin=5.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly1, poly2], margin=5.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         # Should remain as two separate polygons
         assert len(result) == 2
@@ -115,14 +116,14 @@ class TestConvexBridgesFix:
         """Test that a single polygon is returned unchanged."""
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
-        result = merge_close_polygons([poly], margin=5.0, strategy='convex_bridges')
+        result = merge_close_polygons([poly], margin=5.0, strategy=MergeStrategy.CONVEX_BRIDGES)
 
         assert len(result) == 1
         assert result[0].equals(poly)
 
     def test_empty_list(self):
         """Test that empty list returns empty list."""
-        result = merge_close_polygons([], margin=5.0, strategy='convex_bridges')
+        result = merge_close_polygons([], margin=5.0, strategy=MergeStrategy.CONVEX_BRIDGES)
         assert result == []
 
 
@@ -135,7 +136,7 @@ class TestConvexBridgesWithMapping:
         poly2 = Polygon([(7, 0), (12, 0), (12, 5), (7, 5)])
 
         result, mapping = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='convex_bridges', return_mapping=True
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.CONVEX_BRIDGES, return_mapping=True
         )
 
         assert len(result) == 1
@@ -150,7 +151,7 @@ class TestConvexBridgesWithMapping:
         poly3 = Polygon([(100, 0), (105, 0), (105, 5), (100, 5)])  # Far away
 
         result, mapping = merge_close_polygons(
-            [poly1, poly2, poly3], margin=3.0, strategy='convex_bridges', return_mapping=True
+            [poly1, poly2, poly3], margin=3.0, strategy=MergeStrategy.CONVEX_BRIDGES, return_mapping=True
         )
 
         assert len(result) == 2  # One merged, one isolated

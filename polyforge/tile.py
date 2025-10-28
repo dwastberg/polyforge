@@ -58,3 +58,8 @@ def _tile_box(box: Polygon, tile_count: Optional[Union[Tuple[int, int], int]] = 
             tiles.append(tile)
 
     return tiles
+
+
+__all__ = [
+    'tile_polygon',
+]

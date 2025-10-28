@@ -44,8 +44,26 @@ from .fix import (
     repair_geometry,
     analyze_geometry,
     batch_repair_geometries,
-    GeometryRepairError,
-    GeometryFixError,  # Alias for backward compatibility
+)
+
+# Core types (enums)
+from .core import (
+    OverlapStrategy,
+    MergeStrategy,
+    RepairStrategy,
+    SimplifyAlgorithm,
+    CollapseMode,
+)
+
+# Core exceptions
+from .core import (
+    PolyforgeError,
+    ValidationError,
+    RepairError,
+    OverlapResolutionError,
+    MergeError,
+    ClearanceError,
+    ConfigurationError,
 )
 
 __all__ = [
@@ -84,6 +102,20 @@ __all__ = [
     'repair_geometry',
     'analyze_geometry',
     'batch_repair_geometries',
-    'GeometryRepairError',
-    'GeometryFixError',  # Alias
+
+    # Core types (enums)
+    'OverlapStrategy',
+    'MergeStrategy',
+    'RepairStrategy',
+    'SimplifyAlgorithm',
+    'CollapseMode',
+
+    # Core exceptions
+    'PolyforgeError',
+    'ValidationError',
+    'RepairError',
+    'OverlapResolutionError',
+    'MergeError',
+    'ClearanceError',
+    'ConfigurationError',
 ]

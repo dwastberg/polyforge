@@ -8,8 +8,9 @@ from polyforge.fix import (
     repair_geometry,
     analyze_geometry,
     batch_repair_geometries,
-    GeometryFixError  # Keep for tests expecting this exception
 )
+from polyforge.core.errors import RepairError
+from polyforge.core.types import RepairStrategy
 
 
 class TestFixGeometry:
@@ -43,7 +44,7 @@ class TestFixGeometry:
             (0, 0), (1, 0), (1, 0), (1, 1), (1, 1), (0, 1)
         ])
 
-        result = repair_geometry(poly, repair_strategy='auto')
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.AUTO)
 
         assert result.is_valid
 
@@ -54,7 +55,7 @@ class TestFixGeometry:
 
         assert not poly.is_valid
 
-        result = repair_geometry(poly, repair_strategy='buffer')
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.BUFFER)
 
         assert result.is_valid
 
@@ -63,7 +64,7 @@ class TestFixGeometry:
         # Create invalid polygon
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy='simplify')
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.SIMPLIFY)
 
         assert result.is_valid
 
@@ -72,7 +73,7 @@ class TestFixGeometry:
         # Self-intersecting polygon
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy='reconstruct')
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.RECONSTRUCT)
 
         assert result.is_valid
         # Reconstruction uses convex hull, so should be convex
@@ -83,14 +84,14 @@ class TestFixGeometry:
         # Bow-tie that can't be fixed with just coordinate cleaning
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        with pytest.raises(GeometryFixError):
-            repair_geometry(poly, repair_strategy='strict')
+        with pytest.raises(RepairError):
+            repair_geometry(poly, repair_strategy=RepairStrategy.STRICT)
 
     def test_auto_strategy_tries_multiple_fixes(self):
         """Test that auto strategy tries multiple approaches."""
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy='auto', verbose=False)
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.AUTO, verbose=False)
 
         assert result.is_valid
 
@@ -110,7 +111,7 @@ class TestFixGeometry:
         # Use invalid polygon so it actually tries to fix it
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        with pytest.raises(ValueError, match="Unknown strategy"):
+        with pytest.raises(ValueError, match="Unknown repair_strategy"):
             repair_geometry(poly, repair_strategy='nonexistent')
 
     def test_verbose_mode(self):
@@ -126,7 +127,7 @@ class TestFixGeometry:
         """Test using custom buffer distance."""
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy='buffer', buffer_distance=0.01)
+        result = repair_geometry(poly, repair_strategy=RepairStrategy.BUFFER, buffer_distance=0.01)
 
         assert result.is_valid
 
@@ -254,7 +255,7 @@ class TestBatchFixGeometries:
         # Use strict strategy which might fail
         fixed, failed = batch_repair_geometries(
             polys,
-            repair_strategy='strict',
+            repair_strategy=RepairStrategy.STRICT,
             on_error='skip'
         )
 
@@ -270,7 +271,7 @@ class TestBatchFixGeometries:
 
         fixed, failed = batch_repair_geometries(
             polys,
-            repair_strategy='strict',
+            repair_strategy=RepairStrategy.STRICT,
             on_error='keep'
         )
 
@@ -284,10 +285,10 @@ class TestBatchFixGeometries:
             Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
         ]
 
-        with pytest.raises(GeometryFixError):
+        with pytest.raises(RepairError):
             batch_repair_geometries(
                 polys,
-                repair_strategy='strict',
+                repair_strategy=RepairStrategy.STRICT,
                 on_error='raise'
             )
 

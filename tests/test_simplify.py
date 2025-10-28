@@ -10,6 +10,7 @@ from polyforge.simplify import (
     simplify_vwp,
     remove_small_holes
 )
+from polyforge.core.types import CollapseMode
 
 
 class TestSnapShortEdges:
@@ -28,7 +29,7 @@ class TestSnapShortEdges:
     def test_linestring_midpoint_mode(self):
         """Test that midpoint mode averages vertices correctly."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode='midpoint')
+        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.MIDPOINT)
 
         coords = np.array(result.coords)
         # First two vertices should be snapped to midpoint
@@ -38,7 +39,7 @@ class TestSnapShortEdges:
     def test_linestring_first_mode(self):
         """Test that 'first' mode keeps the first vertex."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode='first')
+        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.FIRST)
 
         coords = np.array(result.coords)
         # Should keep first vertex
@@ -48,7 +49,7 @@ class TestSnapShortEdges:
     def test_linestring_last_mode(self):
         """Test that 'last' mode keeps the last vertex."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode='last')
+        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.LAST)
 
         coords = np.array(result.coords)
         # Should keep last of the snapped pair
@@ -80,7 +81,7 @@ class TestSnapShortEdges:
         """Test snapping when the edge between last and first vertex is short."""
         # Create polygon where last vertex is very close to first
         poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 0.001)])
-        result = collapse_short_edges(poly, min_length=0.01, snap_mode='midpoint')
+        result = collapse_short_edges(poly, min_length=0.01, snap_mode=CollapseMode.MIDPOINT)
 
         coords = np.array(result.exterior.coords)
         # First and last should be snapped together

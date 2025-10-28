@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 from shapely.geometry import Polygon
 from polyforge.overlap import remove_overlaps, count_overlaps, find_overlapping_groups
+from polyforge.core.types import OverlapStrategy
 
 
 class TestRemoveOverlaps:
@@ -92,7 +93,7 @@ class TestRemoveOverlaps:
         large = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         small = Polygon([(8, 8), (12, 8), (12, 12), (8, 12)])
 
-        result = remove_overlaps([large, small], overlap_strategy='largest')
+        result = remove_overlaps([large, small], overlap_strategy=OverlapStrategy.LARGEST)
 
         assert len(result) == 2
         # Large polygon should have kept most of its area
@@ -104,7 +105,7 @@ class TestRemoveOverlaps:
         large = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         small = Polygon([(8, 8), (12, 8), (12, 12), (8, 12)])
 
-        result = remove_overlaps([large, small], overlap_strategy='smallest')
+        result = remove_overlaps([large, small], overlap_strategy=OverlapStrategy.SMALLEST)
 
         assert len(result) == 2
         # Small polygon should have kept most of its area

@@ -21,6 +21,7 @@ from simplification.cutil import (
 )
 
 from polyforge.process import process_geometry
+from .core.types import CollapseMode
 
 
 # ============================================================================
@@ -213,7 +214,7 @@ def _remove_duplicate_vertices(
 def collapse_short_edges(
     geometry: BaseGeometry,
     min_length: float,
-    snap_mode: Literal['midpoint', 'first', 'last'] = 'midpoint'
+    snap_mode: CollapseMode = CollapseMode.MIDPOINT
 ) -> BaseGeometry:
     """Collapse edges shorter than min_length by snapping vertices together.
 
@@ -225,20 +226,24 @@ def collapse_short_edges(
         geometry: Shapely geometry to process (any type)
         min_length: Minimum edge length threshold. Edges shorter than this will be collapsed.
         snap_mode: How to snap vertices together:
-            - 'midpoint': Snap both vertices to their midpoint (default)
-            - 'first': Keep the first vertex, remove the second
-            - 'last': Remove the first vertex, keep the second
+            - CollapseMode.MIDPOINT: Snap both vertices to their midpoint (default)
+            - CollapseMode.FIRST: Keep the first vertex, remove the second
+            - CollapseMode.LAST: Remove the first vertex, keep the second
 
     Returns:
         New Shapely geometry of the same type with short edges removed
 
     Examples:
+        >>> from polyforge.core.types import CollapseMode
         >>> poly = Polygon([(0, 0), (10, 0), (10, 0.01), (10, 10), (0, 10)])
         >>> clean = collapse_short_edges(poly, min_length=0.1)
         >>> # Edge from (10, 0) to (10, 0.01) is collapsed
 
+        >>> # Using specific mode
+        >>> clean = collapse_short_edges(poly, min_length=0.1, snap_mode=CollapseMode.FIRST)
+
     """
-    return process_geometry(geometry, _snap_short_edges, min_length=min_length, snap_mode=snap_mode)
+    return process_geometry(geometry, _snap_short_edges, min_length=min_length, snap_mode=snap_mode.value)
 
 
 def deduplicate_vertices(
@@ -375,3 +380,13 @@ def remove_small_holes(
 
     else:
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
+
+
+__all__ = [
+    'collapse_short_edges',
+    'deduplicate_vertices',
+    'simplify_rdp',
+    'simplify_vw',
+    'simplify_vwp',
+    'remove_small_holes',
+]

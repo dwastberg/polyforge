@@ -6,15 +6,17 @@ between them.
 """
 
 import numpy as np
-from typing import Tuple, Literal
+from typing import Tuple, Literal, Union
 from shapely.geometry import Polygon, LineString, Point, MultiPolygon
 from shapely.ops import split, unary_union
+
+from .core.types import OverlapStrategy
 
 
 def split_overlap(
     poly1: Polygon,
     poly2: Polygon,
-    overlap_strategy: Literal['split', 'largest', 'smallest'] = 'split'
+    overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT
 ) -> Tuple[Polygon, Polygon]:
     """Split or assign the overlapping area between two polygons.
 
@@ -27,9 +29,9 @@ def split_overlap(
         poly1: First polygon
         poly2: Second polygon
         overlap_strategy: How to handle the overlap area:
-            - 'split': Split the overlap equally (50/50) between the two polygons (default)
-            - 'largest': Assign entire overlap to the larger polygon
-            - 'smallest': Assign entire overlap to the smaller polygon
+            - OverlapStrategy.SPLIT: Split overlap 50/50 (default)
+            - OverlapStrategy.LARGEST: Assign entire overlap to larger polygon
+            - OverlapStrategy.SMALLEST: Assign entire overlap to smaller polygon
 
     Returns:
         Tuple of (modified_poly1, modified_poly2) where the polygons touch but
@@ -38,6 +40,7 @@ def split_overlap(
 
     Examples:
         >>> from shapely.geometry import Polygon
+        >>> from polyforge.core.types import OverlapStrategy
         >>> poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         >>> poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
         >>> result1, result2 = split_overlap(poly1, poly2)
@@ -45,8 +48,9 @@ def split_overlap(
         True
         >>> result1.intersection(result2).area  # But don't overlap
         0.0
-        >>> # Assign overlap to largest polygon
-        >>> result1, result2 = split_overlap(poly1, poly2, overlap_strategy='largest')
+
+        >>> # Using specific strategy
+        >>> result1, result2 = split_overlap(poly1, poly2, OverlapStrategy.LARGEST)
     """
     # Check if polygons actually overlap
     if not poly1.intersects(poly2):
@@ -76,7 +80,7 @@ def split_overlap(
     poly2_only = poly2.difference(overlap)
 
     # Handle different overlap strategies
-    if overlap_strategy == 'largest':
+    if overlap_strategy == OverlapStrategy.LARGEST:
         # Assign entire overlap to the larger polygon
         if poly1.area >= poly2.area:
             new_poly1 = _safe_union(poly1_only, overlap)
@@ -86,7 +90,7 @@ def split_overlap(
             new_poly2 = _safe_union(poly2_only, overlap)
         return new_poly1, new_poly2
 
-    elif overlap_strategy == 'smallest':
+    elif overlap_strategy == OverlapStrategy.SMALLEST:
         # Assign entire overlap to the smaller polygon
         if poly1.area <= poly2.area:
             new_poly1 = _safe_union(poly1_only, overlap)
@@ -283,3 +287,8 @@ def _split_overlap_simple(poly1, poly2, overlap, poly1_only, poly2_only) -> Tupl
 
     # Ultimate fallback: return originals
     return poly1, poly2
+
+
+__all__ = [
+    'split_overlap',
+]

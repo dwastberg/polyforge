@@ -184,3 +184,8 @@ def _move_hole_away_from_exterior(
 
         # Could not achieve target distance
         return None
+
+
+__all__ = [
+    'fix_hole_too_close',
+]

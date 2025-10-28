@@ -245,3 +245,9 @@ def fix_sharp_intrusion(
             break
 
     return best_result
+
+
+__all__ = [
+    'fix_narrow_protrusion',
+    'fix_sharp_intrusion',
+]

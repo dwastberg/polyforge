@@ -9,6 +9,7 @@ import numpy as np
 from shapely.geometry import Polygon
 from polyforge import merge_close_polygons
 from polyforge.merge import _insert_connection_vertices
+from polyforge.core.types import MergeStrategy
 
 
 class TestVertexInsertion:
@@ -112,12 +113,12 @@ class TestMergeWithVertexInsertion:
 
         # Without vertex insertion
         result_no_insert = merge_close_polygons(
-            [poly1, poly2], margin=2.0, strategy='selective_buffer', insert_vertices=False
+            [poly1, poly2], margin=2.0, strategy=MergeStrategy.SELECTIVE_BUFFER, insert_vertices=False
         )
 
         # With vertex insertion
         result_with_insert = merge_close_polygons(
-            [poly1, poly2], margin=2.0, strategy='selective_buffer', insert_vertices=True
+            [poly1, poly2], margin=2.0, strategy=MergeStrategy.SELECTIVE_BUFFER, insert_vertices=True
         )
 
         assert len(result_no_insert) == 1
@@ -141,7 +142,7 @@ class TestMergeWithVertexInsertion:
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
         result = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='convex_bridges', insert_vertices=True
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.CONVEX_BRIDGES, insert_vertices=True
         )
 
         assert len(result) == 1
@@ -155,7 +156,7 @@ class TestMergeWithVertexInsertion:
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
         result = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='vertex_movement', insert_vertices=True
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.VERTEX_MOVEMENT, insert_vertices=True
         )
 
         assert len(result) == 1
@@ -167,7 +168,7 @@ class TestMergeWithVertexInsertion:
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
         result = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='boundary_extension', insert_vertices=True
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.BOUNDARY_EXTENSION, insert_vertices=True
         )
 
         assert len(result) == 1
@@ -178,8 +179,8 @@ class TestMergeWithVertexInsertion:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
-        strategies = ['simple_buffer', 'selective_buffer', 'vertex_movement',
-                     'boundary_extension', 'convex_bridges']
+        strategies = [MergeStrategy.SIMPLE_BUFFER, MergeStrategy.SELECTIVE_BUFFER, MergeStrategy.VERTEX_MOVEMENT,
+                     MergeStrategy.BOUNDARY_EXTENSION, MergeStrategy.CONVEX_BRIDGES]
 
         for strategy in strategies:
             result = merge_close_polygons(
@@ -196,7 +197,7 @@ class TestMergeWithVertexInsertion:
         poly2 = Polygon([(12, 0), (22, 0), (22, 10), (12, 10)])
 
         result, mapping = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='selective_buffer',
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.SELECTIVE_BUFFER,
             insert_vertices=True, return_mapping=True
         )
 
@@ -210,7 +211,7 @@ class TestMergeWithVertexInsertion:
         poly2 = Polygon([(50, 0), (60, 0), (60, 10), (50, 10)])  # Far away
 
         result = merge_close_polygons(
-            [poly1, poly2], margin=3.0, strategy='selective_buffer', insert_vertices=True
+            [poly1, poly2], margin=3.0, strategy=MergeStrategy.SELECTIVE_BUFFER, insert_vertices=True
         )
 
         # Should remain as two separate polygons
@@ -227,7 +228,7 @@ class TestMergeWithVertexInsertion:
         poly3 = Polygon([(24, 0), (34, 0), (34, 10), (24, 10)])
 
         result = merge_close_polygons(
-            [poly1, poly2, poly3], margin=3.0, strategy='selective_buffer', insert_vertices=True
+            [poly1, poly2, poly3], margin=3.0, strategy=MergeStrategy.SELECTIVE_BUFFER, insert_vertices=True
         )
 
         assert len(result) == 1
@@ -258,7 +259,7 @@ class TestEdgeCases:
         poly2 = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
 
         result = merge_close_polygons(
-            [poly1, poly2], margin=0.0, strategy='convex_bridges', insert_vertices=True
+            [poly1, poly2], margin=0.0, strategy=MergeStrategy.CONVEX_BRIDGES, insert_vertices=True
         )
 
         assert len(result) == 1

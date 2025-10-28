@@ -14,19 +14,13 @@ from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 import numpy as np
 
-
-class GeometryRepairError(Exception):
-    """Raised when geometry cannot be repaired."""
-    pass
-
-
-# Alias for any code that might still reference the old name
-GeometryFixError = GeometryRepairError
+from .core.types import RepairStrategy
+from .core.errors import RepairError
 
 
 def repair_geometry(
     geometry: BaseGeometry,
-    repair_strategy: str = 'auto',
+    repair_strategy: RepairStrategy = RepairStrategy.AUTO,
     buffer_distance: float = 0.0,
     tolerance: float = 1e-10,
     verbose: bool = False
@@ -47,11 +41,11 @@ def repair_geometry(
     Args:
         geometry: The geometry to repair
         repair_strategy: Repair strategy to use:
-            - 'auto': Automatically detect and repair (default)
-            - 'buffer': Use buffer(0) trick
-            - 'simplify': Simplify and rebuild
-            - 'reconstruct': Reconstruct from scratch
-            - 'strict': Only repair if guaranteed to preserve intent
+            - RepairStrategy.AUTO: Automatically detect and repair (default)
+            - RepairStrategy.BUFFER: Use buffer(0) trick
+            - RepairStrategy.SIMPLIFY: Simplify and rebuild
+            - RepairStrategy.RECONSTRUCT: Reconstruct from scratch
+            - RepairStrategy.STRICT: Only repair if guaranteed to preserve intent
         buffer_distance: Small buffer distance for buffer-based repairs (default: 0.0)
         tolerance: Tolerance for coordinate comparisons (default: 1e-10)
         verbose: Print diagnostic information (default: False)
@@ -60,20 +54,21 @@ def repair_geometry(
         Repaired geometry (same type as input if possible)
 
     Raises:
-        GeometryRepairError: If geometry cannot be repaired
+        RepairError: If geometry cannot be repaired
 
     Examples:
         >>> # Repair self-intersecting polygon
+        >>> from polyforge.core.types import RepairStrategy
         >>> poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])  # Bow-tie
         >>> repaired = repair_geometry(poly)
         >>> repaired.is_valid
         True
 
-        >>> # Repair with specific strategy
-        >>> repaired = repair_geometry(poly, repair_strategy='buffer')
+        >>> # Using specific strategy
+        >>> repaired = repair_geometry(poly, repair_strategy=RepairStrategy.BUFFER)
 
     Notes:
-        - Multiple strategies are tried if 'auto' is selected
+        - Multiple strategies are tried if AUTO is selected
         - Original geometry is returned if already valid
         - Some repairs may slightly modify geometry shape
     """
@@ -88,19 +83,18 @@ def repair_geometry(
         print(f"Invalid geometry: {reason}")
 
     # Determine strategy
-    if repair_strategy == 'auto':
+    if repair_strategy == RepairStrategy.AUTO:
         return _auto_fix_geometry(geometry, buffer_distance, tolerance, verbose)
-    elif repair_strategy == 'buffer':
+    elif repair_strategy == RepairStrategy.BUFFER:
         return _fix_with_buffer(geometry, buffer_distance, verbose)
-    elif repair_strategy == 'simplify':
+    elif repair_strategy == RepairStrategy.SIMPLIFY:
         return _fix_with_simplify(geometry, tolerance, verbose)
-    elif repair_strategy == 'reconstruct':
+    elif repair_strategy == RepairStrategy.RECONSTRUCT:
         return _fix_with_reconstruct(geometry, tolerance, verbose)
-    elif repair_strategy == 'strict':
+    elif repair_strategy == RepairStrategy.STRICT:
         return _fix_strict(geometry, tolerance, verbose)
     else:
-        # Keep "strategy" in error message for backward compatibility
-        raise ValueError(f"Unknown strategy: {repair_strategy}")
+        raise ValueError(f"Unknown repair_strategy: {repair_strategy}")
 
 
 def _auto_fix_geometry(
@@ -172,9 +166,7 @@ def _auto_fix_geometry(
             print(f"   Failed: {e}")
 
     # All strategies failed
-    # Note: Raising GeometryFixError for backward compatibility during deprecation
-    # Will switch to GeometryRepairError in v1.0.0
-    raise GeometryFixError(
+    raise RepairError(
         f"Could not repair {geom_type}: {explain_validity(geometry)}"
     )
 
@@ -272,12 +264,12 @@ def _fix_with_buffer(
             if polygons:
                 fixed = max(polygons, key=lambda p: p.area)
             else:
-                raise GeometryFixError("Buffer produced no valid polygons")
+                raise RepairError("Buffer produced no valid polygons")
 
         return fixed
 
     except Exception as e:
-        raise GeometryFixError(f"Buffer repair failed: {e}")
+        raise RepairError(f"Buffer repair failed: {e}")
 
 
 def _fix_with_simplify(
@@ -304,10 +296,10 @@ def _fix_with_simplify(
         if simplified.is_valid:
             return simplified
 
-        raise GeometryFixError("Simplification did not produce valid geometry")
+        raise RepairError("Simplification did not produce valid geometry")
 
     except Exception as e:
-        raise GeometryFixError(f"Simplify repair failed: {e}")
+        raise RepairError(f"Simplify repair failed: {e}")
 
 
 def _fix_with_reconstruct(
@@ -331,7 +323,7 @@ def _fix_with_reconstruct(
         # Extract all coordinates and rebuild
         coords = _extract_all_coords(geometry)
         if len(coords) < 3:
-            raise GeometryFixError("Not enough coordinates to reconstruct")
+            raise RepairError("Not enough coordinates to reconstruct")
 
         # Build polygon from points
         from shapely.ops import unary_union
@@ -343,10 +335,10 @@ def _fix_with_reconstruct(
         if hull.is_valid:
             return hull
 
-        raise GeometryFixError("Reconstruction failed")
+        raise RepairError("Reconstruction failed")
 
     except Exception as e:
-        raise GeometryFixError(f"Reconstruct repair failed: {e}")
+        raise RepairError(f"Reconstruct repair failed: {e}")
 
 
 def _fix_strict(
@@ -363,7 +355,7 @@ def _fix_strict(
     if cleaned.is_valid:
         return cleaned
 
-    raise GeometryFixError(
+    raise RepairError(
         "Strict mode: geometry cannot be repaired without aggressive changes"
     )
 
@@ -474,7 +466,7 @@ def analyze_geometry(geometry: BaseGeometry) -> dict:
 
 def batch_repair_geometries(
     geometries: List[BaseGeometry],
-    repair_strategy: str = 'auto',
+    repair_strategy: RepairStrategy = RepairStrategy.AUTO,
     on_error: str = 'skip',
     verbose: bool = False
 ) -> Tuple[List[BaseGeometry], List[int]]:
@@ -493,9 +485,13 @@ def batch_repair_geometries(
         Tuple of (repaired_geometries, failed_indices)
 
     Examples:
+        >>> from polyforge.core.types import RepairStrategy
         >>> geometries = [poly1, poly2, poly3]
         >>> repaired, failed = batch_repair_geometries(geometries)
         >>> print(f"Repaired {len(repaired)}, failed {len(failed)}")
+
+        >>> # Using specific strategy
+        >>> repaired, failed = batch_repair_geometries(geometries, RepairStrategy.BUFFER)
     """
     repaired = []
     failed_indices = []
@@ -508,7 +504,7 @@ def batch_repair_geometries(
             repaired_geom = repair_geometry(geom, repair_strategy=repair_strategy, verbose=False)
             repaired.append(repaired_geom)
 
-        except (GeometryFixError, Exception) as e:
+        except (RepairError, Exception) as e:
             if on_error == 'raise':
                 raise
             elif on_error == 'keep':
@@ -520,3 +516,10 @@ def batch_repair_geometries(
                 print(f"  Failed to repair geometry {i}: {e}")
 
     return repaired, failed_indices
+
+
+__all__ = [
+    'repair_geometry',
+    'analyze_geometry',
+    'batch_repair_geometries',
+]

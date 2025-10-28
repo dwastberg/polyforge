@@ -399,3 +399,9 @@ def diagnose_clearance(
         result['recommended_fix'] = 'none'
 
     return result
+
+
+__all__ = [
+    'fix_clearance',
+    'diagnose_clearance',
+]

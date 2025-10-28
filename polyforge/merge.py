@@ -13,12 +13,13 @@ from shapely.ops import unary_union, nearest_points
 from shapely.geometry.base import BaseGeometry
 
 from polyforge.simplify import simplify_vwp
+from .core.types import MergeStrategy
 
 
 def merge_close_polygons(
     polygons: List[Polygon],
     margin: float = 0.0,
-    strategy: str = 'selective_buffer',
+    strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER,
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False
@@ -40,11 +41,11 @@ def merge_close_polygons(
         polygons: List of input polygons
         margin: Maximum distance for merging (0.0 = only overlapping polygons)
         strategy: Merging strategy:
-            - 'simple_buffer': Classic expand-contract (fast, changes shape)
-            - 'selective_buffer': Only buffer near gaps (good balance, default)
-            - 'vertex_movement': Move vertices toward each other (precise)
-            - 'boundary_extension': Extend parallel edges (best for buildings)
-            - 'convex_bridges': Use convex hull bridges (smooth connections)
+            - MergeStrategy.SIMPLE_BUFFER: Classic expand-contract (fast, changes shape)
+            - MergeStrategy.SELECTIVE_BUFFER: Only buffer near gaps (good balance, default)
+            - MergeStrategy.VERTEX_MOVEMENT: Move vertices toward each other (precise)
+            - MergeStrategy.BOUNDARY_EXTENSION: Extend parallel edges (best for buildings)
+            - MergeStrategy.CONVEX_BRIDGES: Use convex hull bridges (smooth connections)
         preserve_holes: Whether to preserve interior holes when merging
         return_mapping: If True, return (merged_polygons, groups) where groups[i]
                        contains indices of original polygons that were merged
@@ -56,11 +57,12 @@ def merge_close_polygons(
         List of merged polygons, or (polygons, groups) if return_mapping=True
 
     Examples:
+        >>> from polyforge.core.types import MergeStrategy
         >>> # Merge overlapping polygons only
         >>> merged = merge_close_polygons(polygons, margin=0.0)
 
         >>> # Merge polygons within 5 units
-        >>> merged = merge_close_polygons(polygons, margin=5.0, strategy='selective_buffer')
+        >>> merged = merge_close_polygons(polygons, margin=5.0, strategy=MergeStrategy.SELECTIVE_BUFFER)
 
         >>> # Get mapping of which polygons were merged
         >>> merged, groups = merge_close_polygons(polygons, margin=2.0, return_mapping=True)
@@ -100,15 +102,15 @@ def merge_close_polygons(
             group_polygons = _insert_connection_vertices(group_polygons, margin)
 
         # Select and apply merge strategy
-        if strategy == 'simple_buffer':
+        if strategy == MergeStrategy.SIMPLE_BUFFER:
             merged = _merge_simple_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == 'selective_buffer':
+        elif strategy == MergeStrategy.SELECTIVE_BUFFER:
             merged = _merge_selective_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == 'vertex_movement':
+        elif strategy == MergeStrategy.VERTEX_MOVEMENT:
             merged = _merge_vertex_movement(group_polygons, margin, preserve_holes)
-        elif strategy == 'boundary_extension':
+        elif strategy == MergeStrategy.BOUNDARY_EXTENSION:
             merged = _merge_boundary_extension(group_polygons, margin, preserve_holes)
-        elif strategy == 'convex_bridges':
+        elif strategy == MergeStrategy.CONVEX_BRIDGES:
             merged = _merge_convex_bridges(group_polygons, margin, preserve_holes)
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
@@ -1014,3 +1016,8 @@ def _get_boundary_points_near(
                 close_points.append((sampled_point.x, sampled_point.y))
 
     return close_points
+
+
+__all__ = [
+    'merge_close_polygons',
+]

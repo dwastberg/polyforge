@@ -20,7 +20,7 @@ from .passages import (
 )
 from .fix_clearance import fix_clearance, diagnose_clearance
 
-# Import utility functions for backwards compatibility with tests
+# Import utility functions
 from .utils import (
     _find_nearest_vertex_index,
     _find_nearest_edge_index,
