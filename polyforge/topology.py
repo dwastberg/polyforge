@@ -12,7 +12,7 @@ from shapely.geometry import Polygon, LinearRing
 def align_boundaries(
     poly1: Polygon,
     poly2: Polygon,
-    tolerance: float = 1e-10
+    distance_tolerance: float = 1e-10
 ) -> Tuple[Polygon, Polygon]:
     """Align two touching polygons to have conforming boundaries.
 
@@ -24,7 +24,7 @@ def align_boundaries(
     Args:
         poly1: First polygon
         poly2: Second polygon
-        tolerance: Distance tolerance for considering a point on an edge (default: 1e-10)
+        distance_tolerance: Distance tolerance for considering a point on an edge (default: 1e-10)
 
     Returns:
         Tuple of (modified_poly1, modified_poly2) with aligned boundaries
@@ -43,19 +43,19 @@ def align_boundaries(
         - Vertices already existing (within tolerance) are not duplicated
     """
     # Get vertices that need to be added to each polygon
-    vertices_for_poly1 = _find_vertices_on_edges(poly2, poly1, tolerance)
-    vertices_for_poly2 = _find_vertices_on_edges(poly1, poly2, tolerance)
+    vertices_for_poly1 = _find_vertices_on_edges(poly2, poly1, distance_tolerance)
+    vertices_for_poly2 = _find_vertices_on_edges(poly1, poly2, distance_tolerance)
 
     # Insert vertices into polygon exteriors
     new_poly1_exterior = _insert_vertices_into_ring(
         poly1.exterior,
         vertices_for_poly1.get('exterior', []),
-        tolerance
+        distance_tolerance
     )
     new_poly2_exterior = _insert_vertices_into_ring(
         poly2.exterior,
         vertices_for_poly2.get('exterior', []),
-        tolerance
+        distance_tolerance
     )
 
     # Handle holes if present
@@ -63,14 +63,14 @@ def align_boundaries(
     if poly1.interiors:
         for hole_idx, hole in enumerate(poly1.interiors):
             hole_vertices = vertices_for_poly1.get(f'hole_{hole_idx}', [])
-            new_hole = _insert_vertices_into_ring(hole, hole_vertices, tolerance)
+            new_hole = _insert_vertices_into_ring(hole, hole_vertices, distance_tolerance)
             new_poly1_holes.append(new_hole)
 
     new_poly2_holes = []
     if poly2.interiors:
         for hole_idx, hole in enumerate(poly2.interiors):
             hole_vertices = vertices_for_poly2.get(f'hole_{hole_idx}', [])
-            new_hole = _insert_vertices_into_ring(hole, hole_vertices, tolerance)
+            new_hole = _insert_vertices_into_ring(hole, hole_vertices, distance_tolerance)
             new_poly2_holes.append(new_hole)
 
     # Create new polygons

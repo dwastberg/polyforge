@@ -63,7 +63,7 @@ result1, result2 = split_overlap(poly1, poly2)
 
 # Merge close polygons
 buildings = [building1, building2, building3]
-merged = merge_close_polygons(buildings, margin=2.0, strategy=MergeStrategy.BOUNDARY_EXTENSION)
+merged = merge_close_polygons(buildings, margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION)
 
 # Repair invalid geometry
 fixed = repair_geometry(invalid_poly, repair_strategy=RepairStrategy.AUTO)
@@ -243,7 +243,7 @@ Automatically detect and fix clearance issues using multi-strategy approach.
 from polyforge import fix_clearance
 
 # Auto-detect and fix all clearance issues
-fixed = fix_clearance(problematic_poly, min_clearance=1.0, max_iterations=5)
+fixed = fix_clearance(problematic_poly, min_clearance=1.0, max_iterations=10)
 ```
 
 ---
@@ -277,14 +277,14 @@ fixed = fix_hole_too_close(poly_with_hole, min_clearance=2.0, strategy=HoleStrat
 
 ---
 
-#### `fix_narrow_protrusion(geometry, min_clearance, max_iterations=5)`
+#### `fix_narrow_protrusion(geometry, min_clearance, max_iterations=10)`
 
 Remove narrow protrusions (spikes) from polygons.
 
 - **Args:**
   - `geometry` (Polygon): Input polygon
   - `min_clearance` (float): Target minimum clearance
-  - `max_iterations` (int): Maximum iterations (default: 5)
+  - `max_iterations` (int): Maximum iterations (default: 10)
 
 - **Returns:** Polygon with narrow protrusions removed
 
@@ -505,12 +505,13 @@ print(f"All valid: {all(p.is_valid for p in fixed)}")
 
 ---
 
-#### `count_overlaps(polygons) -> int`
+#### `count_overlaps(polygons, min_area_threshold=1e-10) -> int`
 
 Count the number of overlapping pairs in a polygon dataset.
 
 - **Args:**
   - `polygons` (List[Polygon]): List of polygons
+  - `min_area_threshold` (float): Minimum overlap area to count (default: 1e-10)
 
 - **Returns:** Integer count of overlapping pairs
 
@@ -520,18 +521,19 @@ Count the number of overlapping pairs in a polygon dataset.
 ```python
 from polyforge import count_overlaps
 
-overlap_count = count_overlaps(polygons)
+overlap_count = count_overlaps(polygons, min_area_threshold=0.01)
 print(f"Found {overlap_count} overlapping pairs")
 ```
 
 ---
 
-#### `find_overlapping_groups(polygons) -> List[List[int]]`
+#### `find_overlapping_groups(polygons, min_area_threshold=1e-10) -> List[List[int]]`
 
 Find groups of mutually overlapping polygons.
 
 - **Args:**
   - `polygons` (List[Polygon]): List of polygons
+  - `min_area_threshold` (float): Minimum overlap area to consider (default: 1e-10)
 
 - **Returns:** List of groups, where each group is a list of polygon indices
 
@@ -540,7 +542,7 @@ Find groups of mutually overlapping polygons.
 from polyforge import find_overlapping_groups
 
 # Find which polygons overlap
-groups = find_overlapping_groups(polygons)
+groups = find_overlapping_groups(polygons, min_area_threshold=0.01)
 
 for i, group in enumerate(groups):
     if len(group) > 1:
@@ -553,14 +555,14 @@ for i, group in enumerate(groups):
 
 ### Merge Operations
 
-#### `merge_close_polygons(polygons, margin=0.0, strategy=MergeStrategy.SELECTIVE_BUFFER, preserve_holes=True, return_mapping=False, insert_vertices=False)`
+#### `merge_close_polygons(polygons, margin=0.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER, preserve_holes=True, return_mapping=False, insert_vertices=False)`
 
 Merge polygons that overlap or are within margin distance.
 
 - **Args:**
   - `polygons` (List[Polygon]): List of input polygons
   - `margin` (float): Maximum distance for merging (0.0 = only overlapping)
-  - `strategy` (MergeStrategy): Merging strategy (see strategies below)
+  - `merge_strategy` (MergeStrategy): Merging strategy (see strategies below)
   - `preserve_holes` (bool): Whether to preserve interior holes (default: True)
   - `return_mapping` (bool): If True, return (merged_polygons, groups) tuple (default: False)
   - `insert_vertices` (bool): Insert vertices at optimal connection points (default: False)
@@ -594,7 +596,7 @@ buildings = [building1, building2, building3]
 merged = merge_close_polygons(
     buildings,
     margin=2.0,
-    strategy=MergeStrategy.BOUNDARY_EXTENSION,
+    merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
     preserve_holes=True
 )
 
@@ -614,13 +616,13 @@ for i, (poly, source_indices) in enumerate(zip(merged, groups)):
 
 ### Topology Operations
 
-#### `align_boundaries(polygons, tolerance=1e-10) -> List[Polygon]`
+#### `align_boundaries(polygons, distance_tolerance=1e-10) -> List[Polygon]`
 
 Create conforming boundaries between adjacent polygons.
 
 - **Args:**
   - `polygons` (List[Polygon]): List of adjacent polygons
-  - `tolerance` (float): Distance tolerance for snapping (default: 1e-10)
+  - `distance_tolerance` (float): Distance tolerance for snapping (default: 1e-10)
 
 - **Returns:** List of polygons with aligned boundaries
 
@@ -632,7 +634,7 @@ from polyforge import align_boundaries
 
 # Create conforming boundaries for adjacent parcels
 parcels = [parcel1, parcel2, parcel3]
-aligned = align_boundaries(parcels, tolerance=1e-8)
+aligned = align_boundaries(parcels, distance_tolerance=1e-8)
 
 # Boundaries now match exactly
 assert aligned[0].boundary.intersects(aligned[1].boundary)
@@ -1059,15 +1061,15 @@ from polyforge.core import MergeStrategy
 
 # Choose strategy based on feature type
 if feature_type == "building":
-    strategy = MergeStrategy.BOUNDARY_EXTENSION
+    merge_strategy = MergeStrategy.BOUNDARY_EXTENSION
 elif feature_type == "natural":
-    strategy = MergeStrategy.CONVEX_BRIDGES
+    merge_strategy = MergeStrategy.CONVEX_BRIDGES
 elif performance_critical:
-    strategy = MergeStrategy.SIMPLE_BUFFER
+    merge_strategy = MergeStrategy.SIMPLE_BUFFER
 else:
-    strategy = MergeStrategy.SELECTIVE_BUFFER  # Default
+    merge_strategy = MergeStrategy.SELECTIVE_BUFFER  # Default
 
-merged = merge_close_polygons(polygons, margin=2.0, strategy=strategy)
+merged = merge_close_polygons(polygons, margin=2.0, merge_strategy=merge_strategy)
 ```
 
 ---
@@ -1280,14 +1282,14 @@ commercial = [...]
 merged_residential = merge_close_polygons(
     residential,
     margin=3.0,
-    strategy=MergeStrategy.BOUNDARY_EXTENSION,  # Preserve straight edges
+    merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,  # Preserve straight edges
     preserve_holes=True
 )
 
 merged_commercial = merge_close_polygons(
     commercial,
     margin=5.0,
-    strategy=MergeStrategy.CONVEX_BRIDGES,  # Smooth complex shapes
+    merge_strategy=MergeStrategy.CONVEX_BRIDGES,  # Smooth complex shapes
     preserve_holes=True
 )
 

@@ -4,9 +4,9 @@ This module provides reusable utilities for common geometry operations
 to eliminate code duplication across the codebase.
 """
 
-from typing import Union
+from typing import Union, List
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
 from shapely.geometry.base import BaseGeometry
 
 
@@ -191,10 +191,158 @@ def create_polygon_with_z_preserved(
         return Polygon(new_coords)
 
 
+def calculate_internal_angles(
+    geometry: Union[Polygon, LineString],
+    degrees: bool = True
+) -> List[float]:
+    """Calculate internal angles at each vertex of a polygon or linestring.
+
+    For a Polygon, calculates the internal angle at each vertex of the exterior ring.
+    The internal angle is measured inside the polygon. For a counter-clockwise oriented
+    polygon (standard for Shapely), the sum of internal angles should be (n-2) × 180°
+    where n is the number of vertices.
+
+    For a LineString, calculates the angle at each interior vertex (excluding endpoints).
+    The angle is measured as the turning angle from one segment to the next.
+
+    Args:
+        geometry: Polygon or LineString to analyze
+        degrees: If True, returns angles in degrees; if False, in radians (default: True)
+
+    Returns:
+        List of internal angles, one per vertex (excluding the closing vertex for polygons)
+
+    Examples:
+        >>> # Square with 90-degree corners
+        >>> square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        >>> angles = calculate_internal_angles(square)
+        >>> angles
+        [90.0, 90.0, 90.0, 90.0]
+
+        >>> # Right triangle
+        >>> triangle = Polygon([(0, 0), (1, 0), (0, 1)])
+        >>> angles = calculate_internal_angles(triangle)
+        >>> # Should have angles: 90°, 45°, 45°
+
+        >>> # LineString with turn
+        >>> line = LineString([(0, 0), (1, 0), (1, 1)])
+        >>> angles = calculate_internal_angles(line)
+        >>> angles
+        [90.0]  # One angle at the interior vertex
+
+    Notes:
+        - For polygons, returns n angles where n is the number of vertices (excluding closing point)
+        - For linestrings, returns n-2 angles (one per interior vertex)
+        - Angles are always positive (0-360° or 0-2π)
+        - For polygons, internal angles > 180° indicate reflex (concave) vertices
+    """
+    if isinstance(geometry, Polygon):
+        coords = np.array(geometry.exterior.coords)
+        # Exclude the closing vertex (last point == first point)
+        coords = coords[:-1]
+        calculate_for_closed = True
+    elif isinstance(geometry, LineString):
+        coords = np.array(geometry.coords)
+        calculate_for_closed = False
+    else:
+        raise TypeError(f"Geometry must be Polygon or LineString, got {type(geometry)}")
+
+    if len(coords) < 3:
+        return []
+
+    angles = []
+    n = len(coords)
+
+    if calculate_for_closed:
+        # For closed polygon: calculate angle at each vertex
+        for i in range(n):
+            prev_idx = (i - 1) % n
+            next_idx = (i + 1) % n
+
+            # Vectors from current point to previous and next
+            v1 = coords[prev_idx] - coords[i]
+            v2 = coords[next_idx] - coords[i]
+
+            # Calculate the internal angle
+            angle = _calculate_angle_between_vectors(v1, v2, degrees=degrees)
+            angles.append(angle)
+    else:
+        # For open linestring: calculate angle at interior vertices only
+        for i in range(1, n - 1):
+            # Vector from current to previous
+            v1 = coords[i - 1] - coords[i]
+            # Vector from current to next
+            v2 = coords[i + 1] - coords[i]
+
+            # Calculate the angle
+            angle = _calculate_angle_between_vectors(v1, v2, degrees=degrees)
+            angles.append(angle)
+
+    return angles
+
+
+def _calculate_angle_between_vectors(
+    v1: np.ndarray,
+    v2: np.ndarray,
+    degrees: bool = True
+) -> float:
+    """Calculate the angle between two vectors.
+
+    The angle is measured from v1 to v2 in the counter-clockwise direction.
+    Returns a value in [0, 360°] or [0, 2π].
+
+    Args:
+        v1: First vector (2D or 3D, only first 2 components used)
+        v2: Second vector (2D or 3D, only first 2 components used)
+        degrees: If True, return angle in degrees; if False, in radians
+
+    Returns:
+        Angle between vectors in the range [0, 360°] or [0, 2π]
+    """
+    # Extract 2D components
+    v1_2d = v1[:2]
+    v2_2d = v2[:2]
+
+    # Normalize vectors
+    v1_len = np.linalg.norm(v1_2d)
+    v2_len = np.linalg.norm(v2_2d)
+
+    if v1_len < 1e-10 or v2_len < 1e-10:
+        # Degenerate case: zero-length vector
+        return 0.0
+
+    v1_norm = v1_2d / v1_len
+    v2_norm = v2_2d / v2_len
+
+    # Calculate angle using atan2 for proper quadrant handling
+    # atan2(y, x) gives the angle of vector (x, y) from the positive x-axis
+    angle1 = np.arctan2(v1_norm[1], v1_norm[0])
+    angle2 = np.arctan2(v2_norm[1], v2_norm[0])
+
+    # Calculate the angle from v1 to v2 (counter-clockwise)
+    angle = angle2 - angle1
+
+    # Normalize to [0, 2π]
+    if angle < 0:
+        angle += 2 * np.pi
+
+    # For polygon internal angles, we want the angle measured "inside" the polygon
+    # For a counter-clockwise polygon, the internal angle is the complement
+    # Actually, we need to measure the angle the "other way"
+    # The internal angle is 2π - angle (or 360° - angle)
+    angle = 2 * np.pi - angle
+
+    if degrees:
+        angle = np.degrees(angle)
+
+    return float(angle)
+
+
 __all__ = [
     'to_single_polygon',
     'remove_holes',
     'validate_and_fix',
     'update_coord_preserve_z',
     'create_polygon_with_z_preserved',
+    'calculate_internal_angles',
 ]

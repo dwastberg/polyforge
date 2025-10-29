@@ -124,14 +124,14 @@ def remove_overlaps(
     return result
 
 
-def count_overlaps(polygons: List[Polygon], tolerance: float = 1e-10) -> int:
+def count_overlaps(polygons: List[Polygon], min_area_threshold: float = 1e-10) -> int:
     """Count the number of overlapping pairs in a list of polygons.
 
     Uses spatial indexing for efficient counting.
 
     Args:
         polygons: List of polygons to check
-        tolerance: Minimum overlap area to count (default: 1e-10)
+        min_area_threshold: Minimum overlap area to count (default: 1e-10)
 
     Returns:
         Number of overlapping pairs
@@ -157,13 +157,13 @@ def count_overlaps(polygons: List[Polygon], tolerance: float = 1e-10) -> int:
                 poly_j = polygons[j]
                 if poly_i.intersects(poly_j):
                     overlap = poly_i.intersection(poly_j)
-                    if hasattr(overlap, 'area') and overlap.area > tolerance:
+                    if hasattr(overlap, 'area') and overlap.area > min_area_threshold:
                         overlap_count += 1
 
     return overlap_count
 
 
-def find_overlapping_groups(polygons: List[Polygon], tolerance: float = 1e-10) -> List[List[int]]:
+def find_overlapping_groups(polygons: List[Polygon], min_area_threshold: float = 1e-10) -> List[List[int]]:
     """Find groups of mutually overlapping polygons.
 
     Returns groups where all polygons in a group have at least one overlap
@@ -171,7 +171,7 @@ def find_overlapping_groups(polygons: List[Polygon], tolerance: float = 1e-10) -
 
     Args:
         polygons: List of polygons to analyze
-        tolerance: Minimum overlap area to consider (default: 1e-10)
+        min_area_threshold: Minimum overlap area to consider (default: 1e-10)
 
     Returns:
         List of groups, where each group is a list of polygon indices
@@ -193,7 +193,7 @@ def find_overlapping_groups(polygons: List[Polygon], tolerance: float = 1e-10) -
                 poly_j = polygons[j]
                 if poly_i.intersects(poly_j):
                     overlap = poly_i.intersection(poly_j)
-                    if hasattr(overlap, 'area') and overlap.area > tolerance:
+                    if hasattr(overlap, 'area') and overlap.area > min_area_threshold:
                         adjacency[i].add(j)
                         adjacency[j].add(i)
 

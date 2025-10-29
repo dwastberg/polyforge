@@ -165,7 +165,7 @@ def fix_sharp_intrusion(
     geometry: Polygon,
     min_clearance: float,
     strategy: IntrusionStrategy = IntrusionStrategy.FILL,
-    max_iterations: int = 5
+    max_iterations: int = 10
 ) -> Polygon:
     """Fix sharp narrow intrusions by filling or smoothing.
 
@@ -179,7 +179,7 @@ def fix_sharp_intrusion(
             - 'fill': Fill intrusion with straight edge (default)
             - 'smooth': Apply smoothing to widen intrusion
             - 'simplify': Use vertex simplification
-        max_iterations: Maximum iterations to attempt
+        max_iterations: Maximum iterations to attempt (default: 10)
 
     Returns:
         Polygon with sharp intrusions fixed

@@ -16,7 +16,7 @@ from .utils.vertex_insertion import insert_connection_vertices
 def merge_close_polygons(
     polygons: List[Polygon],
     margin: float = 0.0,
-    strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER,
+    merge_strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER,
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False
@@ -34,7 +34,7 @@ def merge_close_polygons(
     Args:
         polygons: List of input polygons
         margin: Maximum distance for merging (0.0 = only overlapping polygons)
-        strategy: Merging strategy:
+        merge_strategy: Merging strategy:
             - MergeStrategy.SIMPLE_BUFFER: Classic expand-contract (fast, changes shape)
             - MergeStrategy.SELECTIVE_BUFFER: Only buffer near gaps (good balance, default)
             - MergeStrategy.VERTEX_MOVEMENT: Move vertices toward each other (precise)
@@ -56,7 +56,7 @@ def merge_close_polygons(
         >>> merged = merge_close_polygons(polygons, margin=0.0)
 
         >>> # Merge polygons within 5 units
-        >>> merged = merge_close_polygons(polygons, margin=5.0, strategy=MergeStrategy.SELECTIVE_BUFFER)
+        >>> merged = merge_close_polygons(polygons, margin=5.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER)
 
         >>> # Get mapping of which polygons were merged
         >>> merged, groups = merge_close_polygons(polygons, margin=2.0, return_mapping=True)
@@ -96,18 +96,18 @@ def merge_close_polygons(
             group_polygons = insert_connection_vertices(group_polygons, margin)
 
         # Select and apply merge strategy
-        if strategy == MergeStrategy.SIMPLE_BUFFER:
+        if merge_strategy == MergeStrategy.SIMPLE_BUFFER:
             merged = merge_simple_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.SELECTIVE_BUFFER:
+        elif merge_strategy == MergeStrategy.SELECTIVE_BUFFER:
             merged = merge_selective_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.VERTEX_MOVEMENT:
+        elif merge_strategy == MergeStrategy.VERTEX_MOVEMENT:
             merged = merge_vertex_movement(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.BOUNDARY_EXTENSION:
+        elif merge_strategy == MergeStrategy.BOUNDARY_EXTENSION:
             merged = merge_boundary_extension(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.CONVEX_BRIDGES:
+        elif merge_strategy == MergeStrategy.CONVEX_BRIDGES:
             merged = merge_convex_bridges(group_polygons, margin, preserve_holes)
         else:
-            raise ValueError(f"Unknown strategy: {strategy}")
+            raise ValueError(f"Unknown merge_strategy: {merge_strategy}")
 
         # Handle MultiPolygon results
         if isinstance(merged, MultiPolygon):
