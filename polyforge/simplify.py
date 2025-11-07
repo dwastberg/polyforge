@@ -99,74 +99,59 @@ def _snap_short_edges(
     if len(vertices) < 2:
         return vertices.copy()
 
-    # Check if this is a closed ring (first and last vertices are the same)
+    snap_handlers = {
+        'midpoint': lambda current, nxt: (current + nxt) / 2.0,
+        'first': lambda current, _: current,
+        'last': lambda _, nxt: nxt,
+    }
+
+    if snap_mode not in snap_handlers:
+        raise ValueError(f"Unknown snap_mode: {snap_mode}")
+
     is_closed = np.allclose(vertices[0], vertices[-1])
+    working = vertices[:-1] if is_closed else vertices
+    snapper = snap_handlers[snap_mode]
 
-    # We'll build a new vertex list
-    result = []
+    collapsed: list[np.ndarray] = []
     i = 0
-    n = len(vertices)
-
-    # For closed rings, we need to check the wrap-around edge
-    if is_closed:
-        n = n - 1  # Don't process the duplicate closing vertex yet
+    n = len(working)
 
     while i < n:
-        current = vertices[i]
-
-        # Look ahead to find the next vertex that's far enough away
+        current = working[i].copy()
         j = i + 1
+
         while j < n:
-            next_vertex = vertices[j]
-            distance = np.linalg.norm(next_vertex - current)
-
-            if distance >= min_length:
-                # This edge is long enough, keep the current vertex
+            next_vertex = working[j]
+            if np.linalg.norm(next_vertex - current) >= min_length:
                 break
-
-            # Edge is too short, snap according to mode
-            if snap_mode == 'midpoint':
-                current = (current + next_vertex) / 2.0
-            elif snap_mode == 'last':
-                current = next_vertex
-            # For 'first' mode, we keep current as is
-
+            current = np.array(snapper(current, next_vertex), dtype=float, copy=True)
             j += 1
 
-        result.append(current)
+        collapsed.append(current)
         i = j
 
-    # Handle closed rings
-    if is_closed and len(result) > 0:
-        # Check the edge between last and first vertex
-        if len(result) >= 2:
-            first = result[0]
-            last = result[-1]
-            distance = np.linalg.norm(last - first)
-
-            if distance < min_length:
-                # Snap the first and last vertices together
-                if snap_mode == 'midpoint':
-                    snapped = (first + last) / 2.0
-                    result[0] = snapped
-                    result[-1] = snapped
-                elif snap_mode == 'first':
-                    result[-1] = first
-                elif snap_mode == 'last':
-                    result[0] = last
-            else:
-                # Close the ring normally
-                result.append(result[0].copy())
-        else:
-            # Only one vertex left, just close it
-            result.append(result[0].copy())
-
-    # Ensure we have at least 2 vertices for a valid geometry
-    if len(result) < 2:
-        # If we collapsed everything, return the first two original vertices
+    if not collapsed:
         return vertices[:2].copy()
 
-    return np.array(result)
+    collapsed_array = np.vstack(collapsed)
+
+    if is_closed:
+        if len(collapsed_array) == 1:
+            collapsed_array = np.vstack([collapsed_array, collapsed_array[0]])
+        else:
+            first = collapsed_array[0]
+            last = collapsed_array[-1]
+            if np.linalg.norm(last - first) < min_length:
+                merged = np.array(snapper(first, last), dtype=float, copy=True)
+                collapsed_array[0] = merged
+                collapsed_array[-1] = merged
+            else:
+                collapsed_array = np.vstack([collapsed_array, collapsed_array[0]])
+
+    if len(collapsed_array) < 2:
+        return vertices[:2].copy()
+
+    return collapsed_array
 
 
 def _remove_duplicate_vertices(

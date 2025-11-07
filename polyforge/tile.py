@@ -5,8 +5,24 @@ from typing import Tuple, Optional, Union, List
 from math import atan2, ceil
 
 
-def tile_polygon(polygon: Polygon, tile_count: Optional[Union[Tuple[int, int], int]] = None,
-                 tile_size: Optional[Union[Tuple[float, float], float]] = None, axis_oriented: bool = False) -> Union[Polygon, MultiPolygon]:
+def tile_polygon(
+    polygon: Polygon,
+    tile_count: Optional[Union[Tuple[int, int], int]] = None,
+    tile_size: Optional[Union[Tuple[float, float], float]] = None,
+    axis_oriented: bool = False
+) -> Union[Polygon, MultiPolygon]:
+    """Intersect a polygon with a grid defined by tile count or size.
+
+    Args:
+        polygon: Geometry to tile.
+        tile_count: Number of tiles as scalar (square grid) or (cols, rows).
+        tile_size: Tile dimensions as scalar (square tiles) or (width, height).
+        axis_oriented: If True, tiles align with axis-aligned bounding box; otherwise
+            they follow the oriented minimum bounding box of the polygon.
+
+    Returns:
+        Polygon or MultiPolygon representing the tiled result.
+    """
     angle = 0.0
     centroid = None
     if axis_oriented:
@@ -20,8 +36,8 @@ def tile_polygon(polygon: Polygon, tile_count: Optional[Union[Tuple[int, int], i
         centroid = tiling_bbox.centroid
         tiling_bbox = affinity.rotate(tiling_bbox, -angle, origin=centroid, use_radians=True)
     tiles = _tile_box(tiling_bbox, tile_count=tile_count, tile_size=tile_size)
-    tiles=MultiPolygon(tiles)
-    tiled_polygon = shapely.intersection(polygon, tiles)
+    tile_collection = MultiPolygon(tiles)
+    tiled_polygon = polygon.intersection(tile_collection)
     if not axis_oriented:
         tiled_polygon = affinity.rotate(tiled_polygon, angle, origin=centroid, use_radians=True)
     return tiled_polygon

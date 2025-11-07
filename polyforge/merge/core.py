@@ -49,27 +49,6 @@ def merge_close_polygons(
 
     Returns:
         List of merged polygons, or (polygons, groups) if return_mapping=True
-
-    Examples:
-        >>> from polyforge.core.types import MergeStrategy
-        >>> # Merge overlapping polygons only
-        >>> merged = merge_close_polygons(polygons, margin=0.0)
-
-        >>> # Merge polygons within 5 units
-        >>> merged = merge_close_polygons(polygons, margin=5.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER)
-
-        >>> # Get mapping of which polygons were merged
-        >>> merged, groups = merge_close_polygons(polygons, margin=2.0, return_mapping=True)
-
-        >>> # Use vertex insertion for optimal bridges
-        >>> merged = merge_close_polygons(polygons, margin=2.0, insert_vertices=True)
-
-    Notes:
-        - Uses spatial indexing (STRtree) for O(n log n) performance
-        - Most isolated polygons are returned unchanged (fast path)
-        - Groups of close polygons are merged together
-        - Different strategies offer different trade-offs between speed and shape preservation
-        - insert_vertices adds computational overhead but improves merge quality
     """
     if not polygons:
         return ([], []) if return_mapping else []
@@ -143,9 +122,6 @@ def find_close_polygon_groups(
         Tuple of (isolated_indices, merge_groups) where:
         - isolated_indices: List of indices of polygons with no close neighbors
         - merge_groups: List of groups, each group is a list of polygon indices
-
-    Performance:
-        O(n log n) using spatial index, compared to O(n²) for naive approach
     """
     if not polygons:
         return [], []

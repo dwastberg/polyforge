@@ -28,19 +28,6 @@ def align_boundaries(
 
     Returns:
         Tuple of (modified_poly1, modified_poly2) with aligned boundaries
-
-    Examples:
-        >>> # Two squares sharing an edge, one has vertex at midpoint
-        >>> poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
-        >>> poly2 = Polygon([(2, 0), (4, 0), (4, 2), (2, 1), (2, 2)])  # vertex at (2, 1)
-        >>> result1, result2 = align_boundaries(poly1, poly2)
-        >>> # result1 now has vertex at (2, 1) on its right edge
-
-    Notes:
-        - Polygons must be valid and should be touching (but not overlapping)
-        - Works with polygons containing holes
-        - Preserves winding order
-        - Vertices already existing (within tolerance) are not duplicated
     """
     # Get vertices that need to be added to each polygon
     vertices_for_poly1 = _find_vertices_on_edges(poly2, poly1, distance_tolerance)

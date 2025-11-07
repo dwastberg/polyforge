@@ -8,6 +8,7 @@ from typing import Union, List
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
 from shapely.geometry.base import BaseGeometry
+from shapely.errors import GEOSException
 
 
 def to_single_polygon(geometry: BaseGeometry) -> Polygon:
@@ -130,7 +131,7 @@ def validate_and_fix(
                 return None
             return fixed
 
-    except Exception:
+    except GEOSException:
         pass
 
     return None

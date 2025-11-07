@@ -75,26 +75,27 @@ def remove_overlaps(
         overlapping_pairs = []
         checked_pairs = set()
 
-        for i in range(len(result)):
-            poly_i = result[i]
-
-            # Query spatial index for potential overlaps
+        for i, poly_i in enumerate(result):
             candidate_indices = tree.query(poly_i, predicate='intersects')
 
             for j in candidate_indices:
-                if j > i:  # Only process each pair once
-                    # Skip if already checked
-                    if (i, j) in checked_pairs:
-                        continue
-                    checked_pairs.add((i, j))
+                if j <= i:
+                    continue
 
-                    poly_j = result[j]
+                pair = (i, j)
+                if pair in checked_pairs:
+                    continue
+                checked_pairs.add(pair)
 
-                    # Check if they actually overlap (not just touch)
-                    if poly_i.intersects(poly_j):
-                        overlap = poly_i.intersection(poly_j)
-                        if hasattr(overlap, 'area') and overlap.area > 1e-10:
-                            overlapping_pairs.append((i, j))
+                poly_j = result[j]
+
+                # Skip if polygons only touch without overlapping area
+                if poly_i.touches(poly_j):
+                    continue
+
+                overlap = poly_i.intersection(poly_j)
+                if hasattr(overlap, 'area') and overlap.area > 1e-10:
+                    overlapping_pairs.append(pair)
 
         if not overlapping_pairs:
             # No overlaps found, we're done

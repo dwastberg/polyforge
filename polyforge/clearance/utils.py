@@ -44,21 +44,31 @@ def _find_nearest_edge_index(coords: np.ndarray, point: np.ndarray) -> int:
     Returns:
         Index of edge start vertex (edge is from index to index+1)
     """
-    min_dist = float('inf')
-    nearest_idx = 0
+    if len(coords) < 2:
+        return 0
 
-    for i in range(len(coords) - 1):
-        edge_start = coords[i, :2] if coords.shape[1] > 2 else coords[i]
-        edge_end = coords[i + 1, :2] if coords.shape[1] > 2 else coords[i + 1]
-        point_2d = point[:2] if len(point) > 2 else point
+    coords_2d = coords[:, :2] if coords.shape[1] > 2 else coords
+    point_2d = point[:2] if len(point) > 2 else point
+    point_2d = np.asarray(point_2d, dtype=float)
 
-        dist = _point_to_segment_distance(point_2d, edge_start, edge_end)
+    segment_starts = coords_2d[:-1]
+    segment_ends = coords_2d[1:]
+    segment_vectors = segment_ends - segment_starts
+    point_vectors = point_2d - segment_starts
 
-        if dist < min_dist:
-            min_dist = dist
-            nearest_idx = i
+    seg_len_sq = np.einsum('ij,ij->i', segment_vectors, segment_vectors)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t = np.where(seg_len_sq > 0, np.einsum('ij,ij->i', point_vectors, segment_vectors) / seg_len_sq, 0.0)
+    t = np.clip(t, 0.0, 1.0)
 
-    return nearest_idx
+    projections = segment_starts + (segment_vectors.T * t).T
+    distances = np.linalg.norm(projections - point_2d, axis=1)
+
+    degenerate = seg_len_sq == 0
+    if np.any(degenerate):
+        distances[degenerate] = np.linalg.norm(point_2d - segment_starts[degenerate], axis=1)
+
+    return int(np.argmin(distances))
 
 
 def _point_to_segment_distance(

@@ -20,8 +20,8 @@ def _process_coords(coords, process_function, *args, **kwargs):
         For 3D coordinates, Z values are interpolated along the simplified line
         based on the cumulative distance along the 2D path.
     """
-    coords_array = np.array(coords)
-    has_z = coords_array.shape[1] == 3
+    coords_array = np.asarray(coords)
+    has_z = coords_array.ndim == 2 and coords_array.shape[1] == 3
 
     if has_z:
         # Split into XY and Z components
@@ -36,15 +36,16 @@ def _process_coords(coords, process_function, *args, **kwargs):
             return np.column_stack([processed_2d, z_values])
 
         # Otherwise, interpolate Z values based on cumulative distance along the line
-        # Calculate cumulative distances along the original 2D path
-        orig_dists = np.zeros(len(coords_2d))
-        for i in range(1, len(coords_2d)):
-            orig_dists[i] = orig_dists[i-1] + np.linalg.norm(coords_2d[i] - coords_2d[i-1])
+        def _cumulative_distances(points: np.ndarray) -> np.ndarray:
+            if len(points) < 2:
+                return np.zeros(len(points), dtype=float)
+            deltas = np.diff(points, axis=0)
+            segment_lengths = np.linalg.norm(deltas, axis=1)
+            return np.concatenate(([0.0], segment_lengths.cumsum()))
 
-        # Calculate cumulative distances along the processed 2D path
-        proc_dists = np.zeros(len(processed_2d))
-        for i in range(1, len(processed_2d)):
-            proc_dists[i] = proc_dists[i-1] + np.linalg.norm(processed_2d[i] - processed_2d[i-1])
+        # Calculate cumulative distances along the original and processed 2D paths
+        orig_dists = _cumulative_distances(coords_2d)
+        proc_dists = _cumulative_distances(processed_2d)
 
         # Interpolate Z values at the processed vertex positions
         # Use the cumulative distance along the path as the interpolation parameter

@@ -55,12 +55,12 @@ def find_polygon_pairs(
     for i in range(len(polygons)):
         poly_i = polygons[i]
 
-        # Query with buffered geometry if margin > 0
-        if margin > 0:
-            search_geom = poly_i.buffer(margin * 1.01)
-            candidate_indices = tree.query(search_geom, predicate=predicate)
+        # Query with distance predicate if possible
+        if margin > 0 and (predicate is None or predicate == 'intersects'):
+            candidate_indices = tree.query(poly_i, predicate='dwithin', distance=margin)
         else:
-            candidate_indices = tree.query(poly_i, predicate=predicate)
+            search_geom = poly_i if margin <= 0 else poly_i.buffer(margin)
+            candidate_indices = tree.query(search_geom, predicate=predicate)
 
         for j in candidate_indices:
             # Only process each pair once (i < j)
@@ -205,8 +205,7 @@ def build_adjacency_graph(
 
         # Query spatial index
         if margin > 0:
-            search_geom = poly_i.buffer(margin * 1.01)
-            candidate_indices = tree.query(search_geom, predicate='intersects')
+            candidate_indices = tree.query(poly_i, predicate='dwithin', distance=margin)
         else:
             candidate_indices = tree.query(poly_i, predicate='intersects')
 

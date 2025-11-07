@@ -38,20 +38,6 @@ def split_overlap(
         Tuple of (modified_poly1, modified_poly2) where the polygons touch but
         don't overlap. If the polygons don't overlap or one contains the other,
         returns the original polygons unchanged.
-
-    Examples:
-        >>> from shapely.geometry import Polygon
-        >>> from polyforge.core.types import OverlapStrategy
-        >>> poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
-        >>> poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
-        >>> result1, result2 = split_overlap(poly1, poly2)
-        >>> result1.intersects(result2)  # They touch
-        True
-        >>> result1.intersection(result2).area  # But don't overlap
-        0.0
-
-        >>> # Using specific strategy
-        >>> result1, result2 = split_overlap(poly1, poly2, OverlapStrategy.LARGEST)
     """
     # Check if polygons actually overlap
     if not poly1.intersects(poly2):
