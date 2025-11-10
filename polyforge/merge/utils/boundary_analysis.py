@@ -1,8 +1,15 @@
 """Boundary analysis utilities for identifying close polygon segments."""
 
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
+
 import numpy as np
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import LineString, Point, Polygon
+
+from ...core.spatial_utils import (
+    SegmentIndex,
+    build_segment_index,
+    query_close_segments,
+)
 
 
 def find_close_boundary_pairs(
@@ -20,44 +27,28 @@ def find_close_boundary_pairs(
     Returns:
         List of (segment1, segment2, distance) tuples
     """
-    # Auto-determine segment length based on margin
     if segment_length is None:
-        segment_length = margin * 2.0
+        segment_length = margin * 2.0 if margin > 0 else 1.0
 
-    # Extract boundary segments from all polygons
-    all_segments = []
-    for poly_idx, poly in enumerate(polygons):
-        coords = list(poly.exterior.coords)
+    index = build_segment_index(polygons, segment_length)
+    close_pairs: List[Tuple[LineString, LineString, float]] = []
+    seen: set[Tuple[int, int]] = set()
 
-        # Discretize boundary into segments
-        for i in range(len(coords) - 1):
-            seg = LineString([coords[i], coords[i + 1]])
-
-            # Further subdivide long segments
-            seg_len = seg.length
-            if seg_len > segment_length:
-                # Split into smaller segments
-                num_splits = int(np.ceil(seg_len / segment_length))
-                for j in range(num_splits):
-                    start = j / num_splits
-                    end = (j + 1) / num_splits
-                    subseg = LineString([
-                        seg.interpolate(start, normalized=True).coords[0],
-                        seg.interpolate(end, normalized=True).coords[0]
-                    ])
-                    all_segments.append((poly_idx, subseg))
-            else:
-                all_segments.append((poly_idx, seg))
-
-    # Find close segment pairs from different polygons
-    close_pairs = []
-    for i, (poly_idx_i, seg_i) in enumerate(all_segments):
-        for j, (poly_idx_j, seg_j) in enumerate(all_segments[i + 1:], i + 1):
-            # Only consider segments from different polygons
-            if poly_idx_i != poly_idx_j:
-                distance = seg_i.distance(seg_j)
-                if distance <= margin:
-                    close_pairs.append((seg_i, seg_j, distance))
+    for seg_idx, segment in enumerate(index.segments):
+        owner_i = index.owners[seg_idx][0]
+        for cand_idx in query_close_segments(index, seg_idx, margin):
+            if cand_idx <= seg_idx:
+                continue
+            owner_j = index.owners[cand_idx][0]
+            if owner_i == owner_j:
+                continue
+            pair_key = (seg_idx, cand_idx)
+            if pair_key in seen:
+                continue
+            distance = segment.distance(index.segments[cand_idx])
+            if distance <= margin:
+                close_pairs.append((segment, index.segments[cand_idx], distance))
+                seen.add(pair_key)
 
     return close_pairs
 

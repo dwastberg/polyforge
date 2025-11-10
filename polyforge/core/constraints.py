@@ -206,211 +206,66 @@ class GeometryConstraints:
         Returns:
             ConstraintStatus with validation results and any violations
         """
-        violations = []
-
-        # Check if None
         if geometry is None:
-            violations.append(ConstraintViolation(
+            violation = ConstraintViolation(
                 constraint_type=ConstraintType.VALIDITY,
                 severity=float('inf'),
                 message="Geometry is None",
                 actual_value=0.0,
-                required_value=1.0
-            ))
+                required_value=1.0,
+            )
             return ConstraintStatus(
-                geometry=geometry,
-                violations=violations,
+                geometry=None,
+                violations=[violation],
                 validity=False,
-                original_area=original.area if original is not None else 0.0
+                original_area=original.area if original is not None else 0.0,
+                area_ratio=0.0,
             )
 
-        # Check if empty
         if geometry.is_empty:
-            violations.append(ConstraintViolation(
+            violation = ConstraintViolation(
                 constraint_type=ConstraintType.VALIDITY,
                 severity=float('inf'),
                 message="Geometry is empty",
                 actual_value=0.0,
-                required_value=1.0
-            ))
+                required_value=1.0,
+            )
             return ConstraintStatus(
                 geometry=geometry,
-                violations=violations,
+                violations=[violation],
                 validity=False,
-                original_area=original.area
+                original_area=original.area if original is not None else 0.0,
+                area_ratio=0.0,
             )
 
-        # Check validity
-        is_valid = geometry.is_valid
-        if self.must_be_valid and not is_valid:
-            violations.append(ConstraintViolation(
-                constraint_type=ConstraintType.VALIDITY,
-                severity=1000.0,  # High severity
-                message=f"Geometry is invalid: {geometry.is_valid_reason if hasattr(geometry, 'is_valid_reason') else 'unknown'}",
-            ))
-
-        # Check MultiPolygon vs Polygon
-        if not self.allow_multipolygon and geometry.geom_type == 'MultiPolygon':
-            violations.append(ConstraintViolation(
-                constraint_type=ConstraintType.VALIDITY,
-                severity=100.0,
-                message="MultiPolygon result not allowed",
-            ))
-
-        # Measure clearance (only for valid, non-empty geometries)
-        measured_clearance = None
-        if is_valid and not geometry.is_empty:
-            try:
-                measured_clearance = geometry.minimum_clearance
-
-                # Check minimum clearance
-                if self.min_clearance is not None and measured_clearance < self.min_clearance:
-                    deficit = self.min_clearance - measured_clearance
-                    violations.append(ConstraintViolation(
-                        constraint_type=ConstraintType.CLEARANCE,
-                        severity=deficit * 10.0,  # Scale by deficit
-                        message=f"Clearance below minimum",
-                        actual_value=measured_clearance,
-                        required_value=self.min_clearance
-                    ))
-            except Exception:
-                # Some geometries may not support minimum_clearance
-                measured_clearance = None
-
-        # Check area preservation
-        original_area = original.area
-        current_area = geometry.area
+        original_area = original.area if original is not None else 0.0
+        current_area = geometry.area if hasattr(geometry, "area") else 0.0
         area_ratio = current_area / original_area if original_area > 0 else 0.0
+        is_valid = geometry.is_valid
+        clearance = _measure_clearance(geometry) if is_valid else None
 
-        if area_ratio < self.min_area_ratio:
-            loss = (1.0 - area_ratio) * 100  # Convert to percentage
-            violations.append(ConstraintViolation(
-                constraint_type=ConstraintType.AREA_PRESERVATION,
-                severity=loss,  # Severity proportional to loss
-                message=f"Area loss exceeds maximum ({loss:.1f}% lost)",
-                actual_value=area_ratio,
-                required_value=self.min_area_ratio
-            ))
+        context = ConstraintContext(
+            geometry=geometry,
+            original=original,
+            config=self,
+            is_valid=is_valid,
+            clearance=clearance,
+            area_ratio=area_ratio,
+            original_area=original_area,
+        )
 
-        if area_ratio > self.max_area_ratio:
-            gain = (area_ratio - 1.0) * 100  # Convert to percentage
-            violations.append(ConstraintViolation(
-                constraint_type=ConstraintType.AREA_PRESERVATION,
-                severity=gain,
-                message=f"Area gain exceeds maximum ({gain:.1f}% gained)",
-                actual_value=area_ratio,
-                required_value=self.max_area_ratio
-            ))
-
-        # Check hole count (only for Polygon)
-        if self.max_holes is not None and isinstance(geometry, Polygon):
-            hole_count = len(geometry.interiors)
-            if hole_count > self.max_holes:
-                excess = hole_count - self.max_holes
-                violations.append(ConstraintViolation(
-                    constraint_type=ConstraintType.HOLE_VALIDITY,
-                    severity=excess * 10.0,
-                    message=f"Too many holes ({hole_count} > {self.max_holes})",
-                    actual_value=float(hole_count),
-                    required_value=float(self.max_holes)
-                ))
-
-        # Check hole properties (area, aspect ratio, width)
-        # This applies to both Polygon and MultiPolygon
-        if isinstance(geometry, (Polygon, MultiPolygon)):
-            # Collect all holes from all polygons
-            all_holes = []
-            if isinstance(geometry, Polygon):
-                all_holes = list(geometry.interiors)
-            elif isinstance(geometry, MultiPolygon):
-                for poly in geometry.geoms:
-                    all_holes.extend(poly.interiors)
-
-            # Check each hole against constraints
-            violating_holes = []
-
-            for hole in all_holes:
-                hole_polygon = Polygon(hole)
-                hole_area = hole_polygon.area
-
-                # Check minimum hole area
-                if self.min_hole_area is not None and hole_area < self.min_hole_area:
-                    if hole_area > 1e-10:  # Don't report zero-area holes separately
-                        violating_holes.append(('area', hole_area, self.min_hole_area))
-                    continue
-
-                # Check aspect ratio and width (requires OBB calculation)
-                if self.max_hole_aspect_ratio is not None or self.min_hole_width is not None:
-                    try:
-                        from shapely.geometry import Point
-                        obb = hole_polygon.minimum_rotated_rectangle
-                        coords = list(obb.exterior.coords)
-
-                        if len(coords) >= 4:
-                            edge1 = Point(coords[0]).distance(Point(coords[1]))
-                            edge2 = Point(coords[1]).distance(Point(coords[2]))
-
-                            longer = max(edge1, edge2)
-                            shorter = min(edge1, edge2)
-
-                            if shorter > 0:
-                                aspect_ratio = longer / shorter
-
-                                # Check aspect ratio
-                                if self.max_hole_aspect_ratio is not None and aspect_ratio > self.max_hole_aspect_ratio:
-                                    violating_holes.append(('aspect', aspect_ratio, self.max_hole_aspect_ratio))
-                                    continue
-
-                                # Check minimum width
-                                if self.min_hole_width is not None and shorter < self.min_hole_width:
-                                    violating_holes.append(('width', shorter, self.min_hole_width))
-                                    continue
-                    except Exception:
-                        # If we can't calculate OBB, skip this hole
-                        pass
-
-            # Add violations for holes that don't meet criteria
-            if violating_holes:
-                # Group by violation type for clearer reporting
-                area_violations = [v for v in violating_holes if v[0] == 'area']
-                aspect_violations = [v for v in violating_holes if v[0] == 'aspect']
-                width_violations = [v for v in violating_holes if v[0] == 'width']
-
-                if area_violations:
-                    violations.append(ConstraintViolation(
-                        constraint_type=ConstraintType.HOLE_VALIDITY,
-                        severity=len(area_violations) * 5.0,
-                        message=f"{len(area_violations)} hole(s) below minimum area",
-                        actual_value=float(len(area_violations)),
-                        required_value=0.0
-                    ))
-
-                if aspect_violations:
-                    violations.append(ConstraintViolation(
-                        constraint_type=ConstraintType.HOLE_VALIDITY,
-                        severity=len(aspect_violations) * 5.0,
-                        message=f"{len(aspect_violations)} hole(s) exceed maximum aspect ratio",
-                        actual_value=float(len(aspect_violations)),
-                        required_value=0.0
-                    ))
-
-                if width_violations:
-                    violations.append(ConstraintViolation(
-                        constraint_type=ConstraintType.HOLE_VALIDITY,
-                        severity=len(width_violations) * 5.0,
-                        message=f"{len(width_violations)} hole(s) below minimum width",
-                        actual_value=float(len(width_violations)),
-                        required_value=0.0
-                    ))
+        violations: List[ConstraintViolation] = []
+        for rule in _iter_constraint_rules():
+            violations.extend(rule.evaluate(context))
 
         return ConstraintStatus(
             geometry=geometry,
             violations=violations,
             validity=is_valid,
-            clearance=measured_clearance,
-            overlap_area=0.0,  # Overlap checking requires multiple geometries
+            clearance=clearance,
+            overlap_area=0.0,
             area_ratio=area_ratio,
-            original_area=original_area
+            original_area=original_area,
         )
 
     def check_batch(
@@ -441,6 +296,239 @@ class GeometryConstraints:
         # This would require spatial indexing similar to remove_overlaps()
 
         return statuses
+
+
+@dataclass
+class ConstraintContext:
+    geometry: BaseGeometry
+    original: BaseGeometry
+    config: GeometryConstraints
+    is_valid: bool
+    clearance: Optional[float]
+    area_ratio: float
+    original_area: float
+
+
+class ConstraintRule:
+    """Interface for modular constraint checks."""
+
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        raise NotImplementedError
+
+
+def _iter_constraint_rules() -> List[ConstraintRule]:
+    return [
+        ValidityRule(),
+        ClearanceRule(),
+        AreaRule(),
+        HoleCountRule(),
+        HoleShapeRule(),
+    ]
+
+
+class ValidityRule(ConstraintRule):
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        violations: List[ConstraintViolation] = []
+        config = ctx.config
+        if config.must_be_valid and not ctx.is_valid:
+            reason = getattr(ctx.geometry, "is_valid_reason", "unknown")
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=1000.0,
+                    message=f"Geometry is invalid: {reason}",
+                )
+            )
+        if (
+            not config.allow_multipolygon
+            and ctx.geometry.geom_type == "MultiPolygon"
+        ):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=100.0,
+                    message="MultiPolygon result not allowed",
+                )
+            )
+        return violations
+
+
+class ClearanceRule(ConstraintRule):
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        config = ctx.config
+        if config.min_clearance is None or ctx.clearance is None:
+            return []
+        if ctx.clearance + 1e-12 >= config.min_clearance:
+            return []
+        deficit = config.min_clearance - ctx.clearance
+        return [
+            ConstraintViolation(
+                constraint_type=ConstraintType.CLEARANCE,
+                severity=deficit * 10.0,
+                message="Clearance below minimum",
+                actual_value=ctx.clearance,
+                required_value=config.min_clearance,
+            )
+        ]
+
+
+class AreaRule(ConstraintRule):
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        config = ctx.config
+        ratio = ctx.area_ratio
+        violations: List[ConstraintViolation] = []
+        if ratio < config.min_area_ratio:
+            loss = (1.0 - ratio) * 100.0
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.AREA_PRESERVATION,
+                    severity=loss,
+                    message=f"Area loss exceeds maximum ({loss:.1f}% lost)",
+                    actual_value=ratio,
+                    required_value=config.min_area_ratio,
+                )
+            )
+        if ratio > config.max_area_ratio:
+            gain = (ratio - 1.0) * 100.0
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.AREA_PRESERVATION,
+                    severity=gain,
+                    message=f"Area gain exceeds maximum ({gain:.1f}% gained)",
+                    actual_value=ratio,
+                    required_value=config.max_area_ratio,
+                )
+            )
+        return violations
+
+
+class HoleCountRule(ConstraintRule):
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        config = ctx.config
+        if config.max_holes is None or not isinstance(ctx.geometry, Polygon):
+            return []
+        hole_count = len(ctx.geometry.interiors)
+        if hole_count <= config.max_holes:
+            return []
+        excess = hole_count - config.max_holes
+        return [
+            ConstraintViolation(
+                constraint_type=ConstraintType.HOLE_VALIDITY,
+                severity=excess * 10.0,
+                message=f"Too many holes ({hole_count} > {config.max_holes})",
+                actual_value=float(hole_count),
+                required_value=float(config.max_holes),
+            )
+        ]
+
+
+class HoleShapeRule(ConstraintRule):
+    def evaluate(self, ctx: ConstraintContext) -> List[ConstraintViolation]:
+        config = ctx.config
+        if not isinstance(ctx.geometry, (Polygon, MultiPolygon)):
+            return []
+
+        require_area = config.min_hole_area is not None
+        require_aspect = config.max_hole_aspect_ratio is not None
+        require_width = config.min_hole_width is not None
+        if not any([require_area, require_aspect, require_width]):
+            return []
+
+        interiors = _collect_holes(ctx.geometry)
+        area_violations = 0
+        aspect_violations = 0
+        width_violations = 0
+
+        for ring in interiors:
+            hole_polygon = Polygon(ring)
+            if require_area and hole_polygon.area < config.min_hole_area:
+                if hole_polygon.area > 1e-10:
+                    area_violations += 1
+                continue
+
+            if not (require_aspect or require_width):
+                continue
+
+            try:
+                aspect, width = _hole_shape_metrics(hole_polygon)
+            except Exception:
+                continue
+
+            if require_aspect and aspect > config.max_hole_aspect_ratio:
+                aspect_violations += 1
+                continue
+
+            if require_width and width < config.min_hole_width:
+                width_violations += 1
+
+        violations: List[ConstraintViolation] = []
+        if area_violations:
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.HOLE_VALIDITY,
+                    severity=area_violations * 5.0,
+                    message=f"{area_violations} hole(s) below minimum area",
+                    actual_value=float(area_violations),
+                    required_value=0.0,
+                )
+            )
+        if aspect_violations:
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.HOLE_VALIDITY,
+                    severity=aspect_violations * 5.0,
+                    message=f"{aspect_violations} hole(s) exceed maximum aspect ratio",
+                    actual_value=float(aspect_violations),
+                    required_value=0.0,
+                )
+            )
+        if width_violations:
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.HOLE_VALIDITY,
+                    severity=width_violations * 5.0,
+                    message=f"{width_violations} hole(s) below minimum width",
+                    actual_value=float(width_violations),
+                    required_value=0.0,
+                )
+            )
+        return violations
+
+
+def _measure_clearance(geometry: BaseGeometry) -> Optional[float]:
+    try:
+        return geometry.minimum_clearance
+    except Exception:
+        return None
+
+
+def _collect_holes(geometry: BaseGeometry) -> List:
+    if isinstance(geometry, Polygon):
+        return list(geometry.interiors)
+    if isinstance(geometry, MultiPolygon):
+        rings = []
+        for poly in geometry.geoms:
+            rings.extend(poly.interiors)
+        return rings
+    return []
+
+
+def _hole_shape_metrics(hole_polygon: Polygon) -> Tuple[float, float]:
+    obb = hole_polygon.minimum_rotated_rectangle
+    coords = list(obb.exterior.coords)
+    if len(coords) < 4:
+        raise ValueError("degenerate hole")
+    from shapely.geometry import Point
+
+    edge1 = Point(coords[0]).distance(Point(coords[1]))
+    edge2 = Point(coords[1]).distance(Point(coords[2]))
+    longer = max(edge1, edge2)
+    shorter = min(edge1, edge2)
+    if shorter <= 0:
+        raise ValueError("degenerate width")
+    aspect_ratio = longer / shorter
+    width = shorter
+    return aspect_ratio, width
 
 
 @dataclass

@@ -4,9 +4,11 @@ This module provides reusable utilities for spatial operations, indexing,
 and geometric calculations to eliminate code duplication.
 """
 
-from typing import List, Tuple, Callable, Optional, Set
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Set, Tuple
+
 import numpy as np
-from shapely.geometry import Polygon, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 from shapely.ops import nearest_points
@@ -263,4 +265,60 @@ __all__ = [
     'point_to_segment_projection',
     'build_adjacency_graph',
     'find_connected_components',
+    'SegmentIndex',
+    'build_segment_index',
+    'query_close_segments',
 ]
+@dataclass
+class SegmentIndex:
+    """Spatial index of polygon boundary segments."""
+
+    segments: List[LineString]
+    owners: List[Tuple[int, int]]  # (polygon_index, edge_index)
+    tree: STRtree
+
+
+def build_segment_index(
+    polygons: List[Polygon],
+    segment_length: float,
+) -> SegmentIndex:
+    """Discretize polygon boundaries into segments and build an STRtree."""
+    segments: List[LineString] = []
+    owners: List[Tuple[int, int]] = []
+
+    for poly_idx, poly in enumerate(polygons):
+        coords = list(poly.exterior.coords)
+        for edge_idx in range(len(coords) - 1):
+            seg = LineString([coords[edge_idx], coords[edge_idx + 1]])
+            seg_len = seg.length
+            if seg_len <= segment_length + 1e-9:
+                segments.append(seg)
+                owners.append((poly_idx, edge_idx))
+                continue
+
+            splits = max(1, int(np.ceil(seg_len / segment_length)))
+            for j in range(splits):
+                start_t = j / splits
+                end_t = (j + 1) / splits
+                subseg = LineString(
+                    [
+                        seg.interpolate(start_t, normalized=True).coords[0],
+                        seg.interpolate(end_t, normalized=True).coords[0],
+                    ]
+                )
+                segments.append(subseg)
+                owners.append((poly_idx, edge_idx))
+
+    tree = STRtree(segments) if segments else STRtree([])
+    return SegmentIndex(segments=segments, owners=owners, tree=tree)
+
+
+def query_close_segments(
+    index: SegmentIndex,
+    seg_idx: int,
+    margin: float,
+) -> List[int]:
+    """Return indices of segments within ``margin`` distance."""
+    segment = index.segments[seg_idx]
+    matches = index.tree.query(segment, predicate="dwithin", distance=margin)
+    return [j for j in matches if j != seg_idx]

@@ -1,8 +1,12 @@
 """Vertex insertion utilities for optimal merge connection points."""
 
 from typing import List
+
+import numpy as np
 from shapely.geometry import Polygon, LineString
 from shapely.ops import nearest_points
+
+from ...core.spatial_utils import find_polygon_pairs
 
 
 def insert_connection_vertices(
@@ -33,102 +37,88 @@ def insert_connection_vertices(
     if len(polygons) < 2:
         return polygons
 
-    # Build mapping of which polygons to modify
-    modified_coords = {}  # poly_idx -> new exterior coords
+    modified_coords = {}
+    candidate_pairs = find_polygon_pairs(
+        polygons,
+        margin=margin,
+        predicate="intersects",
+        validate_func=None,
+    )
 
-    # Find close edge pairs between polygons
-    # This approach ensures symmetry - both polygons in a pair get vertices
-    for i in range(len(polygons)):
-        for j in range(i + 1, len(polygons)):
-            poly_i = polygons[i]
-            poly_j = polygons[j]
+    for i, j in candidate_pairs:
+        poly_i = polygons[i]
+        poly_j = polygons[j]
 
-            distance = poly_i.distance(poly_j)
-            if distance > margin:
-                continue
+        if poly_i.distance(poly_j) > margin:
+            continue
 
-            # Initialize coordinate lists if not already done
-            if i not in modified_coords:
-                modified_coords[i] = list(poly_i.exterior.coords)
-            if j not in modified_coords:
-                modified_coords[j] = list(poly_j.exterior.coords)
+        if i not in modified_coords:
+            modified_coords[i] = list(poly_i.exterior.coords)
+        if j not in modified_coords:
+            modified_coords[j] = list(poly_j.exterior.coords)
 
-            # Get closest points between the two polygons
-            pt_i, pt_j = nearest_points(poly_i.boundary, poly_j.boundary)
+        pt_i, pt_j = nearest_points(poly_i.boundary, poly_j.boundary)
+        _plan_insertion(i, pt_i, modified_coords, tolerance)
+        _plan_insertion(j, pt_j, modified_coords, tolerance)
 
-            # Process both polygons to ensure symmetry
-            insertions = []  # List of (poly_idx, edge_idx, new_vertex)
+    return _rebuild_from_coords(polygons, modified_coords)
 
-            for poly_idx, poly, pt in [(i, poly_i, pt_i), (j, poly_j, pt_j)]:
-                coords = modified_coords[poly_idx]
-                pt_coords = pt.coords[0]
 
-                # Check if point is already at a vertex (within tolerance)
-                is_at_vertex = False
-                for coord in coords[:-1]:  # Exclude closing vertex
-                    dist_to_vertex = ((coord[0] - pt_coords[0])**2 +
-                                     (coord[1] - pt_coords[1])**2)**0.5
-                    if dist_to_vertex < tolerance:
-                        is_at_vertex = True
-                        break
+def _plan_insertion(
+    poly_idx: int,
+    point,
+    modified_coords,
+    tolerance: float,
+) -> None:
+    coords = modified_coords[poly_idx]
+    pt_coords = point.coords[0]
 
-                if is_at_vertex:
-                    continue  # Skip insertion, already at vertex
+    for coord in coords[:-1]:
+        if np.hypot(coord[0] - pt_coords[0], coord[1] - pt_coords[1]) < tolerance:
+            return
 
-                # Find which edge the point lies on
-                for k in range(len(coords) - 1):
-                    seg = LineString([coords[k], coords[k + 1]])
-                    dist_to_seg = seg.distance(pt)
+    for edge_idx in range(len(coords) - 1):
+        seg_start = coords[edge_idx]
+        seg_end = coords[edge_idx + 1]
+        seg = np.array(seg_end[:2]) - np.array(seg_start[:2])
+        line = np.array(pt_coords[:2])
+        line_segment = np.array(seg_start[:2])
+        if np.linalg.norm(seg) < 1e-12:
+            continue
+        projection = LineString([seg_start, seg_end]).distance(point)
+        if projection > 1e-6:
+            continue
 
-                    if dist_to_seg < 1e-6:  # Point is on this edge
-                        # Prepare vertex insertion
-                        # Determine 2D or 3D
-                        if len(pt_coords) == 2 and len(coords[k]) == 3:
-                            # 3D coords, interpolate Z
-                            seg_2d = LineString([(coords[k][0], coords[k][1]),
-                                                 (coords[k+1][0], coords[k+1][1])])
-                            dist_along = seg_2d.project(pt)
-                            total_length = seg_2d.length
-                            if total_length > 1e-10:
-                                t = dist_along / total_length
-                                z = coords[k][2] + t * (coords[k+1][2] - coords[k][2])
-                                new_vertex = (pt_coords[0], pt_coords[1], z)
-                            else:
-                                new_vertex = coords[k]
-                        elif len(pt_coords) == 3:
-                            new_vertex = pt_coords
-                        else:
-                            new_vertex = pt_coords
+        new_vertex = _interpolate_vertex(coords[edge_idx], coords[edge_idx + 1], point)
+        coords.insert(edge_idx + 1, new_vertex)
+        modified_coords[poly_idx] = coords
+        return
 
-                        insertions.append((poly_idx, k, new_vertex))
-                        break
 
-            # Apply insertions (sorted by poly_idx, then edge_idx descending to avoid index shifts)
-            for poly_idx, edge_idx, new_vertex in sorted(insertions, key=lambda x: (x[0], -x[1])):
-                coords = modified_coords[poly_idx]
-                coords.insert(edge_idx + 1, new_vertex)
-                modified_coords[poly_idx] = coords
+def _interpolate_vertex(start, end, point) -> tuple:
+    if len(start) == 3:
+        seg_2d = LineString([(start[0], start[1]), (end[0], end[1])])
+        dist_along = seg_2d.project(point)
+        total = seg_2d.length
+        if total > 1e-10:
+            t = dist_along / total
+            z = start[2] + t * (end[2] - start[2])
+            return (point.x, point.y, z)
+        return start
+    return (point.x, point.y)
 
-    # Reconstruct polygons with new vertices
+
+def _rebuild_from_coords(polygons: List[Polygon], modified_coords: dict) -> List[Polygon]:
     result = []
-    for i, poly in enumerate(polygons):
-        if i in modified_coords:
-            # Create new polygon with modified exterior
-            new_coords = modified_coords[i]
-            # Ensure closed ring
-            if new_coords[0] != new_coords[-1]:
-                new_coords.append(new_coords[0])
-
-            # Preserve holes
-            if poly.interiors:
-                holes = [list(hole.coords) for hole in poly.interiors]
-                result.append(Polygon(new_coords, holes=holes))
-            else:
-                result.append(Polygon(new_coords))
-        else:
-            # No modification needed
+    for idx, poly in enumerate(polygons):
+        if idx not in modified_coords:
             result.append(poly)
-
+            continue
+        coords = modified_coords[idx]
+        if coords[0] != coords[-1]:
+            coords.append(coords[0])
+        holes = [list(hole.coords) for hole in poly.interiors] if poly.interiors else None
+        result.append(Polygon(coords, holes=holes))
     return result
 
 

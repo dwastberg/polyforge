@@ -18,7 +18,13 @@ from .passages import (
     fix_near_self_intersection,
     fix_parallel_close_edges
 )
-from .fix_clearance import fix_clearance, diagnose_clearance
+from .fix_clearance import (
+    fix_clearance,
+    diagnose_clearance,
+    ClearanceIssue,
+    ClearanceDiagnosis,
+    ClearanceFixSummary,
+)
 
 # Import utility functions
 from .utils import (
@@ -35,6 +41,9 @@ __all__ = [
     # Main public API
     'fix_clearance',  # Auto-detection and fixing
     'diagnose_clearance',  # Diagnosis without fixing
+    'ClearanceIssue',
+    'ClearanceDiagnosis',
+    'ClearanceFixSummary',
     'fix_hole_too_close',
     'fix_narrow_protrusion',
     'remove_narrow_protrusions',

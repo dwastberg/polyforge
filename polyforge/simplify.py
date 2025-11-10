@@ -22,6 +22,10 @@ from simplification.cutil import (
 
 from polyforge.process import process_geometry
 from .core.types import CollapseMode
+from .core.cleanup import (
+    remove_small_holes as _remove_small_holes_impl,
+    remove_narrow_holes as _remove_narrow_holes_impl,
+)
 
 
 # ============================================================================
@@ -328,158 +332,27 @@ def simplify_vwp(
 
 def remove_small_holes(
     geometry: Union[Polygon, MultiPolygon],
-    min_area: float
+    min_area: float,
 ) -> BaseGeometry:
-    """Remove small holes from Polygon geometries.
-
-    This function removes interior rings (holes) from Polygon geometries
-    that have an area smaller than the specified minimum area threshold.
-
-    Args:
-        geometry: Shapely Polygon geometry to process
-        min_area: Minimum area threshold. Holes with area less than this
-            will be removed.
-    Returns:
-        New Shapely Polygon geometry with small holes removed
-    """
-
-    def _remove_small_holes_from_polygon(polygon: Polygon, min_area: float) -> Polygon:
-        # Filter interior rings based on area
-        new_interiors = [
-            interior for interior in polygon.interiors
-            if Polygon(interior).area >= min_area
-        ]
-        return Polygon(polygon.exterior.coords, holes=[interior.coords for interior in new_interiors])
-
-    geom_type = geometry.geom_type
-
-    if geom_type == 'Polygon':
-        return _remove_small_holes_from_polygon(geometry, min_area)
-
-    elif geom_type == 'MultiPolygon':
-        new_polygons = [
-            _remove_small_holes_from_polygon(polygon, min_area)
-            for polygon in geometry.geoms
-        ]
-        return MultiPolygon(new_polygons)
-
-    else:
+    """Remove holes smaller than ``min_area`` via the shared cleanup utilities."""
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
+    return _remove_small_holes_impl(geometry, min_area)
 
 
 def remove_narrow_holes(
     geometry: Union[Polygon, MultiPolygon],
     max_aspect_ratio: float = 50.0,
-    min_width: Optional[float] = None
+    min_width: Optional[float] = None,
 ) -> BaseGeometry:
-    """Remove long narrow holes from Polygon geometries based on aspect ratio and/or width.
-
-    Uses the oriented bounding box (OBB) to determine the aspect ratio and width of each hole.
-    Holes can be filtered by:
-    - Aspect ratio (length/width exceeding threshold)
-    - Minimum width (shorter OBB dimension below threshold)
-
-    This is useful for removing sliver holes and other narrow artifacts.
-
-    Args:
-        geometry: Shapely Polygon or MultiPolygon geometry to process
-        max_aspect_ratio: Maximum aspect ratio allowed. Holes with higher
-            aspect ratios are removed. Default: 50.0
-        min_width: Minimum width (shorter OBB dimension) required. Holes narrower
-            than this are removed regardless of length. Default: None (no filtering)
-
-    Returns:
-        New Shapely geometry with narrow holes removed
-
-    Example:
-        >>> # Remove holes that are more than 50x longer than wide
-        >>> cleaned = remove_narrow_holes(polygon, max_aspect_ratio=50.0)
-
-        >>> # Remove holes narrower than 2.0 units
-        >>> cleaned = remove_narrow_holes(polygon, min_width=2.0)
-
-        >>> # Combine both: remove if aspect > 50 OR width < 2.0
-        >>> cleaned = remove_narrow_holes(polygon, max_aspect_ratio=50.0, min_width=2.0)
-    """
-
-    def _calculate_obb_metrics(hole_polygon: Polygon) -> tuple[float, float]:
-        """Calculate aspect ratio and width of a polygon using oriented bounding box.
-
-        Returns:
-            Tuple of (aspect_ratio, width) where width is the shorter dimension
-        """
-        try:
-            # Get the minimum rotated rectangle (oriented bounding box)
-            obb = hole_polygon.minimum_rotated_rectangle
-
-            # Get the coordinates of the OBB
-            coords = list(obb.exterior.coords)
-
-            # Calculate the dimensions of the OBB
-            # The OBB is a rectangle with 5 points (first == last)
-            if len(coords) < 4:
-                # Degenerate case
-                return 0.0, 0.0
-
-            # Calculate edge lengths
-            from shapely.geometry import Point
-            edge1 = Point(coords[0]).distance(Point(coords[1]))
-            edge2 = Point(coords[1]).distance(Point(coords[2]))
-
-            # Aspect ratio is longer_edge / shorter_edge
-            if edge1 == 0 or edge2 == 0:
-                return float('inf'), 0.0
-
-            longer = max(edge1, edge2)
-            shorter = min(edge1, edge2)
-
-            aspect_ratio = longer / shorter
-            width = shorter
-
-            return aspect_ratio, width
-
-        except Exception:
-            # If we can't compute OBB, assume it's not narrow
-            return 0.0, float('inf')
-
-    def _remove_narrow_holes_from_polygon(polygon: Polygon, max_aspect: float, min_w: Optional[float]) -> Polygon:
-        """Remove narrow holes from a single polygon."""
-        # Filter interior rings based on aspect ratio and/or width
-        new_interiors = []
-        for interior in polygon.interiors:
-            hole_poly = Polygon(interior)
-            aspect_ratio, width = _calculate_obb_metrics(hole_poly)
-
-            # Keep hole if it passes all filters
-            keep = True
-
-            # Check aspect ratio
-            if aspect_ratio > max_aspect:
-                keep = False
-
-            # Check minimum width
-            if min_w is not None and width < min_w:
-                keep = False
-
-            if keep:
-                new_interiors.append(interior)
-
-        return Polygon(polygon.exterior.coords, holes=[interior.coords for interior in new_interiors])
-
-    geom_type = geometry.geom_type
-
-    if geom_type == 'Polygon':
-        return _remove_narrow_holes_from_polygon(geometry, max_aspect_ratio, min_width)
-
-    elif geom_type == 'MultiPolygon':
-        new_polygons = [
-            _remove_narrow_holes_from_polygon(polygon, max_aspect_ratio, min_width)
-            for polygon in geometry.geoms
-        ]
-        return MultiPolygon(new_polygons)
-
-    else:
+    """Remove narrow holes using the shared cleanup utilities."""
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
+    return _remove_narrow_holes_impl(
+        geometry,
+        max_aspect_ratio=max_aspect_ratio,
+        min_width=min_width,
+    )
 
 
 __all__ = [

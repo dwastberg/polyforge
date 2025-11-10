@@ -3,7 +3,7 @@
 import pytest
 from shapely.geometry import Polygon
 from polyforge import fix_clearance
-from polyforge.clearance import diagnose_clearance
+from polyforge.clearance import diagnose_clearance, ClearanceIssue
 
 
 class TestDiagnoseClearance:
@@ -15,11 +15,11 @@ class TestDiagnoseClearance:
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         info = diagnose_clearance(poly, min_clearance=1.0)
 
-        assert info['meets_requirement'] is True
-        assert info['has_issues'] is False
-        assert info['issue_type'] == 'none'
-        assert info['recommended_fix'] == 'none'
-        assert info['clearance_ratio'] > 1.0
+        assert info.meets_requirement is True
+        assert info.has_issues is False
+        assert info.issue is ClearanceIssue.NONE
+        assert info.recommended_fix == 'none'
+        assert info.clearance_ratio > 1.0
 
     def test_diagnose_narrow_passage(self):
         """Test diagnosing narrow passage issue."""
@@ -28,11 +28,11 @@ class TestDiagnoseClearance:
         poly = Polygon(coords)
         info = diagnose_clearance(poly, min_clearance=1.0)
 
-        assert info['meets_requirement'] is False
-        assert info['has_issues'] is True
-        assert info['issue_type'] in ['narrow_passage', 'narrow_protrusion']
-        assert info['recommended_fix'] in ['fix_narrow_passage', 'remove_narrow_protrusions']
-        assert info['clearance_line'] is not None
+        assert info.meets_requirement is False
+        assert info.has_issues is True
+        assert info.issue in (ClearanceIssue.NARROW_PASSAGE, ClearanceIssue.NARROW_PROTRUSION)
+        assert info.recommended_fix in ['fix_narrow_passage', 'remove_narrow_protrusions']
+        assert info.clearance_line is not None
 
     def test_diagnose_narrow_protrusion(self):
         """Test diagnosing narrow protrusion/spike."""
@@ -41,10 +41,10 @@ class TestDiagnoseClearance:
         poly = Polygon(coords)
         info = diagnose_clearance(poly, min_clearance=1.0)
 
-        assert info['meets_requirement'] is False
-        assert info['has_issues'] is True
-        assert 'protrusion' in info['issue_type'] or 'passage' in info['issue_type']
-        assert info['clearance_line'] is not None
+        assert info.meets_requirement is False
+        assert info.has_issues is True
+        assert info.issue in (ClearanceIssue.NARROW_PROTRUSION, ClearanceIssue.NARROW_PASSAGE)
+        assert info.clearance_line is not None
 
     def test_diagnose_hole_too_close(self):
         """Test diagnosing hole too close to exterior."""
@@ -53,10 +53,10 @@ class TestDiagnoseClearance:
         poly = Polygon(exterior, holes=[hole])
         info = diagnose_clearance(poly, min_clearance=2.0)
 
-        assert info['meets_requirement'] is False
-        assert info['has_issues'] is True
-        assert info['issue_type'] == 'hole_too_close'
-        assert info['recommended_fix'] == 'fix_hole_too_close'
+        assert info.meets_requirement is False
+        assert info.has_issues is True
+        assert info.issue is ClearanceIssue.HOLE_TOO_CLOSE
+        assert info.recommended_fix == 'fix_hole_too_close'
 
 
 class TestFixClearanceBasic:
@@ -67,13 +67,13 @@ class TestFixClearanceBasic:
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         original_clearance = poly.minimum_clearance
 
-        result, diagnosis = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
 
         assert result.equals(poly)
-        assert diagnosis['initial_clearance'] == original_clearance
-        assert diagnosis['iterations'] == 0
-        assert diagnosis['fixed'] is True
-        assert diagnosis['issue_type'] == 'none'
+        assert summary.initial_clearance == original_clearance
+        assert summary.iterations == 0
+        assert summary.fixed is True
+        assert summary.issue is ClearanceIssue.NONE
 
     def test_fix_narrow_passage(self):
         """Test fixing narrow passage."""
@@ -81,12 +81,12 @@ class TestFixClearanceBasic:
         poly = Polygon(coords)
         original_clearance = poly.minimum_clearance
 
-        result, diagnosis = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
 
         assert result.is_valid
         assert result.minimum_clearance > original_clearance
-        assert diagnosis['fixed'] is True
-        assert diagnosis['iterations'] > 0
+        assert summary.fixed is True
+        assert summary.iterations > 0
         assert result.minimum_clearance >= 1.0
 
     def test_fix_narrow_protrusion(self):
@@ -95,11 +95,11 @@ class TestFixClearanceBasic:
         poly = Polygon(coords)
         original_clearance = poly.minimum_clearance
 
-        result, diagnosis = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
 
         assert result.is_valid
         assert result.minimum_clearance > original_clearance
-        assert diagnosis['fixed'] is True
+        assert summary.fixed is True
         # Spike should be removed, reducing vertex count
         assert len(result.exterior.coords) <= len(poly.exterior.coords)
 
@@ -109,10 +109,10 @@ class TestFixClearanceBasic:
         hole = [(1, 1), (2, 1), (2, 2), (1, 2)]
         poly = Polygon(exterior, holes=[hole])
 
-        result, diagnosis = fix_clearance(poly, min_clearance=2.0, return_diagnosis=True)
+        result, summary = fix_clearance(poly, min_clearance=2.0, return_diagnosis=True)
 
         assert result.is_valid
-        assert diagnosis['fixed'] is True
+        assert summary.fixed is True
         # Hole should be removed
         assert len(result.interiors) < len(poly.interiors)
         assert result.minimum_clearance >= 2.0
@@ -138,14 +138,14 @@ class TestFixClearanceIterations:
         coords = [(0, 0), (10, 0), (10, 1), (9.9, 1.5), (9.9, 2.5), (10, 3), (10, 10), (0, 10)]
         poly = Polygon(coords)
 
-        result, diagnosis = fix_clearance(
+        result, summary = fix_clearance(
             poly,
             min_clearance=100.0,  # Unreachable target
             max_iterations=3,
             return_diagnosis=True
         )
 
-        assert diagnosis['iterations'] <= 3
+        assert summary.iterations <= 3
         # Should still improve clearance even if target not reached
         assert result.minimum_clearance > poly.minimum_clearance
 
@@ -154,15 +154,15 @@ class TestFixClearanceIterations:
         coords = [(0, 0), (10, 0), (10, 1), (9.9, 1.5), (9.9, 2.5), (10, 3), (10, 10), (0, 10)]
         poly = Polygon(coords)
 
-        result, diagnosis = fix_clearance(
+        result, summary = fix_clearance(
             poly,
             min_clearance=1.0,
             return_diagnosis=True
         )
 
-        assert diagnosis['fixed'] is True
+        assert summary.fixed is True
         assert result.minimum_clearance >= 1.0
-        assert diagnosis['final_clearance'] >= diagnosis['initial_clearance']
+        assert summary.final_clearance >= summary.initial_clearance
 
 
 class TestFixClearanceEdgeCases:
@@ -197,11 +197,12 @@ class TestFixClearanceEdgeCases:
         ]
         poly = Polygon(coords)
 
-        result, diagnosis = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
 
         # Should improve clearance even if multiple issues exist
         assert result.is_valid
         assert result.minimum_clearance > poly.minimum_clearance
+        assert summary.history  # ensure we recorded stages
 
 
 class TestDiagnosisAccuracy:
@@ -210,26 +211,25 @@ class TestDiagnosisAccuracy:
     def test_diagnosis_matches_fix(self):
         """Test that diagnosed issue matches the fix applied."""
         test_cases = [
-            # (polygon, min_clearance, expected_issue_substring)
+            # (polygon, min_clearance, expected_issue)
             (
                 Polygon([(0, 0), (10, 0), (10, 4.9), (12, 5), (10, 5.1), (10, 10), (0, 10)]),
                 1.0,
-                'protrusion'
+                ClearanceIssue.NARROW_PROTRUSION
             ),
             (
                 Polygon([(0, 0), (20, 0), (20, 20), (0, 20)], holes=[[(1, 1), (2, 1), (2, 2), (1, 2)]]),
                 2.0,
-                'hole'
+                ClearanceIssue.HOLE_TOO_CLOSE
             ),
         ]
 
-        for poly, target, expected_substring in test_cases:
+        for poly, target, expected_issue in test_cases:
             info = diagnose_clearance(poly, min_clearance=target)
-            _, diagnosis = fix_clearance(poly, min_clearance=target, return_diagnosis=True)
+            _, summary = fix_clearance(poly, min_clearance=target, return_diagnosis=True)
 
-            # Issue type should be related to the diagnosed problem
-            assert expected_substring in info['issue_type'].lower() or \
-                   expected_substring in diagnosis['fix_applied'].lower()
+            assert info.issue == expected_issue
+            assert summary.issue == expected_issue or summary.history[-1] == expected_issue
 
 
 class TestResultValidity:
