@@ -10,9 +10,11 @@ Polyforge is a polygon processing and manipulation library built on top of Shape
 - Polygon merging with 5 strategies
 - Clearance fixing for low-clearance geometries
 - Geometry validation and repair with 5 strategies
+- **Robust fixing with constraint validation** - ensures quality requirements are met
 - Vertex processing (collapse short edges, remove duplicates)
+- **Hole cleanup** - remove small, narrow, or degenerate holes
 - Topology operations (boundary alignment)
-- Batch processing with error handling
+- Batch processing with error handling and automatic cleanup
 
 **Key Dependencies:** shapely, numpy, scipy, simplification library
 
@@ -27,7 +29,7 @@ Polyforge is a polygon processing and manipulation library built on top of Shape
 
 ### Testing
 ```bash
-# Run all tests (371 tests)
+# Run all tests (468 tests)
 python -m pytest tests/ -v
 
 # Run specific test file
@@ -63,17 +65,18 @@ The codebase follows a clean, hierarchical structure with shared utilities:
 
 ```
 polyforge/
-├── __init__.py                 # Public API exports (24 functions, 10 enums, 7 exceptions)
+├── __init__.py                 # Public API exports (25 functions, 10 enums, 7 exceptions)
 ├── core/                       # Core types, errors, and shared utilities
 │   ├── __init__.py
 │   ├── types.py                # Enum definitions (10 strategy enums)
 │   ├── errors.py               # Exception hierarchy (7 exception classes)
+│   ├── constraints.py          # Constraint validation system (GeometryConstraints, MergeConstraints)
 │   ├── geometry_utils.py       # Shared geometry operations (to_single_polygon, remove_holes, calculate_internal_angles, etc.)
 │   ├── validation_utils.py     # Shared validation patterns
 │   ├── spatial_utils.py        # Spatial indexing utilities (STRtree operations, adjacency graphs)
 │   └── iterative_utils.py      # Iterative improvement patterns
 ├── process.py                  # Core: process_geometry() - applies functions to geometry vertices
-├── simplify.py                 # Simplification algorithms (6 functions)
+├── simplify.py                 # Simplification algorithms (7 functions - includes remove_narrow_holes)
 ├── split.py                    # Pairwise overlap splitting (split_overlap)
 ├── overlap.py                  # Batch overlap removal (remove_overlaps, count_overlaps, find_overlapping_groups)
 ├── topology.py                 # Boundary alignment operations (align_boundaries)
@@ -94,6 +97,7 @@ polyforge/
 ├── repair/                     # Geometry repair subsystem
 │   ├── __init__.py
 │   ├── core.py                 # Orchestration: repair_geometry(), batch_repair_geometries()
+│   ├── robust.py               # Advanced: robust_fix_geometry(), robust_fix_batch() with constraint validation
 │   ├── analysis.py             # Diagnostic: analyze_geometry()
 │   ├── strategies/             # 5 repair strategy implementations
 │   │   ├── auto.py
@@ -191,6 +195,45 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
   - `ConfigurationError` - invalid parameters
 - Exceptions carry metadata (geometry, strategies_tried, suggested_strategy, etc.)
 
+**8. Constraint Validation System**
+- `GeometryConstraints` defines quality requirements that must be met
+- Constraints are validated using `constraints.check()` which returns `ConstraintStatus`
+- Supported constraints:
+  - `min_clearance`: Minimum clearance (Shapely's minimum_clearance property)
+  - `min_area_ratio` / `max_area_ratio`: Area preservation bounds
+  - `must_be_valid`: Topological validity requirement
+  - `allow_multipolygon`: Whether MultiPolygon results are acceptable
+  - `max_holes`: Maximum number of interior holes
+  - **`min_hole_area`**: Minimum hole area (smaller holes flagged as violations)
+  - **`max_hole_aspect_ratio`**: Maximum hole aspect ratio (using OBB)
+  - **`min_hole_width`**: Minimum hole width (using OBB shorter dimension)
+- Constraint validation happens automatically during iterative fixing
+- Violations are detected using oriented bounding box (OBB) metrics for holes
+
+**9. Robust Fixing Pipeline (robust_fix_batch)**
+The batch fixing pipeline runs in 3 phases:
+- **Phase 0.5: Polygon Merging (FIRST!)**
+  - Merges touching/close polygons before individual fixes
+  - Prevents fixes from pushing polygons apart
+  - Uses `merge_close_polygons()` with configurable `MergeConstraints`
+- **Phase 1: Individual Fixes**
+  - Applies `robust_fix_geometry()` to each geometry
+  - Iteratively attempts fixes until constraints satisfied
+  - Includes hole cleanup at end of each geometry fix
+- **Phase 2: Overlap Resolution**
+  - Uses `remove_overlaps()` to resolve remaining overlaps
+  - Validates that overlap fixes don't violate other constraints
+  - Rolls back if constraint regression detected
+- **Phase 3: Final Cleanup** ⭐
+  - Removes zero-area holes
+  - Removes small holes (min_hole_area)
+  - Removes narrow holes (max_hole_aspect_ratio, min_hole_width)
+  - **Removes degenerate exterior features** using erosion-dilation
+  - Critical for cleaning up artifacts from overlap resolution
+
+**Why Phase 3 is Essential:**
+Overlap resolution can create thin holes and zero-width exterior features that weren't present after Phase 1. Phase 3 ensures the final output meets all quality constraints by applying hole cleanup and degenerate feature removal AFTER all geometric operations complete.
+
 ### Important Implementation Details
 
 **Coordinate Handling:**
@@ -217,6 +260,15 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
 - Raises `RepairError` if geometry cannot be repaired
 - `batch_repair_geometries()` processes many geometries with error collection
 
+**Robust Fixing (Advanced):**
+- `robust_fix_geometry()` iteratively fixes geometries until all constraints satisfied
+- `robust_fix_batch()` processes multiple geometries with 3-phase pipeline (merge → fix → overlap → cleanup)
+- Constraint-driven: uses `GeometryConstraints` to define quality requirements
+- Automatic hole cleanup: removes small, narrow, and degenerate holes
+- Degenerate feature removal: eliminates zero-width slivers using erosion-dilation
+- Validates constraints at each step, rolls back on regression
+- Essential for production use where quality guarantees are required
+
 **Polygon Merging:**
 - `merge_close_polygons()` merges polygons within specified margin distance
 - Five strategies available: SIMPLE_BUFFER, SELECTIVE_BUFFER, VERTEX_MOVEMENT, BOUNDARY_EXTENSION, CONVEX_BRIDGES
@@ -233,10 +285,10 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
 ## Testing Conventions
 
 ### Test Organization
-- One test file per module: `test_split.py`, `test_overlap.py`, `test_repair.py`, etc.
+- One test file per module: `test_split.py`, `test_overlap.py`, `test_repair.py`, `test_robust_fix.py`, etc.
 - Tests organized into classes by functionality
 - Pattern: `TestFunctionName` for main tests, `TestEdgeCases` for edge cases
-- **Total: 371 tests** (all passing as of latest API consistency update)
+- **Total: 468 tests** (all passing as of latest constraint validation update)
 
 ### Test Patterns Used
 ```python
@@ -388,6 +440,8 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
 8. **Function Names:** Use `repair_geometry` not `fix_geometry`, `collapse_short_edges` not `snap_short_edges`
 9. **Exception Names:** Use `RepairError` not `GeometryRepairError` or `GeometryFixError`
 10. **Recent API Changes:** If you see old code using `strategy=`, `tolerance=` in merge/overlap/topology functions, update to new parameter names
+11. **Thin Slits After Overlap Resolution:** If you see thin slits despite hole constraints, they're likely zero-width exterior features, not holes. Phase 3 cleanup in `robust_fix_batch()` handles this automatically. For direct overlap resolution, apply cleanup afterward.
+12. **Constraint Validation Timing:** Hole constraints (`min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`) are enforced during iterative fixing AND in Phase 3 cleanup. Don't assume cleanup only happens once.
 
 ## Documentation
 
@@ -416,9 +470,10 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
 ```python
 # Main functions
 from polyforge import (
-    # Simplification (6 functions)
+    # Simplification (7 functions)
     simplify_rdp, simplify_vw, simplify_vwp,
-    collapse_short_edges, deduplicate_vertices, remove_small_holes,
+    collapse_short_edges, deduplicate_vertices,
+    remove_small_holes, remove_narrow_holes,
 
     # Overlap handling (4 functions)
     split_overlap, remove_overlaps, count_overlaps, find_overlapping_groups,
@@ -428,6 +483,9 @@ from polyforge import (
 
     # Repair (3 functions)
     repair_geometry, analyze_geometry, batch_repair_geometries,
+
+    # Robust fixing (2 functions) - Advanced constraint-driven fixing
+    robust_fix_geometry, robust_fix_batch,
 
     # Topology (1 function)
     align_boundaries,
@@ -440,6 +498,14 @@ from polyforge import (
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
+)
+
+# Constraint system
+from polyforge.core import (
+    GeometryConstraints,  # Define quality requirements
+    MergeConstraints,     # Configure merging behavior
+    ConstraintStatus,     # Validation results
+    ConstraintViolation,  # Individual violations
 )
 
 # Strategy enums (10 enums)
@@ -470,6 +536,62 @@ from polyforge.core import (
 
 ## Recent Major Changes (for context)
 
+### Constraint Validation & Phase 3 Cleanup (Latest - Production Critical)
+**Major enhancement to robust fixing system:**
+
+**Problem Solved:**
+Users reported thin slits remaining in output despite using `--min-hole-area` and `--min-hole-width` parameters. Investigation revealed two issues:
+1. Constraint validation wasn't checking hole properties (area, aspect ratio, width)
+2. Overlap resolution in Phase 2 created degenerate features that weren't cleaned up
+
+**Changes Made:**
+
+1. **Enhanced Constraint Validation** (`core/constraints.py`):
+   - `GeometryConstraints.check()` now validates hole properties using oriented bounding box (OBB)
+   - Added validation for: `min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`
+   - Holes violating constraints now properly flagged as `HOLE_VALIDITY` violations
+   - Iterative fixing can now detect and respond to hole quality issues
+
+2. **Added Phase 3 Final Cleanup** (`repair/robust.py`):
+   - `robust_fix_batch()` now includes Phase 3 after overlap resolution
+   - Cleanup steps:
+     - Remove zero-area holes
+     - Remove small holes (min_hole_area)
+     - Remove narrow holes (max_hole_aspect_ratio, min_hole_width)
+     - **Remove degenerate exterior features** using erosion-dilation technique
+   - Degenerate feature removal: detects clearance < 0.01, applies buffer(-0.01) then buffer(+0.01)
+   - Critical for eliminating zero-width slivers created by overlap splitting
+
+3. **New Function** (`simplify.py`):
+   - Added `remove_narrow_holes()` function
+   - Filters holes by aspect ratio and/or absolute width
+   - Uses oriented bounding box (OBB) for accurate narrow hole detection
+   - Supports both criteria independently or combined
+
+**Impact:**
+- Geometries with clearance = 0.0000 now properly cleaned (improved to ~0.001-0.003)
+- Thin slits from overlap resolution automatically removed
+- All hole quality constraints now enforced throughout pipeline
+- **All 468 tests pass** (up from 371 tests)
+
+**Example:**
+```python
+from polyforge import robust_fix_batch
+from polyforge.core import GeometryConstraints
+
+constraints = GeometryConstraints(
+    min_hole_area=10.0,        # Remove holes < 10 sq units
+    min_hole_width=2.0,        # Remove holes narrower than 2 units
+    max_hole_aspect_ratio=50.0 # Remove holes with aspect > 50
+)
+
+fixed, warnings, _ = robust_fix_batch(
+    geometries,
+    constraints=constraints,
+    handle_overlaps=True  # Phase 3 cleanup runs automatically
+)
+```
+
 ### API Consistency Update (Breaking Changes)
 Five breaking changes were made to improve API consistency:
 1. `merge_close_polygons(..., strategy=)` → `merge_strategy=`
@@ -478,7 +600,7 @@ Five breaking changes were made to improve API consistency:
 4. `align_boundaries(..., tolerance=)` → `distance_tolerance=`
 5. `fix_sharp_intrusion(..., max_iterations=5)` → default now 10
 
-**All 371 tests updated and passing** after these changes.
+**All tests updated and passing** after these changes.
 
 ### DRY Refactoring
 Created four shared utility modules in `core/` to eliminate 200-250 lines of duplicated code:

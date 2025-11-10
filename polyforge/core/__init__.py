@@ -25,6 +25,15 @@ from .errors import (
     MergeError,
     ClearanceError,
     ConfigurationError,
+    FixWarning,
+)
+
+from .constraints import (
+    ConstraintType,
+    ConstraintViolation,
+    ConstraintStatus,
+    GeometryConstraints,
+    MergeConstraints,
 )
 
 __all__ = [
@@ -48,4 +57,12 @@ __all__ = [
     'MergeError',
     'ClearanceError',
     'ConfigurationError',
+    'FixWarning',
+
+    # Constraint framework
+    'ConstraintType',
+    'ConstraintViolation',
+    'ConstraintStatus',
+    'GeometryConstraints',
+    'MergeConstraints',
 ]

@@ -13,6 +13,7 @@ from .simplify import (
     collapse_short_edges,
     deduplicate_vertices,
     remove_small_holes,
+    remove_narrow_holes,
 )
 
 # Clearance fixing functions
@@ -46,6 +47,12 @@ from .repair import (
     batch_repair_geometries,
 )
 
+# Robust constraint-aware repair
+from .repair.robust import (
+    robust_fix_geometry,
+    robust_fix_batch,
+)
+
 # Core types (enums)
 from .core import (
     OverlapStrategy,
@@ -64,6 +71,16 @@ from .core import (
     MergeError,
     ClearanceError,
     ConfigurationError,
+    FixWarning,
+)
+
+# Constraint framework
+from .core import (
+    GeometryConstraints,
+    ConstraintStatus,
+    ConstraintViolation,
+    ConstraintType,
+    MergeConstraints,
 )
 
 __all__ = [
@@ -75,6 +92,7 @@ __all__ = [
     'collapse_short_edges',
     'deduplicate_vertices',
     'remove_small_holes',
+    'remove_narrow_holes',
 
     # Clearance fixing
     'fix_clearance',
@@ -103,6 +121,10 @@ __all__ = [
     'analyze_geometry',
     'batch_repair_geometries',
 
+    # Robust constraint-aware repair
+    'robust_fix_geometry',
+    'robust_fix_batch',
+
     # Core types (enums)
     'OverlapStrategy',
     'MergeStrategy',
@@ -118,4 +140,12 @@ __all__ = [
     'MergeError',
     'ClearanceError',
     'ConfigurationError',
+    'FixWarning',
+
+    # Constraint framework
+    'GeometryConstraints',
+    'ConstraintStatus',
+    'ConstraintViolation',
+    'ConstraintType',
+    'MergeConstraints',
 ]

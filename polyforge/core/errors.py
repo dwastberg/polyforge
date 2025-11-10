@@ -197,6 +197,56 @@ class ConfigurationError(PolyforgeError):
     pass
 
 
+class FixWarning(PolyforgeError):
+    """Geometry fix completed but some constraints could not be satisfied.
+
+    This is raised (or can be caught as a warning) when robust_fix_geometry()
+    returns a best-effort result that doesn't meet all specified constraints.
+    The geometry returned is the best result found, but may not be perfect.
+
+    Attributes:
+        geometry: The best geometry that was achieved
+        status: ConstraintStatus showing which constraints were violated
+        unmet_constraints: List of constraint types that could not be satisfied
+        history: Summary of fix attempts made (optional)
+
+    Examples:
+        >>> try:
+        ...     result = robust_fix_geometry(polygon, constraints)
+        ... except FixWarning as w:
+        ...     print(f"Warning: {w}")
+        ...     print(f"Unmet constraints: {w.unmet_constraints}")
+        ...     print(f"Best result area: {w.geometry.area}")
+        ...     # Still use the best result
+        ...     use_geometry(w.geometry)
+    """
+    def __init__(
+        self,
+        message: str,
+        geometry: Optional[BaseGeometry] = None,
+        status: Optional[Any] = None,
+        unmet_constraints: Optional[List[str]] = None,
+        history: Optional[List[str]] = None
+    ):
+        super().__init__(message)
+        self.geometry = geometry
+        self.status = status
+        self.unmet_constraints = unmet_constraints or []
+        self.history = history or []
+
+    def __repr__(self):
+        return (f"FixWarning('{str(self)}', "
+                f"unmet={self.unmet_constraints})")
+
+    def __str__(self):
+        result = super().__str__()
+        if self.unmet_constraints:
+            result += f"\nUnmet constraints: {', '.join(self.unmet_constraints)}"
+        if self.status and hasattr(self.status, 'violations'):
+            result += f"\nViolations: {len(self.status.violations)}"
+        return result
+
+
 __all__ = [
     'PolyforgeError',
     'ValidationError',
@@ -205,4 +255,5 @@ __all__ = [
     'MergeError',
     'ClearanceError',
     'ConfigurationError',
+    'FixWarning',
 ]
