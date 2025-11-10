@@ -15,16 +15,19 @@ import warnings
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
+from shapely.ops import unary_union
 
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
 from ..core.errors import FixWarning
 from ..core.types import OverlapStrategy
 from ..overlap import remove_overlaps
+from ..merge import merge_close_polygons
 from .transaction import FixTransaction
 from .stages import (
     build_default_stages,
     execute_stage_pipeline,
     StageResult,
+    _cleanup_geometry,
 )
 
 
@@ -84,7 +87,9 @@ def robust_fix_batch(
     if not geometries:
         return [], [], None if properties is None else []
 
+    # Track both working geometries and their "originals" for constraint validation
     working_geometries = list(geometries)
+    working_originals = list(geometries)  # Track what "original" means for each geometry
     working_properties = _copy_properties(properties) if properties is not None else None
 
     if merge_constraints and merge_constraints.enabled:
@@ -98,6 +103,16 @@ def robust_fix_batch(
                 return_mapping=True,
             )
             working_geometries = merged
+
+            # Update working_originals to reflect merge groups
+            # For each merged geometry, the "original" is the union of the pre-merge originals
+            new_originals: List[BaseGeometry] = []
+            for group in mapping:
+                group_originals = [working_originals[idx] for idx in group]
+                merged_original = unary_union(group_originals)
+                new_originals.append(merged_original)
+            working_originals = new_originals
+
             if working_properties is not None:
                 flat_props: List[Dict[str, Any]] = []
                 original_props = working_properties
@@ -116,8 +131,8 @@ def robust_fix_batch(
     statuses: List[ConstraintStatus] = []
     histories: List[List[str]] = []
 
-    for geom in working_geometries:
-        transaction = FixTransaction(geom, geom, constraints)
+    for geom, orig in zip(working_geometries, working_originals):
+        transaction = FixTransaction(geom, orig, constraints)
         stage_history = execute_stage_pipeline(
             transaction=transaction,
             constraints=constraints,
@@ -139,7 +154,7 @@ def robust_fix_batch(
             fixed,
             statuses,
             constraints,
-            originals=geometries,
+            originals=working_originals,
             max_iterations=max_iterations,
             verbose=verbose,
         )
@@ -225,6 +240,19 @@ def _resolve_batch_overlaps(
             overlap_strategy=OverlapStrategy.SPLIT,
             max_iterations=max_iterations,
         )
+
+        # Apply cleanup to each resolved geometry to remove degenerate features
+        # that may have been created during overlap resolution
+        cleaned_resolved = []
+        for poly in resolved:
+            try:
+                cleaned = _cleanup_geometry(poly, constraints)
+                cleaned_resolved.append(cleaned if cleaned is not None else poly)
+            except Exception:
+                # If cleanup fails, use the uncleaned geometry
+                cleaned_resolved.append(poly)
+        resolved = cleaned_resolved
+
     except Exception as exc:
         if verbose:
             print(f"[Overlap] Resolution failed: {exc}")
