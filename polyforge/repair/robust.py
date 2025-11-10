@@ -84,13 +84,39 @@ def robust_fix_batch(
     if not geometries:
         return [], [], None if properties is None else []
 
+    working_geometries = list(geometries)
+    working_properties = _copy_properties(properties) if properties is not None else None
+
+    if merge_constraints and merge_constraints.enabled:
+        try:
+            merged, mapping = merge_close_polygons(
+                [geom for geom in working_geometries if isinstance(geom, Polygon)],
+                margin=merge_constraints.margin,
+                merge_strategy=merge_constraints.merge_strategy,
+                preserve_holes=merge_constraints.preserve_holes,
+                insert_vertices=merge_constraints.insert_vertices,
+                return_mapping=True,
+            )
+            working_geometries = merged
+            if working_properties is not None:
+                flat_props: List[Dict[str, Any]] = []
+                original_props = working_properties
+                for group in mapping:
+                    base = original_props[group[0]].copy()
+                    base["merge_group"] = ",".join(str(idx) for idx in group)
+                    flat_props.append(base)
+                working_properties = flat_props
+        except Exception:
+            if verbose:
+                print("[Merge] Initial merge skipped due to error; continuing without merges.")
+
     stage_template = build_default_stages(merge_constraints)
 
     fixed: List[BaseGeometry] = []
     statuses: List[ConstraintStatus] = []
     histories: List[List[str]] = []
 
-    for geom in geometries:
+    for geom in working_geometries:
         transaction = FixTransaction(geom, geom, constraints)
         stage_history = execute_stage_pipeline(
             transaction=transaction,
@@ -133,7 +159,7 @@ def robust_fix_batch(
         warnings_list.append(warning)
         warnings.warn(str(warning), UserWarning, stacklevel=2)
 
-    return fixed, warnings_list, _copy_properties(properties)
+    return fixed, warnings_list, working_properties
 
 
 def _copy_properties(

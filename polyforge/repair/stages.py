@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from shapely.geometry import MultiPolygon, Polygon
+from shapely.ops import unary_union
 from shapely.geometry.base import BaseGeometry
 
 from ..core.constraints import GeometryConstraints, MergeConstraints
@@ -133,7 +134,7 @@ def clearance_stage() -> FixStage:
         target = ctx.constraints.min_clearance
         if target is None:
             return False
-        if not isinstance(ctx.geometry, Polygon):
+        if not isinstance(ctx.geometry, (Polygon, MultiPolygon)):
             return False
         clearance = ctx.status.clearance
         if clearance is None:
@@ -141,11 +142,12 @@ def clearance_stage() -> FixStage:
         return clearance + 1e-9 < target
 
     def runner(ctx: StageContext) -> StageResult:
+        def clearance_fix(geometry: BaseGeometry) -> BaseGeometry:
+            return _apply_clearance_fix(geometry, ctx.constraints.min_clearance)
+
         committed = ctx.transaction.try_fix(
-            fix_clearance,
+            clearance_fix,
             fix_name="fix_clearance",
-            min_clearance=ctx.constraints.min_clearance,
-            max_iterations=5,
         )
         message = (
             "clearance improved"
@@ -364,6 +366,28 @@ def _cleanup_geometry(
         return geometry
 
     return cleaned
+
+
+def _apply_clearance_fix(geometry: BaseGeometry, min_clearance: Optional[float]) -> BaseGeometry:
+    if min_clearance is None or min_clearance <= 0:
+        return geometry
+
+    if isinstance(geometry, Polygon):
+        return fix_clearance(geometry, min_clearance)
+
+    if isinstance(geometry, MultiPolygon):
+        united = unary_union(geometry)
+        if isinstance(united, Polygon):
+            return fix_clearance(united, min_clearance)
+        if isinstance(united, MultiPolygon):
+            fixed_parts = [fix_clearance(poly, min_clearance) for poly in united.geoms]
+            valid_parts = [poly for poly in fixed_parts if isinstance(poly, Polygon) and not poly.is_empty]
+            if not valid_parts:
+                return geometry
+            return MultiPolygon(valid_parts)
+        return geometry
+
+    return geometry
 
 
 __all__ = [
