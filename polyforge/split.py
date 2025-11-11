@@ -1,4 +1,4 @@
-"""Polygon overlap splitting functions (thin wrapper over the overlap engine)."""
+"""Polygon overlap splitting functions (thin wrapper over overlap resolution)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Tuple
 from shapely.geometry import Polygon
 
 from .core.types import OverlapStrategy
-from .overlap.engine import resolve_overlap_pair
+from .overlap import resolve_overlap_pair
 
 
 def split_overlap(
