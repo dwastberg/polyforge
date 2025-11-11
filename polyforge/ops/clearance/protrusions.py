@@ -5,12 +5,13 @@ sharp indentations that create low minimum clearance.
 """
 
 import numpy as np
+from typing import Union
 from shapely.geometry import Polygon, Point
 from shapely.ops import nearest_points
 import shapely
 
 from .utils import _point_to_segment_distance, _find_nearest_vertex_index
-from polyforge.core.types import IntrusionStrategy
+from polyforge.core.types import IntrusionStrategy, coerce_enum
 
 
 def fix_narrow_protrusion(
@@ -164,8 +165,8 @@ def fix_narrow_protrusion(
 def fix_sharp_intrusion(
     geometry: Polygon,
     min_clearance: float,
-    strategy: IntrusionStrategy = IntrusionStrategy.FILL,
-    max_iterations: int = 10
+    strategy: Union[IntrusionStrategy, str] = IntrusionStrategy.FILL,
+    max_iterations: int = 10,
 ) -> Polygon:
     """Fix sharp narrow intrusions by filling or smoothing.
 
@@ -196,6 +197,7 @@ def fix_sharp_intrusion(
     from polyforge.simplify import simplify_rdp
 
     # All strategies use progressive simplification
+    strategy_enum = coerce_enum(strategy, IntrusionStrategy)
     # 'fill' and 'simplify' are effectively the same (remove vertices)
     # 'smooth' tries gentler simplification first
 
@@ -204,7 +206,7 @@ def fix_sharp_intrusion(
     best_clearance = geometry.minimum_clearance
 
     # Adjust base epsilon based on strategy
-    if strategy == IntrusionStrategy.SMOOTH:
+    if strategy_enum == IntrusionStrategy.SMOOTH:
         base_epsilon = min_clearance / 3  # Gentler
     else:  # 'fill' or 'simplify'
         base_epsilon = min_clearance / 2

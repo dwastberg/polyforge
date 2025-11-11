@@ -83,6 +83,17 @@ class TestFixHoleTooClose:
         assert len(result.interiors) == 0
         assert result.exterior.coords[:] == poly.exterior.coords[:]
 
+    def test_accepts_string_strategy(self):
+        """fix_hole_too_close should accept literal strategy values."""
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        hole = [(0.5, 4), (1.5, 4), (1.5, 6), (0.5, 6)]
+
+        poly = Polygon(exterior, holes=[hole])
+        result = fix_hole_too_close(poly, min_clearance=1.0, strategy="remove")
+
+        assert len(result.interiors) == 0
+        assert result.is_valid
+
     def test_shrink_strategy(self):
         """Test shrinking holes instead of removing them."""
         exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
@@ -319,7 +330,7 @@ class TestFixSharpIntrusion:
         ]
         poly = Polygon(coords)
 
-        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy=IntrusionStrategy.SIMPLIFY)
 
         assert result.is_valid
         # Simplification removes vertices
@@ -402,6 +413,20 @@ class TestFixSharpIntrusion:
         assert result.is_valid
         # Should meet or exceed target (or be close)
         assert result.minimum_clearance >= target_clearance * 0.9
+
+    def test_accepts_string_strategy(self):
+        """String literal strategies should behave like enums."""
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (9, 4.8), (8, 5), (9, 5.2),
+            (10, 6), (10, 10), (0, 10)
+        ]
+        poly = Polygon(coords)
+
+        result = fix_sharp_intrusion(poly, min_clearance=0.5, strategy="smooth")
+
+        assert result.is_valid
+        assert result.minimum_clearance >= poly.minimum_clearance * 0.8
 
 
 class TestFixNarrowPassage:
@@ -538,6 +563,15 @@ class TestFixNarrowPassage:
         # In this case, should move (0.1, 2) left and nearest vertex on right edge away
         assert result.minimum_clearance >= original_clearance or result.minimum_clearance >= target_clearance * 0.9
 
+    def test_accepts_string_split_strategy(self):
+        """String literal should select the split strategy."""
+        poly = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy="split")
+
+        assert result.geom_type in ("MultiPolygon", "GeometryCollection")
+        assert not result.is_empty
+
 
 class TestFixNearSelfIntersection:
     """Tests for fix_near_self_intersection function."""
@@ -578,7 +612,7 @@ class TestFixNearSelfIntersection:
         ]
         poly = Polygon(coords)
 
-        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntrusionStrategy.SMOOTH)
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy=IntersectionStrategy.SMOOTH)
 
         assert result.is_valid
         # Should smooth out the zigzag
@@ -626,6 +660,16 @@ class TestFixNearSelfIntersection:
         # Should improve or maintain clearance
         assert result.minimum_clearance >= original_clearance * 0.9
 
+    def test_accepts_string_buffer_strategy(self):
+        """String literal should invoke the buffer strategy."""
+        coords = [(0, 0), (4, 0), (4, 1), (1, 1), (1, 2), (4, 2), (4, 3), (0, 3)]
+        poly = Polygon(coords)
+
+        result = fix_near_self_intersection(poly, min_clearance=0.5, strategy="buffer")
+
+        assert result.is_valid
+        assert result.area >= poly.area
+
 
 class TestFixParallelCloseEdges:
     """Tests for fix_parallel_close_edges function."""
@@ -656,6 +700,16 @@ class TestFixParallelCloseEdges:
 
         assert result.is_valid
         # Buffer increases area
+        assert result.area >= poly.area
+
+    def test_accepts_string_strategy(self):
+        """String literal should be accepted for parallel-edge fixes."""
+        coords = [(0, 0), (6, 0), (6, 0.3), (0, 0.3)]
+        poly = Polygon(coords)
+
+        result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy="buffer")
+
+        assert result.is_valid
         assert result.area >= poly.area
 
     def test_u_shape_parallel_edges(self):

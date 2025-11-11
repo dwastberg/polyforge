@@ -4,8 +4,8 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point, MultiPoint
 from shapely.ops import unary_union, nearest_points
 
-from ...core.geometry_utils import remove_holes
-from ..utils.boundary_analysis import get_boundary_points_near
+from polyforge.core.geometry_utils import remove_holes
+from polyforge.ops.merge_ops import get_boundary_points_near
 
 
 def merge_convex_bridges(

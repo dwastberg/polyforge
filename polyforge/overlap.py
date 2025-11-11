@@ -1,7 +1,14 @@
-"""Batch overlap resolution utilities."""
+"""Overlap resolution utilities.
+
+The previous package structure split these helpers between ``overlap/__init__.py``
+and ``overlap/engine.py``. Consolidating them into a single module keeps all of
+the overlap-specific logic in one place and eliminates the extra wrapper file
+(``split.py``) that simply forwarded to ``resolve_overlap_pair``.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -10,10 +17,50 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import split as shapely_split, unary_union
 from shapely.strtree import STRtree
 
-from ..core.geometry_utils import to_single_polygon
-from ..core.types import OverlapStrategy
+from .core.geometry_utils import to_single_polygon
+from .core.types import OverlapStrategy, coerce_enum
 
 _AREA_EPS = 1e-10
+
+
+@dataclass
+class OverlapContext:
+    poly1: Polygon
+    poly2: Polygon
+    overlap: Polygon
+    poly1_only: BaseGeometry
+    poly2_only: BaseGeometry
+
+
+def split_overlap(
+    poly1: Polygon,
+    poly2: Polygon,
+    overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
+) -> Tuple[Polygon, Polygon]:
+    """Backwards-compatible helper that simply calls :func:`resolve_overlap_pair`."""
+    strategy = coerce_enum(overlap_strategy, OverlapStrategy)
+    return resolve_overlap_pair(poly1, poly2, strategy=strategy)
+
+
+def resolve_overlap_pair(
+    poly1: Polygon,
+    poly2: Polygon,
+    strategy: OverlapStrategy = OverlapStrategy.SPLIT,
+) -> Tuple[Polygon, Polygon]:
+    """Resolve an overlap between two polygons using the requested strategy."""
+    strategy = coerce_enum(strategy, OverlapStrategy)
+    ctx = _build_context(poly1, poly2)
+    if ctx is None:
+        return poly1, poly2
+
+    if strategy == OverlapStrategy.LARGEST:
+        prefer_first = poly1.area >= poly2.area
+        return _assign_entire_overlap(ctx, prefer_first)
+    if strategy == OverlapStrategy.SMALLEST:
+        prefer_first = poly1.area <= poly2.area
+        return _assign_entire_overlap(ctx, prefer_first)
+
+    return _split_equally(ctx)
 
 
 def remove_overlaps(
@@ -21,10 +68,11 @@ def remove_overlaps(
     overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
     max_iterations: int = 100,
 ) -> List[Polygon]:
-    """Remove overlaps from a list of polygons using spatial indexing."""
+    """Remove overlaps from a list of polygons using the shared overlap engine."""
     if not polygons:
         return []
 
+    strategy = coerce_enum(overlap_strategy, OverlapStrategy)
     result = list(polygons)
     changed = True
     iteration = 0
@@ -47,7 +95,7 @@ def remove_overlaps(
                     continue
 
                 overlap = poly_i.intersection(poly_j)
-                if getattr(overlap, "area", 0.0) > _AREA_EPS:
+                if getattr(overlap, "area", 0.0) > 1e-10:
                     overlapping_pairs.append((i, j))
 
         if not overlapping_pairs:
@@ -67,7 +115,7 @@ def remove_overlaps(
             result[i], result[j] = resolve_overlap_pair(
                 result[i],
                 result[j],
-                strategy=overlap_strategy,
+                strategy=strategy,
             )
             changed = True
 
@@ -134,42 +182,7 @@ def find_overlapping_groups(
     return groups
 
 
-def resolve_overlap_pair(
-    poly1: Polygon,
-    poly2: Polygon,
-    strategy: OverlapStrategy = OverlapStrategy.SPLIT,
-) -> Tuple[Polygon, Polygon]:
-    """
-    Resolve an overlap between two polygons using the requested strategy.
-
-    This is the canonical entry point used by both `split_overlap` and
-    `remove_overlaps`. It handles containment checks, strategy-specific
-    allocation, split-line construction, and fallbacks.
-    """
-    result = _build_overlap_data(poly1, poly2)
-    if result is None:
-        return poly1, poly2
-
-    overlap, poly1_only, poly2_only = result
-
-    if strategy == OverlapStrategy.LARGEST:
-        prefer_first = poly1.area >= poly2.area
-        return _assign_entire_overlap(poly1_only, poly2_only, overlap, prefer_first)
-    if strategy == OverlapStrategy.SMALLEST:
-        prefer_first = poly1.area <= poly2.area
-        return _assign_entire_overlap(poly1_only, poly2_only, overlap, prefer_first)
-
-    return _split_equally(poly1, poly2, overlap, poly1_only, poly2_only)
-
-
-def _build_overlap_data(
-    poly1: Polygon, poly2: Polygon
-) -> Optional[Tuple[Polygon, BaseGeometry, BaseGeometry]]:
-    """Extract overlap and non-overlapping parts of two polygons.
-
-    Returns:
-        Tuple of (overlap, poly1_only, poly2_only) or None if no significant overlap
-    """
+def _build_context(poly1: Polygon, poly2: Polygon) -> Optional[OverlapContext]:
     if not poly1.intersects(poly2):
         return None
 
@@ -188,66 +201,50 @@ def _build_overlap_data(
             overlap = merged
 
     overlap = to_single_polygon(overlap)
-    poly1_only = poly1.difference(overlap)
-    poly2_only = poly2.difference(overlap)
 
-    return overlap, poly1_only, poly2_only
+    return OverlapContext(
+        poly1=poly1,
+        poly2=poly2,
+        overlap=overlap,
+        poly1_only=poly1.difference(overlap),
+        poly2_only=poly2.difference(overlap),
+    )
 
 
-def _assign_entire_overlap(
-    poly1_only: BaseGeometry,
-    poly2_only: BaseGeometry,
-    overlap: Polygon,
-    prefer_first: bool,
-) -> Tuple[Polygon, Polygon]:
-    """Assign entire overlap to one polygon based on preference."""
+def _assign_entire_overlap(ctx: OverlapContext, prefer_first: bool) -> Tuple[Polygon, Polygon]:
     if prefer_first:
-        new_poly1 = _safe_union(poly1_only, overlap)
-        new_poly2 = _to_polygon(poly2_only)
+        new_poly1 = _safe_union(ctx.poly1_only, ctx.overlap)
+        new_poly2 = _to_polygon(ctx.poly2_only)
     else:
-        new_poly1 = _to_polygon(poly1_only)
-        new_poly2 = _safe_union(poly2_only, overlap)
+        new_poly1 = _to_polygon(ctx.poly1_only)
+        new_poly2 = _safe_union(ctx.poly2_only, ctx.overlap)
     return new_poly1, new_poly2
 
 
-def _split_equally(
-    poly1: Polygon,
-    poly2: Polygon,
-    overlap: Polygon,
-    poly1_only: BaseGeometry,
-    poly2_only: BaseGeometry,
-) -> Tuple[Polygon, Polygon]:
-    """Split overlap equally between two polygons using geometric splitting."""
-    centroid1 = _geometry_centroid(poly1_only) or poly1.centroid
-    centroid2 = _geometry_centroid(poly2_only) or poly2.centroid
+def _split_equally(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
+    centroid1 = _geometry_centroid(ctx.poly1_only) or ctx.poly1.centroid
+    centroid2 = _geometry_centroid(ctx.poly2_only) or ctx.poly2.centroid
 
     try:
-        cutting_line = _build_cutting_line(overlap, centroid1, centroid2)
-        split_result = shapely_split(overlap, cutting_line)
+        cutting_line = _build_cutting_line(ctx.overlap, centroid1, centroid2)
+        split_result = shapely_split(ctx.overlap, cutting_line)
         pieces = [
-            geom
-            for geom in split_result.geoms
-            if isinstance(geom, Polygon) and geom.area > _AREA_EPS
+            geom for geom in split_result.geoms if isinstance(geom, Polygon) and geom.area > _AREA_EPS
         ]
 
         if len(pieces) < 2:
-            return _fallback_split(poly1, poly2, overlap, poly1_only, poly2_only)
+            return _fallback_split(ctx)
 
         piece1, piece2 = _assign_pieces_to_polygons(pieces, centroid1, centroid2)
-        new_poly1 = _safe_union(poly1_only, piece1)
-        new_poly2 = _safe_union(poly2_only, piece2)
+        new_poly1 = _safe_union(ctx.poly1_only, piece1)
+        new_poly2 = _safe_union(ctx.poly2_only, piece2)
         return new_poly1, new_poly2
     except Exception:
-        return _fallback_split(poly1, poly2, overlap, poly1_only, poly2_only)
+        return _fallback_split(ctx)
 
 
-def _build_cutting_line(
-    overlap: Polygon, centroid1: Point, centroid2: Point
-) -> LineString:
-    """Build a line that cuts through the overlap perpendicular to centroids."""
-    direction = np.array(
-        [centroid2.x - centroid1.x, centroid2.y - centroid1.y], dtype=float
-    )
+def _build_cutting_line(overlap: Polygon, centroid1: Point, centroid2: Point) -> LineString:
+    direction = np.array([centroid2.x - centroid1.x, centroid2.y - centroid1.y], dtype=float)
     if np.linalg.norm(direction) < 1e-10:
         direction = _get_overlap_longest_axis(overlap)
     direction = direction / np.linalg.norm(direction)
@@ -268,7 +265,6 @@ def _assign_pieces_to_polygons(
     centroid1: Point,
     centroid2: Point,
 ) -> Tuple[Polygon, Polygon]:
-    """Assign split pieces to the two original polygons based on proximity."""
     if len(pieces) == 2:
         dist1_to_first = centroid1.distance(pieces[0].centroid)
         dist1_to_second = centroid1.distance(pieces[1].centroid)
@@ -295,21 +291,13 @@ def _assign_pieces_to_polygons(
     )
 
 
-def _fallback_split(
-    poly1: Polygon,
-    poly2: Polygon,
-    overlap: Polygon,
-    poly1_only: BaseGeometry,
-    poly2_only: BaseGeometry,
-) -> Tuple[Polygon, Polygon]:
-    """Fallback strategy using buffering when geometric split fails."""
-    # Use buffering approach to erode overlap and share area.
-    half_overlap_area = overlap.area / 2.0
+def _fallback_split(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
+    half_overlap_area = ctx.overlap.area / 2.0
     buffer_dist = -np.sqrt(max(half_overlap_area, 0.0) / np.pi) * 0.5
 
     try:
-        new_poly1 = poly1.buffer(buffer_dist / 2.0)
-        new_poly2 = poly2.buffer(buffer_dist / 2.0)
+        new_poly1 = ctx.poly1.buffer(buffer_dist / 2.0)
+        new_poly2 = ctx.poly2.buffer(buffer_dist / 2.0)
         if (
             isinstance(new_poly1, Polygon)
             and isinstance(new_poly2, Polygon)
@@ -320,11 +308,10 @@ def _fallback_split(
     except Exception:
         pass
 
-    return poly1, poly2
+    return ctx.poly1, ctx.poly2
 
 
 def _safe_union(base_geom: BaseGeometry, addition: BaseGeometry) -> Polygon:
-    """Safely union two geometries, handling empty cases."""
     if base_geom.is_empty and addition.is_empty:
         return Polygon()
     if base_geom.is_empty:
@@ -336,54 +323,43 @@ def _safe_union(base_geom: BaseGeometry, addition: BaseGeometry) -> Polygon:
 
 
 def _to_polygon(geometry: BaseGeometry) -> Polygon:
-    """Convert any geometry to a single Polygon, taking largest if MultiPolygon."""
     if isinstance(geometry, Polygon):
         return geometry
     if isinstance(geometry, MultiPolygon) and geometry.geoms:
         return to_single_polygon(geometry)
     if hasattr(geometry, "geoms"):
-        # GeometryCollection or similar
-        polygons = [g for g in geometry.geoms if isinstance(g, Polygon)]
-        if polygons:
-            return to_single_polygon(
-                polygons[0] if len(polygons) == 1 else unary_union(polygons)
-            )
+        polys = [geom for geom in geometry.geoms if isinstance(geom, Polygon)]
+        if polys:
+            return to_single_polygon(unary_union(polys))
     return Polygon()
 
 
 def _geometry_centroid(geometry: BaseGeometry) -> Optional[Point]:
-    """Get centroid of geometry, handling various geometry types."""
-    if geometry is None or geometry.is_empty:
+    if geometry.is_empty:
         return None
-    if isinstance(geometry, Polygon):
-        return geometry.centroid
-    if isinstance(geometry, MultiPolygon) and geometry.geoms:
-        largest = max(geometry.geoms, key=lambda p: p.area)
-        return largest.centroid
-    if hasattr(geometry, "geoms"):
-        polygons = [g for g in geometry.geoms if isinstance(g, Polygon)]
-        if polygons:
-            largest = max(polygons, key=lambda p: p.area)
-            return largest.centroid
-    try:
-        return geometry.centroid
-    except Exception:
-        return None
+    centroid = geometry.centroid
+    if isinstance(centroid, Point):
+        return centroid
+    if hasattr(centroid, "geoms"):
+        for geom in centroid.geoms:
+            if isinstance(geom, Point):
+                return geom
+    return None
 
 
 def _get_overlap_longest_axis(overlap: Polygon) -> np.ndarray:
-    """Get the longest axis direction of the overlap bounding box."""
     bounds = overlap.bounds
     width = bounds[2] - bounds[0]
     height = bounds[3] - bounds[1]
-    if width >= height:
-        return np.array([1.0, 0.0])
-    return np.array([0.0, 1.0])
+    if height > width:
+        return np.array([0.0, 1.0])
+    return np.array([1.0, 0.0])
 
 
 __all__ = [
-    "remove_overlaps",
     "count_overlaps",
     "find_overlapping_groups",
+    "remove_overlaps",
     "resolve_overlap_pair",
+    "split_overlap",
 ]

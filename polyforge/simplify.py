@@ -10,192 +10,23 @@ Includes wrappers for the high-performance simplification library algorithms:
 - Topology-preserving Visvalingam-Whyatt (VWP)
 """
 
-import numpy as np
-from typing import Literal, Union, Optional
+from typing import Union, Optional
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry import Polygon, MultiPolygon
-from simplification.cutil import (
-    simplify_coords as _rdp_simplify,
-    simplify_coords_vw as _vw_simplify,
-    simplify_coords_vwp as _vwp_simplify
-)
 
 from polyforge.process import process_geometry
-from .core.types import CollapseMode
-from .core.cleanup import (
+from .core.types import CollapseMode, coerce_enum
+from polyforge.ops.cleanup_ops import (
     remove_small_holes as _remove_small_holes_impl,
     remove_narrow_holes as _remove_narrow_holes_impl,
 )
-
-
-# ============================================================================
-# Private processing functions (work with numpy arrays)
-# ============================================================================
-
-def _simplify_rdp_wrapper(vertices: np.ndarray, epsilon: float) -> np.ndarray:
-    """Internal function: Simplify using Ramer-Douglas-Peucker algorithm.
-
-    Args:
-        vertices: Numpy array of 2D vertices (Nx2)
-        epsilon: Tolerance value for RDP algorithm
-
-    Returns:
-        Numpy array of simplified vertices
-    """
-    if len(vertices) < 2:
-        return vertices.copy()
-
-    # The simplification library expects a list or numpy array
-    # and returns a numpy array if input is numpy
-    result = _rdp_simplify(vertices, epsilon)
-    return np.array(result) if not isinstance(result, np.ndarray) else result
-
-
-def _simplify_vw_wrapper(vertices: np.ndarray, threshold: float) -> np.ndarray:
-    """Internal function: Simplify using Visvalingam-Whyatt algorithm.
-
-    Args:
-        vertices: Numpy array of 2D vertices (Nx2)
-        threshold: Area threshold for VW algorithm
-
-    Returns:
-        Numpy array of simplified vertices
-    """
-    if len(vertices) < 2:
-        return vertices.copy()
-
-    result = _vw_simplify(vertices, threshold)
-    return np.array(result) if not isinstance(result, np.ndarray) else result
-
-
-def _simplify_vwp_wrapper(vertices: np.ndarray, threshold: float) -> np.ndarray:
-    """Internal function: Simplify using topology-preserving Visvalingam-Whyatt.
-
-    Args:
-        vertices: Numpy array of 2D vertices (Nx2)
-        threshold: Area threshold for VWP algorithm
-
-    Returns:
-        Numpy array of simplified vertices
-    """
-    if len(vertices) < 2:
-        return vertices.copy()
-
-    result = _vwp_simplify(vertices, threshold)
-    return np.array(result) if not isinstance(result, np.ndarray) else result
-
-
-def _snap_short_edges(
-    vertices: np.ndarray,
-    min_length: float,
-    snap_mode: Literal['midpoint', 'first', 'last'] = 'midpoint'
-) -> np.ndarray:
-    """Internal function: Snap vertices together if edges are shorter than min_length.
-
-    Args:
-        vertices: Numpy array of 2D vertices (Nx2)
-        min_length: Minimum edge length threshold
-        snap_mode: How to snap vertices together
-
-    Returns:
-        Numpy array of vertices with short edges removed (Mx2 where M <= N)
-    """
-    if len(vertices) < 2:
-        return vertices.copy()
-
-    snap_handlers = {
-        'midpoint': lambda current, nxt: (current + nxt) / 2.0,
-        'first': lambda current, _: current,
-        'last': lambda _, nxt: nxt,
-    }
-
-    if snap_mode not in snap_handlers:
-        raise ValueError(f"Unknown snap_mode: {snap_mode}")
-
-    is_closed = np.allclose(vertices[0], vertices[-1])
-    working = vertices[:-1] if is_closed else vertices
-    snapper = snap_handlers[snap_mode]
-
-    collapsed: list[np.ndarray] = []
-    i = 0
-    n = len(working)
-
-    while i < n:
-        current = working[i].copy()
-        j = i + 1
-
-        while j < n:
-            next_vertex = working[j]
-            if np.linalg.norm(next_vertex - current) >= min_length:
-                break
-            current = np.array(snapper(current, next_vertex), dtype=float, copy=True)
-            j += 1
-
-        collapsed.append(current)
-        i = j
-
-    if not collapsed:
-        return vertices[:2].copy()
-
-    collapsed_array = np.vstack(collapsed)
-
-    if is_closed:
-        if len(collapsed_array) == 1:
-            collapsed_array = np.vstack([collapsed_array, collapsed_array[0]])
-        else:
-            first = collapsed_array[0]
-            last = collapsed_array[-1]
-            if np.linalg.norm(last - first) < min_length:
-                merged = np.array(snapper(first, last), dtype=float, copy=True)
-                collapsed_array[0] = merged
-                collapsed_array[-1] = merged
-            else:
-                collapsed_array = np.vstack([collapsed_array, collapsed_array[0]])
-
-    if len(collapsed_array) < 2:
-        return vertices[:2].copy()
-
-    return collapsed_array
-
-
-def _remove_duplicate_vertices(
-    vertices: np.ndarray,
-    tolerance: float = 1e-10
-) -> np.ndarray:
-    """Internal function: Remove consecutive duplicate vertices within tolerance.
-
-    Args:
-        vertices: Numpy array of 2D vertices (Nx2)
-        tolerance: Distance tolerance for considering vertices as duplicates
-
-    Returns:
-        Numpy array of vertices with duplicates removed
-    """
-    if len(vertices) < 2:
-        return vertices.copy()
-
-    is_closed = np.allclose(vertices[0], vertices[-1])
-
-    # Find non-duplicate vertices
-    result = [vertices[0]]
-
-    for i in range(1, len(vertices)):
-        distance = np.linalg.norm(vertices[i] - result[-1])
-        if distance > tolerance:
-            result.append(vertices[i])
-
-    # For closed rings, ensure it's properly closed
-    if is_closed and len(result) > 1:
-        if not np.allclose(result[0], result[-1]):
-            result.append(result[0].copy())
-
-    # Ensure at least 2 vertices
-    if len(result) < 2:
-        return vertices[:2].copy()
-
-    return np.array(result)
-
-
+from polyforge.ops.simplify_ops import (
+    simplify_rdp_coords,
+    simplify_vw_coords,
+    simplify_vwp_coords,
+    snap_short_edges,
+    remove_duplicate_vertices,
+)
 # ============================================================================
 # Public API functions (work with Shapely geometries)
 # ============================================================================
@@ -203,7 +34,7 @@ def _remove_duplicate_vertices(
 def collapse_short_edges(
     geometry: BaseGeometry,
     min_length: float,
-    snap_mode: CollapseMode = CollapseMode.MIDPOINT
+    snap_mode: Union[CollapseMode, str] = CollapseMode.MIDPOINT,
 ) -> BaseGeometry:
     """Collapse edges shorter than min_length by snapping vertices together.
 
@@ -232,7 +63,13 @@ def collapse_short_edges(
         >>> clean = collapse_short_edges(poly, min_length=0.1, snap_mode=CollapseMode.FIRST)
 
     """
-    return process_geometry(geometry, _snap_short_edges, min_length=min_length, snap_mode=snap_mode.value)
+    snap_label = coerce_enum(snap_mode, CollapseMode).value
+    return process_geometry(
+        geometry,
+        snap_short_edges,
+        min_length=min_length,
+        snap_mode=snap_label,
+    )
 
 
 def deduplicate_vertices(
@@ -260,7 +97,7 @@ def deduplicate_vertices(
         >>> # Duplicate (0, 0) vertex removed
 
     """
-    return process_geometry(geometry, _remove_duplicate_vertices, tolerance=tolerance)
+    return process_geometry(geometry, remove_duplicate_vertices, tolerance=tolerance)
 
 
 def simplify_rdp(
@@ -283,7 +120,7 @@ def simplify_rdp(
         New Shapely geometry of the same type with fewer vertices
 
     """
-    return process_geometry(geometry, _simplify_rdp_wrapper, epsilon=epsilon)
+    return process_geometry(geometry, simplify_rdp_coords, epsilon=epsilon)
 
 
 def simplify_vw(
@@ -305,7 +142,7 @@ def simplify_vw(
         New Shapely geometry of the same type with fewer vertices
 
     """
-    return process_geometry(geometry, _simplify_vw_wrapper, threshold=threshold)
+    return process_geometry(geometry, simplify_vw_coords, threshold=threshold)
 
 
 def simplify_vwp(
@@ -328,7 +165,7 @@ def simplify_vwp(
 
 
     """
-    return process_geometry(geometry, _simplify_vwp_wrapper, threshold=threshold)
+    return process_geometry(geometry, simplify_vwp_coords, threshold=threshold)
 
 def remove_small_holes(
     geometry: Union[Polygon, MultiPolygon],

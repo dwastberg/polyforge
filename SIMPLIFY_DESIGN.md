@@ -31,6 +31,7 @@
 ## Simplification Principles
 1. **Functional pipelines** – model every operation as `Geometry -> Geometry` functions with explicit arguments; collect logging/metrics through return values rather than hidden state.
 2. **Single configuration surface** – replace scattered enums/dataclasses with one lightweight config object (e.g., `FixConfig` holding `min_clearance`, `merge_margin`, `cleanup` toggles). Strategy selection becomes a dictionary lookup keyed by simple literals.
+   - **Enum boundary only** – keep the existing Enums at the public API edge so callers retain IDE/autocomplete benefits, but immediately convert them to their string values before passing data into the ops layer.
 3. **Measure, don’t model** – compute the few metrics we need (`is_valid`, `minimum_clearance`, `area_ratio`, `overlap_area`) via plain functions. Let callers compose validation rules by checking those numbers instead of instantiating `ConstraintStatus`.
 4. **Lean module layout** – collapse micro-modules into topical files: `ops/simplify.py`, `ops/cleanup.py`, `ops/clearance.py`, `ops/merge.py`, and shared `metrics.py`. Keep `pipeline.py` as the sole orchestrator.
 5. **Keep high-level API stable** – continue exporting `simplify_vwp`, `fix_clearance`, etc., but implement them via the functional core so callers see the same names without the abstract machinery.
@@ -62,10 +63,21 @@ polyforge/
 - **Metrics-first validation** – `metrics.measure(geometry, original)` returns a dict such as `{"is_valid": True, "clearance": 1.7, "area_ratio": 0.94}`. The pipeline compares against thresholds declared inside `FixConfig`. No `ConstraintStatus` objects or severity calculations are required.
 - **Shared STRtree helpers** – move `find_polygon_pairs`, `build_segment_index`, etc., into `ops/merge_ops.py` next to the strategies so callers can see the full data flow inside one module.
 
+## Comparison with SIMPLIFY_CODE_DESIGN
+
+- **Where we agree** – Both approaches delete the transactional repair pipeline, flatten stage orchestration into plain functions, and keep the public API untouched. The other document’s quantified file/line savings reinforce the urgency of this cleanup and the focus on consolidating the `repair`, `merge`, and `clearance` packages.
+- **Where we diverge** – Their plan keeps most enums and `GeometryConstraints`, merely shrinking them, whereas this proposal replaces them with literal-driven configs and direct metric checks. They also prefer collapsing code into a handful of large modules (e.g., `repair.py`, `merge.py`), while this design favors an `ops/` namespace that groups purely functional helpers by concern.
+- **Adopted adjustments** – Two concrete ideas strengthen this plan:
+  1. Drop unnecessary wrapper files such as `split.py` and re-export `resolve_overlap_pair` directly; this aligns with the other document’s “delete thin wrappers” recommendation.
+  2. Collapse the overlap helpers back into a single `overlap.py` module (still called through the ops layer) so the resolver and batch removal logic live side by side, mirroring their observation that the current package layering obscures control flow.
+
+These tweaks fold naturally into the functional architecture (the `overlap` ops module becomes that single file, and the public API now references it directly) without sacrificing the broader goals around metrics-first validation and lightweight configs.
+
 ## Refactor Plan
 
 1. **Document operations (Week 1)**  
    - Extract the pure geometry helpers from `polyforge/simplify.py:200`, `polyforge/core/cleanup.py:11`, `polyforge/clearance/*.py`, and `polyforge/merge/*.py` into `polyforge/ops/*` modules without changing behavior.  
+   - In the same sweep, delete `split.py` and point the public API at the consolidated overlap module so there are no redundant wrappers.
    - Add `metrics.measure_geometry` that wraps `is_valid`, `minimum_clearance`, `area_ratio`, and `overlap_area`.
 
 2. **Introduce the functional pipeline (Week 2)**  

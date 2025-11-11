@@ -4,8 +4,8 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 
-from ...simplify import simplify_vwp
-from ...core.geometry_utils import remove_holes
+from polyforge.simplify import simplify_vwp
+from polyforge.core.geometry_utils import remove_holes
 
 
 def merge_simple_buffer(

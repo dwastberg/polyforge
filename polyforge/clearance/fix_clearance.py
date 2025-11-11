@@ -12,11 +12,16 @@ import shapely
 from shapely.geometry import Polygon, MultiPolygon, Point, LineString, LinearRing
 from shapely.geometry.base import BaseGeometry
 
-from .holes import fix_hole_too_close
-from .protrusions import fix_narrow_protrusion
-from .remove_protrusions import remove_narrow_protrusions
-from .passages import fix_narrow_passage, fix_near_self_intersection, fix_parallel_close_edges
-from .utils import _find_nearest_vertex_index, _calculate_curvature_at_vertex
+from polyforge.ops.clearance import (
+    fix_hole_too_close,
+    fix_narrow_protrusion,
+    remove_narrow_protrusions,
+    fix_narrow_passage,
+    fix_near_self_intersection,
+    fix_parallel_close_edges,
+    _find_nearest_vertex_index,
+    _calculate_curvature_at_vertex,
+)
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy, EdgeStrategy
 from polyforge.core.iterative_utils import iterative_improve
 

@@ -4,9 +4,9 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon, LineString
 from shapely.ops import unary_union
 
-from ...simplify import simplify_vwp
-from ...core.geometry_utils import remove_holes
-from ..utils.boundary_analysis import find_close_boundary_pairs
+from polyforge.simplify import simplify_vwp
+from polyforge.core.geometry_utils import remove_holes
+from polyforge.ops.merge_ops import find_close_boundary_pairs
 
 
 def merge_selective_buffer(

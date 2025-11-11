@@ -11,7 +11,12 @@ import shapely
 import shapely.ops
 
 from .utils import _find_nearest_vertex_index
-from polyforge.core.types import PassageStrategy, IntersectionStrategy, EdgeStrategy
+from polyforge.core.types import (
+    PassageStrategy,
+    IntersectionStrategy,
+    EdgeStrategy,
+    coerce_enum,
+)
 
 
 def _validate_holes_after_buffer(
@@ -485,7 +490,7 @@ def _widen_narrow_passage(
 def fix_narrow_passage(
     geometry: Polygon,
     min_clearance: float,
-    strategy: PassageStrategy = PassageStrategy.WIDEN
+    strategy: Union[PassageStrategy, str] = PassageStrategy.WIDEN,
 ) -> Union[Polygon, MultiPolygon]:
     """Fix narrow passages (hourglass/neck shapes) that cause low clearance.
 
@@ -514,7 +519,9 @@ def fix_narrow_passage(
 
         Uses 5% of min_clearance as threshold to detect edge vs vertex cases.
     """
-    if strategy == PassageStrategy.SPLIT:
+    strategy_enum = coerce_enum(strategy, PassageStrategy)
+
+    if strategy_enum == PassageStrategy.SPLIT:
         return _split_narrow_passage(geometry)
     else:
         return _widen_narrow_passage(geometry, min_clearance)
@@ -523,7 +530,7 @@ def fix_narrow_passage(
 def fix_near_self_intersection(
     geometry: Polygon,
     min_clearance: float,
-    strategy: IntersectionStrategy = IntersectionStrategy.SIMPLIFY
+    strategy: Union[IntersectionStrategy, str] = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
     """Fix near self-intersections where edges come very close.
 
@@ -549,7 +556,9 @@ def fix_near_self_intersection(
         >>> fixed.is_valid
         True
     """
-    if strategy == IntersectionStrategy.BUFFER:
+    strategy_enum = coerce_enum(strategy, IntersectionStrategy)
+
+    if strategy_enum == IntersectionStrategy.BUFFER:
         # Use small buffer to push edges apart
         current_clearance = geometry.minimum_clearance
 
@@ -592,7 +601,7 @@ def fix_near_self_intersection(
         best_clearance = geometry.minimum_clearance
 
         # Use gentler epsilon for smoothing
-        if strategy == IntersectionStrategy.SMOOTH:
+        if strategy_enum == IntersectionStrategy.SMOOTH:
             base_epsilon = min_clearance / 3
         else:
             base_epsilon = min_clearance / 2
@@ -633,7 +642,7 @@ def fix_near_self_intersection(
 def fix_parallel_close_edges(
     geometry: Polygon,
     min_clearance: float,
-    strategy: IntersectionStrategy = IntersectionStrategy.SIMPLIFY
+    strategy: Union[IntersectionStrategy, str] = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
     """Fix parallel edges that run too close to each other.
     """

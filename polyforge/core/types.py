@@ -4,6 +4,9 @@ This module defines enums for strategy parameters throughout the library.
 """
 
 from enum import Enum
+from typing import Type, TypeVar, Union
+
+EnumT = TypeVar("EnumT", bound=Enum)
 
 
 class OverlapStrategy(Enum):
@@ -201,4 +204,14 @@ __all__ = [
     'IntrusionStrategy',
     'IntersectionStrategy',
     'EdgeStrategy',
+    'coerce_enum',
 ]
+
+
+def coerce_enum(value: Union[EnumT, str], enum_cls: Type[EnumT]) -> EnumT:
+    """Convert ``value`` to ``enum_cls`` without forcing callers to import enums."""
+    if isinstance(value, enum_cls):
+        return value
+    if isinstance(value, str):
+        return enum_cls(value)
+    raise ValueError(f"Cannot coerce {value!r} to {enum_cls.__name__}")

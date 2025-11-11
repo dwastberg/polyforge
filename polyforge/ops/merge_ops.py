@@ -1,39 +1,86 @@
-"""Vertex insertion utilities for optimal merge connection points."""
+"""Merge-related geometry helpers shared across strategies."""
 
-from typing import List
+from __future__ import annotations
+
+from typing import List, Optional, Tuple
 
 import numpy as np
-from shapely.geometry import Polygon, LineString
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points
 
-from ...core.spatial_utils import find_polygon_pairs
+from ..core.spatial_utils import (
+    SegmentIndex,
+    build_segment_index,
+    find_polygon_pairs,
+    query_close_segments,
+)
+
+
+def find_close_boundary_pairs(
+    polygons: List[Polygon],
+    margin: float,
+    segment_length: Optional[float] = None,
+) -> List[Tuple[LineString, LineString, float]]:
+    """Return pairs of boundary segments that sit within ``margin`` of each other."""
+    if segment_length is None:
+        segment_length = margin * 2.0 if margin > 0 else 1.0
+
+    index = build_segment_index(polygons, segment_length)
+    close_pairs: List[Tuple[LineString, LineString, float]] = []
+    seen: set[Tuple[int, int]] = set()
+
+    for seg_idx, segment in enumerate(index.segments):
+        owner_i = index.owners[seg_idx][0]
+        for cand_idx in query_close_segments(index, seg_idx, margin):
+            if cand_idx <= seg_idx:
+                continue
+            owner_j = index.owners[cand_idx][0]
+            if owner_i == owner_j:
+                continue
+            pair_key = (seg_idx, cand_idx)
+            if pair_key in seen:
+                continue
+            distance = segment.distance(index.segments[cand_idx])
+            if distance <= margin:
+                close_pairs.append((segment, index.segments[cand_idx], distance))
+                seen.add(pair_key)
+
+    return close_pairs
+
+
+def get_boundary_points_near(
+    polygon: Polygon,
+    point: Point,
+    radius: float,
+) -> List[Tuple[float, float]]:
+    """Extract boundary points within ``radius`` of ``point``."""
+    coords = list(polygon.exterior.coords)
+    close_points = []
+
+    for coord in coords[:-1]:
+        coord_point = Point(coord)
+        if coord_point.distance(point) <= radius:
+            close_points.append(coord)
+
+    if len(close_points) < 3:
+        boundary = polygon.exterior
+        num_samples = max(10, int(boundary.length / 2))
+
+        for i in range(num_samples):
+            t = i / num_samples
+            sampled_point = boundary.interpolate(t, normalized=True)
+            if sampled_point.distance(point) <= radius:
+                close_points.append((sampled_point.x, sampled_point.y))
+
+    return close_points
 
 
 def insert_connection_vertices(
     polygons: List[Polygon],
     margin: float,
-    tolerance: float = 0.01
+    tolerance: float = 0.01,
 ) -> List[Polygon]:
-    """Insert vertices at optimal connection points between close polygons.
-
-    For each pair of polygons within margin distance, finds the closest points
-    on their boundaries. If a closest point lies on an edge (not at an existing
-    vertex), inserts a new vertex at that location. This gives subsequent merge
-    strategies optimal anchor points for creating minimal bridges.
-
-    Args:
-        polygons: List of polygons to process
-        margin: Maximum distance for considering polygons close
-        tolerance: Minimum distance from existing vertex to insert new one (default: 0.01)
-
-    Returns:
-        List of polygons with new vertices inserted at connection points
-
-    Notes:
-        - Only inserts vertices when closest point is > tolerance from existing vertices
-        - Inserts at closest point per edge pair (one per close edge)
-        - Preserves holes and Z-coordinates if present
-    """
+    """Insert vertices at optimal connection points between close polygons."""
     if len(polygons) < 2:
         return polygons
 
@@ -81,8 +128,6 @@ def _plan_insertion(
         seg_start = coords[edge_idx]
         seg_end = coords[edge_idx + 1]
         seg = np.array(seg_end[:2]) - np.array(seg_start[:2])
-        line = np.array(pt_coords[:2])
-        line_segment = np.array(seg_start[:2])
         if np.linalg.norm(seg) < 1e-12:
             continue
         projection = LineString([seg_start, seg_end]).distance(point)
@@ -122,4 +167,8 @@ def _rebuild_from_coords(polygons: List[Polygon], modified_coords: dict) -> List
     return result
 
 
-__all__ = ['insert_connection_vertices']
+__all__ = [
+    "find_close_boundary_pairs",
+    "get_boundary_points_near",
+    "insert_connection_vertices",
+]

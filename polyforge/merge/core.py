@@ -3,20 +3,22 @@
 from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
 
-from ..core.types import MergeStrategy
+from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
-from .strategies.simple_buffer import merge_simple_buffer
-from .strategies.selective_buffer import merge_selective_buffer
-from .strategies.vertex_movement import merge_vertex_movement
-from .strategies.boundary_extension import merge_boundary_extension
-from .strategies.convex_bridges import merge_convex_bridges
-from .utils.vertex_insertion import insert_connection_vertices
+from polyforge.ops.merge import (
+    merge_simple_buffer,
+    merge_selective_buffer,
+    merge_vertex_movement,
+    merge_boundary_extension,
+    merge_convex_bridges,
+    insert_connection_vertices,
+)
 
 
 def merge_close_polygons(
     polygons: List[Polygon],
     margin: float = 0.0,
-    merge_strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER,
+    merge_strategy: Union[MergeStrategy, str] = MergeStrategy.SELECTIVE_BUFFER,
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False
@@ -34,12 +36,13 @@ def merge_close_polygons(
     Args:
         polygons: List of input polygons
         margin: Maximum distance for merging (0.0 = only overlapping polygons)
-        merge_strategy: Merging strategy:
+        merge_strategy: Merging strategy (enum or string literal):
             - MergeStrategy.SIMPLE_BUFFER: Classic expand-contract (fast, changes shape)
             - MergeStrategy.SELECTIVE_BUFFER: Only buffer near gaps (good balance, default)
             - MergeStrategy.VERTEX_MOVEMENT: Move vertices toward each other (precise)
             - MergeStrategy.BOUNDARY_EXTENSION: Extend parallel edges (best for buildings)
             - MergeStrategy.CONVEX_BRIDGES: Use convex hull bridges (smooth connections)
+          String values should match the enum value names (e.g., ``"selective_buffer"``).
         preserve_holes: Whether to preserve interior holes when merging
         return_mapping: If True, return (merged_polygons, groups) where groups[i]
                        contains indices of original polygons that were merged
@@ -52,6 +55,8 @@ def merge_close_polygons(
     """
     if not polygons:
         return ([], []) if return_mapping else []
+
+    strategy = coerce_enum(merge_strategy, MergeStrategy)
 
     # Phase 1: Find close polygon groups using spatial indexing
     isolated_indices, merge_groups = find_close_polygon_groups(polygons, margin)
@@ -75,15 +80,15 @@ def merge_close_polygons(
             group_polygons = insert_connection_vertices(group_polygons, margin)
 
         # Select and apply merge strategy
-        if merge_strategy == MergeStrategy.SIMPLE_BUFFER:
+        if strategy == MergeStrategy.SIMPLE_BUFFER:
             merged = merge_simple_buffer(group_polygons, margin, preserve_holes)
-        elif merge_strategy == MergeStrategy.SELECTIVE_BUFFER:
+        elif strategy == MergeStrategy.SELECTIVE_BUFFER:
             merged = merge_selective_buffer(group_polygons, margin, preserve_holes)
-        elif merge_strategy == MergeStrategy.VERTEX_MOVEMENT:
+        elif strategy == MergeStrategy.VERTEX_MOVEMENT:
             merged = merge_vertex_movement(group_polygons, margin, preserve_holes)
-        elif merge_strategy == MergeStrategy.BOUNDARY_EXTENSION:
+        elif strategy == MergeStrategy.BOUNDARY_EXTENSION:
             merged = merge_boundary_extension(group_polygons, margin, preserve_holes)
-        elif merge_strategy == MergeStrategy.CONVEX_BRIDGES:
+        elif strategy == MergeStrategy.CONVEX_BRIDGES:
             merged = merge_convex_bridges(group_polygons, margin, preserve_holes)
         else:
             raise ValueError(f"Unknown merge_strategy: {merge_strategy}")

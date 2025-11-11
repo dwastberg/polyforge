@@ -1505,6 +1505,362 @@ polyforge/
 
 ---
 
+## Appendix B: Critical Analysis of Alternative Proposals
+
+### Context
+
+Another developer created `SIMPLIFY_DESIGN.md` proposing a "functional architecture" approach. This appendix provides a **critical evaluation** of their proposals and explains why most should be **rejected**.
+
+### Summary: Reject Most Proposals
+
+**Agreement**: Both analyses correctly identify overengineering (transaction system, stage pipeline, constraint complexity).
+
+**Disagreement**: Their solutions **trade type safety for false simplicity**, replacing Python idioms (enums, dataclasses) with error-prone patterns (string literals, dicts).
+
+**Verdict**: **Adopt 0 of their proposals**. Their ideas make the codebase worse, not better.
+
+---
+
+### Proposal 1: Replace Enums with String Literals ❌
+
+**Their Proposal**:
+```python
+# Replace this:
+fix_clearance(geom, strategy=ClearanceStrategy.HOLE)
+
+# With this:
+CLEARANCE_FIXES = {"hole": fix_hole_too_close, "protrusion": remove_narrow_protrusions}
+config.clearance_strategy = "hole"  # String literal
+```
+
+**Why This Is WORSE**:
+
+1. **No type safety**: Typo `"whol"` instead of `"hole"` not caught until runtime
+2. **No IDE support**: No autocomplete, no "Go to definition", no refactoring support
+3. **Not self-documenting**: What strategies exist? Must read source code or documentation
+4. **Runtime errors**: Invalid strategy name fails during execution, not at compile time
+5. **Against project design**: CLAUDE.md explicitly states: *"Only enums for strategy parameters - No string alternatives"*
+6. **Weak testing argument**: They claim "tests can patch dictionaries" but mocking works equally well with enums
+
+**Evidence from Python Ecosystem**:
+- FastAPI uses enums for path parameters
+- Pydantic uses enums for validated fields
+- Django uses enums (since 3.0) for model choices
+- **Industry best practice**: Use enums for closed sets of options
+
+**Our Approach (CORRECT)**:
+```python
+class ClearanceStrategy(Enum):
+    HOLE = "hole"
+    PROTRUSION = "protrusion"
+
+fix_clearance(geom, strategy=ClearanceStrategy.HOLE)
+```
+
+**Benefits Preserved**:
+- ✅ Type checker (mypy) catches `ClearanceStrategy.WHOLE` typo
+- ✅ IDE autocomplete shows all available strategies
+- ✅ Self-documenting: `help(ClearanceStrategy)` lists options
+- ✅ Refactoring-safe: "Rename" works across codebase
+- ✅ Explicit > implicit (Zen of Python)
+
+**Verdict**: **REJECT**. Enums are a feature, not a bug.
+
+---
+
+### Proposal 2: Replace Dataclasses with Dicts ❌
+
+**Their Proposal**:
+```python
+# Replace this:
+@dataclass
+class GeometryConstraints:
+    min_clearance: Optional[float] = None
+    merge_margin: float = 0.5
+    must_be_valid: bool = True
+
+# With this:
+config = {
+    "min_clearance": 1.0,
+    "merge_margin": 0.5,
+    "must_be_valid": True
+}
+```
+
+**Why This Is WORSE**:
+
+1. **No type hints**: What fields exist? What are their types? Must read docs
+2. **No defaults**: Must specify every field or handle missing keys
+3. **No validation**: Typo `"min_clerance"` (missing 'a') silently creates wrong key
+4. **No IDE support**: No autocomplete for dict keys, no type checking
+5. **Runtime errors**: `config["min_clearance"]` fails if key missing; `config.min_clearance` would fail at attribute access (clearer error)
+6. **Dict evolution**: Adding fields requires updating all dict literals across codebase
+
+**Real-World Example**:
+```python
+# Dataclass - error caught immediately
+config = GeometryConstraints(min_clerance=1.0)  # AttributeError at creation
+
+# Dict - error hidden until use
+config = {"min_clerance": 1.0}  # No error
+...
+# 500 lines later
+if config["min_clearance"] > 0:  # KeyError at runtime!
+```
+
+**Our Approach (CORRECT)**:
+```python
+@dataclass
+class GeometryConstraints:
+    min_clearance: Optional[float] = None
+    merge_margin: float = 0.5
+    must_be_valid: bool = True
+
+constraints = GeometryConstraints(min_clearance=1.0)  # Type-safe, has defaults
+```
+
+**Benefits Preserved**:
+- ✅ mypy checks field types (`min_clearance` must be float or None)
+- ✅ IDE autocomplete shows all fields
+- ✅ Defaults defined in one place
+- ✅ Self-documenting: `help(GeometryConstraints)` shows all options
+- ✅ Refactoring-safe: "Rename field" works across codebase
+
+**Verdict**: **REJECT**. Dataclasses are idiomatic Python for structured data.
+
+---
+
+### Proposal 3: ops/ Namespace ❌
+
+**Their Proposal**:
+```
+# Replace this:
+polyforge/
+  repair/
+    repair.py
+    batch_repair.py
+  clearance/
+    core.py
+    strategies.py
+  merge/
+    merge.py
+
+# With this:
+polyforge/
+  ops/
+    simplify_ops.py
+    cleanup_ops.py
+    clearance_ops.py
+    merge_ops.py
+    repair_ops.py
+```
+
+**Why This Is WORSE**:
+
+1. **Artificial boundary**: "ops" doesn't convey meaning. Operations of what type?
+2. **Vague naming**: Is `clearance_ops.py` different from `clearance.py`? How?
+3. **Extra nesting**: Adds directory level without semantic benefit
+4. **Breaks domain structure**: Current organization by **domain** (repair, clearance, merge) is clearer than organization by **abstraction level** (ops)
+5. **False generalization**: Not all modules are "operations" - some are configs, some are utilities
+
+**Domain-Driven Design Principle**:
+- Organize by **what the code does** (repair, merge, clearance)
+- Not by **how it's implemented** (ops, utils, helpers)
+
+**Our Approach (CORRECT)**:
+```
+polyforge/
+  repair/          # Everything related to repairing geometries
+  clearance/       # Everything related to clearance fixing
+  merge/           # Everything related to merging polygons
+  core/            # Shared utilities (types, errors, constraints)
+```
+
+**Benefits Preserved**:
+- ✅ Clear purpose for each directory
+- ✅ Domain-driven organization matches user mental model
+- ✅ New features go in obvious places (clearance fix → clearance/)
+- ✅ Simpler than current (fewer files), clearer than "ops"
+
+**Verdict**: **REJECT**. Domain structure is superior to abstraction-based structure.
+
+---
+
+### Proposal 4: Metrics as Dicts ❌
+
+**Their Proposal**:
+```python
+# Replace this:
+@dataclass
+class ValidationResult:
+    satisfied: bool
+    violations: List[str]
+    clearance: Optional[float] = None
+
+    def is_better_than(self, other) -> bool:
+        return len(self.violations) < len(other.violations)
+
+# With this:
+metrics = {"is_valid": True, "clearance": 1.7, "area_ratio": 0.94}
+
+# Comparison logic scattered:
+def is_better(m1, m2):
+    return len(m1.get("violations", [])) < len(m2.get("violations", []))
+```
+
+**Why This Is WORSE**:
+
+1. **No type hints**: Is `clearance` a float? Optional? Must check usage
+2. **No methods**: Comparison logic must be external function, not method
+3. **Dict access**: `metrics["clearance"]` less clear than `result.clearance`
+4. **Error-prone**: `metrics.get("clearence")` (typo) returns None silently
+5. **No encapsulation**: Dict keys are public contract, easy to break
+
+**Our Approach (CORRECT)**:
+```python
+@dataclass
+class ValidationResult:
+    satisfied: bool
+    violations: List[str]
+    clearance: Optional[float] = None
+    area_ratio: float = 1.0
+
+    def is_better_than(self, other: 'ValidationResult') -> bool:
+        """Compare two results."""
+        if self.satisfied and not other.satisfied:
+            return True
+        return len(self.violations) < len(other.violations)
+
+result.is_better_than(previous)  # Clear, typed method call
+```
+
+**Benefits Preserved**:
+- ✅ Type-safe: mypy knows `clearance` is `Optional[float]`
+- ✅ Encapsulated: comparison logic lives with the data
+- ✅ Clear interface: `result.is_better_than(other)` is self-documenting
+- ✅ IDE support: autocomplete shows fields and methods
+
+**Verdict**: **REJECT**. Simple dataclass with methods is better than dicts.
+
+---
+
+### Proposal 5: Four-Week Timeline ❌
+
+**Their Proposal**: 4-week refactor (Week 1-4: progressively replace systems)
+
+**Why This Is TOO LONG**:
+
+Their timeline assumes:
+- Replacing entire type system (enums → strings)
+- Replacing all configs (dataclasses → dicts)
+- New directory structure (domain → ops)
+- **This is a radical rewrite**, not a simplification
+
+**Our Approach (BETTER)**: 20-30 hours = 1 week
+
+- **Phase 1** (2-4 hours): Delete waste (split.py, analysis.py, utils.py)
+- **Phase 2** (4-6 hours): Simplify constraints (inline checks, remove rules)
+- **Phase 3** (8-12 hours): Refactor repair (remove transactions/stages, inline strategies)
+- **Phase 4** (6-8 hours): Flatten packages (consolidate files)
+
+**Why Ours Is Better**:
+- ✅ **Targeted fixes**: Remove actual overengineering, keep good patterns
+- ✅ **Lower risk**: Smaller changes, easier to verify
+- ✅ **Faster delivery**: 1 week vs 4 weeks
+- ✅ **Preserves strengths**: Enums, dataclasses, type safety remain
+
+**Verdict**: **REJECT**. Their timeline reflects unnecessary scope creep.
+
+---
+
+### What We're Adopting: NOTHING NEW
+
+After critical analysis, their document proposes **zero improvements** over our plan:
+
+| Their Idea | Our Verdict | Reason |
+|------------|-------------|--------|
+| String literals instead of enums | ❌ REJECT | Loses type safety, IDE support |
+| Dicts instead of dataclasses | ❌ REJECT | No types, no defaults, error-prone |
+| ops/ namespace | ❌ REJECT | Vague, artificial, worse than domain structure |
+| Metrics as dicts | ❌ REJECT | Loses type safety, scatters logic |
+| 4-week timeline | ❌ REJECT | Unnecessary scope, our 1-week plan is better |
+
+**The only things they got right were things we already identified**:
+- ✅ Delete split.py (we said this first)
+- ✅ Consolidate overlap (we said this first)
+- ✅ Remove transactions/stages (we said this first)
+
+---
+
+### Philosophical Disagreement
+
+**Their Philosophy**: "Functional programming" in Python means stripping types and using primitives (strings, dicts).
+
+**Why This Is Wrong**:
+
+1. **Python is not Haskell**: Python's strength is its **pragmatic object model** (classes, enums, protocols)
+2. **Functional ≠ Untyped**: Modern functional languages (Haskell, OCaml, F#) are **strongly typed**
+3. **False simplicity**: Strings/dicts *look* simpler but **create runtime errors**
+4. **Against Zen of Python**: "Explicit is better than implicit", "Errors should never pass silently"
+
+**Our Philosophy**: "Remove accidental complexity, preserve intentional design."
+
+**Our Approach**:
+
+1. **Keep what works**: Enums (type-safe), dataclasses (structured), domain organization (clear)
+2. **Remove what doesn't**: Transactions (unnecessary), stages (overkill), excessive files (fragmented)
+3. **Use Python strengths**: Type hints catch errors early, dataclasses are concise, enums are explicit
+4. **Targeted refactoring**: Don't rewrite, refactor
+
+---
+
+### Summary: Why Enums and Dataclasses Are CORRECT
+
+**The library's design decision** (from CLAUDE.md):
+> "Only enums for strategy parameters - No string alternatives"
+
+This was **intentional**, not accidental. The benefits:
+
+1. **Type Safety**: Catch errors at write-time (IDE), not runtime
+2. **Discoverability**: IDE shows all options via autocomplete
+3. **Refactorability**: "Rename Symbol" works across entire codebase
+4. **Self-Documentation**: `help(RepairStrategy)` shows all strategies
+5. **Best Practices**: Modern Python (3.10+) embraces types
+
+**Evidence**:
+- Pydantic 2.0: Enums for validated fields
+- FastAPI: Enums for path parameters
+- Django 3.0+: Enums for model choices
+- Python stdlib: `Enum` introduced in 3.4, improved in every version
+
+**Dataclasses are idiomatic** for configuration objects:
+- Type-safe field access
+- Defaults in one place
+- Immutable if desired (`frozen=True`)
+- Works with mypy, IDEs, type checkers
+
+---
+
+### Conclusion on Alternative Proposals
+
+**Verdict**: **Adopt 0 of their 5 proposals.**
+
+Their document demonstrates a **misunderstanding of Python best practices**:
+- Enums are not "friction", they're **safety**
+- Dataclasses are not "overhead", they're **clarity**
+- Types are not "complexity", they're **correctness**
+
+Our plan is superior because it:
+- ✅ **Removes actual overengineering** (transactions, stages, rules)
+- ✅ **Preserves good design** (enums, dataclasses, types)
+- ✅ **Follows Python idioms** (Zen of Python, modern best practices)
+- ✅ **Delivers faster** (1 week vs 4 weeks)
+- ✅ **Lower risk** (targeted fixes vs radical rewrite)
+
+**Recommendation**: Implement **our plan** (phases 1-4), ignore the "functional" proposals.
+
+---
+
 ## Next Steps
 
 1. **Review this document** with team/maintainers
@@ -1516,6 +1872,7 @@ polyforge/
 
 ---
 
-**Document Version**: 1.0
+**Document Version**: 1.1
 **Date**: 2025-11-11
+**Last Updated**: 2025-11-11 (Added Appendix B: Critical Analysis)
 **Author**: Analysis based on comprehensive codebase review

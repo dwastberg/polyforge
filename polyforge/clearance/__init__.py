@@ -9,14 +9,15 @@ a vertex could be moved to create an invalid geometry. Higher values indicate
 more robust, stable geometries.
 """
 
-# Import public API functions
-from .holes import fix_hole_too_close
-from .protrusions import fix_narrow_protrusion, fix_sharp_intrusion
-from .remove_protrusions import remove_narrow_protrusions
-from .passages import (
+# Import public API functions from the ops layer
+from polyforge.ops.clearance import (
+    fix_hole_too_close,
+    fix_narrow_protrusion,
+    fix_sharp_intrusion,
+    remove_narrow_protrusions,
     fix_narrow_passage,
     fix_near_self_intersection,
-    fix_parallel_close_edges
+    fix_parallel_close_edges,
 )
 from .fix_clearance import (
     fix_clearance,
@@ -26,15 +27,15 @@ from .fix_clearance import (
     ClearanceFixSummary,
 )
 
-# Import utility functions
-from .utils import (
+# Import utility functions from ops
+from polyforge.ops.clearance import (
     _find_nearest_vertex_index,
     _find_nearest_edge_index,
     _point_to_segment_distance,
     _point_to_line_perpendicular_distance,
     _get_vertex_neighborhood,
     _calculate_curvature_at_vertex,
-    _remove_vertices_between
+    _remove_vertices_between,
 )
 
 __all__ = [

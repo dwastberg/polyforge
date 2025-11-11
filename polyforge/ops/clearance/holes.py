@@ -5,16 +5,16 @@ positioned too close to the exterior boundary, causing low minimum clearance.
 """
 
 import numpy as np
-from typing import Optional
+from typing import Optional, Union
 from shapely.geometry import Polygon, LinearRing, Point
 import shapely.ops
-from polyforge.core.types import HoleStrategy
+from polyforge.core.types import HoleStrategy, coerce_enum
 
 
 def fix_hole_too_close(
     geometry: Polygon,
     min_clearance: float,
-    strategy: HoleStrategy = HoleStrategy.REMOVE
+    strategy: Union[HoleStrategy, str] = HoleStrategy.REMOVE,
 ) -> Polygon:
     """Fix holes that are too close to the polygon exterior.
 
@@ -40,6 +40,8 @@ def fix_hole_too_close(
     if not geometry.interiors:
         return geometry  # No holes to fix
 
+    strategy_enum = coerce_enum(strategy, HoleStrategy)
+
     exterior = geometry.exterior
     good_holes = []
 
@@ -54,11 +56,11 @@ def fix_hole_too_close(
             good_holes.append(hole.coords)
         else:
             # Hole is too close
-            if strategy == HoleStrategy.REMOVE:
+            if strategy_enum == HoleStrategy.REMOVE:
                 # Don't add to good_holes (removed)
                 continue
 
-            elif strategy == HoleStrategy.SHRINK:
+            elif strategy_enum == HoleStrategy.SHRINK:
                 # Shrink hole by buffering inward
                 shrink_amount = min_clearance - distance
                 shrunk_hole = hole_poly.buffer(-shrink_amount)
@@ -68,7 +70,7 @@ def fix_hole_too_close(
                         good_holes.append(shrunk_hole.exterior.coords)
                 # else: hole shrunk to nothing, effectively removed
 
-            elif strategy == HoleStrategy.MOVE:
+            elif strategy_enum == HoleStrategy.MOVE:
                 # Move hole away from exterior
                 moved_hole = _move_hole_away_from_exterior(
                     hole_poly, exterior, min_clearance

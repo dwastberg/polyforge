@@ -82,6 +82,20 @@ class TestProximityDetection:
 class TestSimpleBufferStrategy:
     """Tests for simple_buffer strategy."""
 
+    def test_strategy_accepts_string_literal(self):
+        """Ensure merge strategy can be passed as a string literal."""
+        poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
+        poly2 = Polygon([(4, 0), (9, 0), (9, 5), (4, 5)])
+
+        result = merge_close_polygons(
+            [poly1, poly2],
+            margin=0.0,
+            merge_strategy="simple_buffer",
+        )
+
+        assert len(result) == 1
+        assert result[0].is_valid
+
     def test_overlapping_merge(self):
         """Test merging overlapping polygons."""
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])

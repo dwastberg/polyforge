@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 from shapely.geometry import Polygon
-from polyforge.split import split_overlap
+from polyforge import split_overlap
 from polyforge.core.types import OverlapStrategy
 
 

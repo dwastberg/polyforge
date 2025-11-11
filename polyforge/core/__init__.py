@@ -15,6 +15,7 @@ from .types import (
     IntrusionStrategy,
     IntersectionStrategy,
     EdgeStrategy,
+    coerce_enum,
 )
 
 from .errors import (
@@ -48,6 +49,7 @@ __all__ = [
     'IntrusionStrategy',
     'IntersectionStrategy',
     'EdgeStrategy',
+    'coerce_enum',
 
     # Exceptions
     'PolyforgeError',

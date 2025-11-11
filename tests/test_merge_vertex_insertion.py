@@ -8,7 +8,7 @@ import pytest
 import numpy as np
 from shapely.geometry import Polygon
 from polyforge import merge_close_polygons
-from polyforge.merge.utils import insert_connection_vertices
+from polyforge.ops.merge import insert_connection_vertices
 from polyforge.core.types import MergeStrategy
 
 

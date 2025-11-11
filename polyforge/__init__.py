@@ -28,11 +28,14 @@ from .clearance import (
     fix_parallel_close_edges,
 )
 
-# Split overlap functions
-from .split import split_overlap
-
-# Overlap removal functions
-from .overlap import remove_overlaps, count_overlaps, find_overlapping_groups
+# Overlap handling functions
+from .overlap import (
+    split_overlap,
+    remove_overlaps,
+    count_overlaps,
+    find_overlapping_groups,
+    resolve_overlap_pair,
+)
 
 # Merge functions
 from .merge import merge_close_polygons
@@ -109,6 +112,7 @@ __all__ = [
     'remove_overlaps',
     'count_overlaps',
     'find_overlapping_groups',
+    'resolve_overlap_pair',
 
     # Merge
     'merge_close_polygons',

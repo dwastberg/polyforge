@@ -20,20 +20,21 @@ Polyforge is a polygon processing and manipulation library built on top of Shape
 
 **Important Design Principles:**
 - **No backward compatibility code** - Library hasn't been released yet (v0.1.0)
-- **Only enums for strategy parameters** - No string alternatives
+- **Enum-based strategy parameters** - Enums accepted at public API, converted to strings internally
 - **Comprehensive error hierarchy** - All exceptions inherit from PolyforgeError
 - **Explicit exports** - All modules define `__all__`
-- **DRY architecture** - Shared utilities in core/ to eliminate duplication
+- **Functional core, object shell** - Public API uses dataclasses/enums, internal ops use functions
+- **Separation of concerns** - Pure operations in `ops/`, orchestration in top-level modules
 
 ## Development Commands
 
 ### Testing
 ```bash
-# Run all tests (468 tests)
+# Run all tests (427 tests)
 python -m pytest tests/ -v
 
 # Run specific test file
-python -m pytest tests/test_split.py -v
+python -m pytest tests/test_overlap.py -v
 
 # Run specific test class or method
 python -m pytest tests/test_overlap.py::TestRemoveOverlaps::test_batch_fix_all_valid -v
@@ -48,9 +49,8 @@ python -m pytest tests/ -q
 ### Running Examples
 ```bash
 # Examples require PYTHONPATH set
-PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/remove_overlaps_demo.py
-PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/fix_geometry_demo.py
-PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/merge_close_polygons_demo.py
+PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/generators/simplification_examples.py
+PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/generators/overlap_examples.py
 ```
 
 ### Python Environment
@@ -61,77 +61,109 @@ PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/merge_cl
 
 ### Module Organization
 
-The codebase follows a clean, hierarchical structure with shared utilities:
+The codebase follows a **layered architecture** with clear separation between public API and internal operations:
 
 ```
 polyforge/
-├── __init__.py                 # Public API exports (25 functions, 10 enums, 7 exceptions)
-├── core/                       # Core types, errors, and shared utilities
+├── __init__.py                 # Public API exports (~30 functions, 10 enums, 8 exceptions)
+├── core/                       # Core types, errors, constraints, and shared utilities
 │   ├── __init__.py
-│   ├── types.py                # Enum definitions (10 strategy enums)
-│   ├── errors.py               # Exception hierarchy (7 exception classes)
-│   ├── constraints.py          # Constraint validation system (GeometryConstraints, MergeConstraints)
-│   ├── geometry_utils.py       # Shared geometry operations (to_single_polygon, remove_holes, calculate_internal_angles, etc.)
+│   ├── types.py                # Enum definitions (10 strategy enums + coerce_enum helper)
+│   ├── errors.py               # Exception hierarchy (PolyforgeError + 7 specific exceptions)
+│   ├── constraints.py          # Constraint validation (GeometryConstraints, MergeConstraints, ConstraintStatus)
+│   ├── cleanup.py              # Backward-compatible imports from ops/cleanup_ops.py
+│   ├── geometry_utils.py       # Shared geometry operations (to_single_polygon, etc.)
 │   ├── validation_utils.py     # Shared validation patterns
-│   ├── spatial_utils.py        # Spatial indexing utilities (STRtree operations, adjacency graphs)
+│   ├── spatial_utils.py        # Spatial indexing utilities (STRtree operations)
 │   └── iterative_utils.py      # Iterative improvement patterns
+├── ops/                        # Low-level pure operations (no orchestration)
+│   ├── __init__.py
+│   ├── simplify_ops.py         # Coordinate-level simplification (RDP, VW, VWP, snap, dedupe)
+│   ├── cleanup_ops.py          # Hole removal, cleanup logic (CleanupConfig, remove_small_holes, etc.)
+│   ├── merge_ops.py            # Merge orchestration helpers
+│   ├── merge_simple_buffer.py  # Simple buffer merge strategy
+│   ├── merge_selective_buffer.py # Selective buffer merge strategy
+│   ├── merge_vertex_movement.py # Vertex movement merge strategy
+│   ├── merge_boundary_extension.py # Boundary extension merge strategy
+│   ├── merge_convex_bridges.py # Convex bridges merge strategy
+│   ├── merge_edge_detection.py # Edge detection utilities for merge
+│   ├── merge/                  # Package for merge utilities
+│   │   └── __init__.py
+│   └── clearance/              # Clearance fixing operations
+│       ├── __init__.py
+│       ├── utils.py            # Clearance utilities (distance calculations, vertex finding)
+│       ├── holes.py            # fix_hole_too_close
+│       ├── protrusions.py      # fix_narrow_protrusion, fix_sharp_intrusion
+│       ├── remove_protrusions.py # remove_narrow_protrusions
+│       └── passages.py         # fix_narrow_passage, fix_near_self_intersection, fix_parallel_close_edges
 ├── process.py                  # Core: process_geometry() - applies functions to geometry vertices
-├── simplify.py                 # Simplification algorithms (7 functions - includes remove_narrow_holes)
-├── split.py                    # Pairwise overlap splitting (split_overlap)
-├── overlap.py                  # Batch overlap removal (remove_overlaps, count_overlaps, find_overlapping_groups)
-├── topology.py                 # Boundary alignment operations (align_boundaries)
+├── simplify.py                 # High-level simplification API (wraps ops/simplify_ops.py)
+├── overlap.py                  # Overlap resolution (consolidates old overlap/ package)
+├── topology.py                 # Boundary alignment operations
 ├── tile.py                     # Polygon tiling functions
-├── merge/                      # Polygon merging subsystem
+├── pipeline.py                 # Minimal pipeline runner (FixConfig, PipelineContext, run_steps)
+├── metrics.py                  # Measurement utilities (measure_geometry, total_overlap_area)
+├── merge/                      # Polygon merging public API
 │   ├── __init__.py
-│   ├── core.py                 # Orchestration: merge_close_polygons()
-│   ├── strategies/             # 5 merge strategy implementations
-│   │   ├── simple_buffer.py
-│   │   ├── selective_buffer.py
-│   │   ├── vertex_movement.py
-│   │   ├── boundary_extension.py
-│   │   └── convex_bridges.py
-│   └── utils/                  # Merge-specific utilities
-│       ├── boundary_analysis.py
-│       ├── edge_detection.py
-│       └── vertex_insertion.py
-├── repair/                     # Geometry repair subsystem
+│   └── core.py                 # merge_close_polygons() orchestration
+├── repair/                     # Geometry repair public API
 │   ├── __init__.py
-│   ├── core.py                 # Orchestration: repair_geometry(), batch_repair_geometries()
-│   ├── robust.py               # Advanced: robust_fix_geometry(), robust_fix_batch() with constraint validation
-│   ├── analysis.py             # Diagnostic: analyze_geometry()
-│   ├── strategies/             # 5 repair strategy implementations
-│   │   ├── auto.py
-│   │   ├── buffer.py
-│   │   ├── simplify.py
-│   │   ├── reconstruct.py
-│   │   └── strict.py
-│   └── utils/                  # Repair-specific utilities
-└── clearance/                  # Clearance fixing subsystem (8 functions)
-    ├── __init__.py
-    ├── fix_clearance.py        # Auto-detection: fix_clearance()
-    ├── utils.py                # Shared clearance utilities
-    ├── holes.py                # fix_hole_too_close
-    ├── protrusions.py          # fix_narrow_protrusion, fix_sharp_intrusion
-    ├── remove_protrusions.py   # remove_narrow_protrusions
-    └── passages.py             # fix_narrow_passage, fix_near_self_intersection, fix_parallel_close_edges
+│   ├── core.py                 # repair_geometry(), batch_repair_geometries()
+│   ├── analysis.py             # analyze_geometry()
+│   ├── robust.py               # robust_fix_geometry(), robust_fix_batch()
+│   ├── utils.py                # Repair utilities
+│   └── strategies/             # 5 repair strategy implementations
+│       ├── __init__.py
+│       ├── auto.py
+│       ├── buffer.py
+│       ├── simplify.py
+│       ├── reconstruct.py
+│       └── strict.py
+└── clearance/                  # Clearance fixing public API
+    ├── __init__.py             # Re-exports from ops/clearance/
+    └── fix_clearance.py        # Auto-detection: fix_clearance(), diagnose_clearance()
 ```
 
 ### Key Architectural Patterns
 
-**1. Shared Utility Modules (DRY Architecture)**
-- **Created to eliminate 200-250 lines of duplicated code**
-- Located in `core/` directory for clear dependency hierarchy
-- Four utility modules:
-  - `geometry_utils.py`: Common geometry operations (to_single_polygon, remove_holes, validate_and_fix, calculate_internal_angles)
-  - `validation_utils.py`: Validation patterns (is_valid_polygon, is_ring_closed)
-  - `spatial_utils.py`: Spatial indexing (find_polygon_pairs, build_adjacency_graph, find_connected_components)
-  - `iterative_utils.py`: Iterative improvement frameworks
+**1. Functional Core, Object Shell**
+- **Public API layer**: Uses dataclasses (GeometryConstraints, ConstraintStatus) and enums (MergeStrategy, RepairStrategy) for type safety and clarity
+- **Operations layer (`ops/`)**: Pure functions working on Shapely geometries and numpy arrays
+- **Conversion**: `coerce_enum()` helper converts enums to strings at API boundary
+- Benefits:
+  - Type-safe public API with IDE autocomplete
+  - Testable, composable pure functions internally
+  - Clear separation of concerns
 
-**2. Enum-Based Strategy Parameters**
-- All strategy parameters use enum types from `core/types.py`
-- **NEVER use strings** - only enums (library not released, no backward compatibility)
+**2. Layered Architecture**
+Three distinct layers:
+1. **Public API** (`polyforge/__init__.py`, top-level modules): User-facing functions with stable signatures
+2. **Orchestration** (`merge/core.py`, `repair/core.py`, `clearance/fix_clearance.py`): Workflow coordination, strategy selection
+3. **Operations** (`ops/*`): Pure geometric transformations, no business logic
+
+**3. Pipeline System (New)**
+- `pipeline.py` provides minimal orchestration framework
+- `PipelineContext`: Shares state across pipeline steps (original geometry, constraints, config)
+- `FixConfig`: Lightweight configuration extracted from GeometryConstraints
+- `run_steps()`: Executes steps iteratively until constraints satisfied or progress stalls
+- Used by robust fixing to avoid heavy transaction/stage system
+
+**4. Metrics-First Validation**
+- `metrics.py` provides measurement functions:
+  - `measure_geometry()`: Returns dict with is_valid, clearance, area, area_ratio
+  - `total_overlap_area()`: Computes overlap within a collection of geometries
+- Constraint validation uses these metrics to check quality requirements
+- Avoids coupling constraint checking to specific data structures
+
+**5. Enum-Based Strategy Parameters (Public API)**
+- All strategy parameters accept enum types from `core/types.py`
+- Enums provide type safety, IDE autocomplete, and documentation
+- **Internal conversion**: `coerce_enum()` accepts both Enum and string values
+  - This allows testing with string literals if needed
+  - Public API enforces enums for safety
 - **Consistent naming**: Domain-specific parameter names (`merge_strategy`, `overlap_strategy`, `repair_strategy`)
-- Example:
+
+Example:
 ```python
 from polyforge import merge_close_polygons
 from polyforge.core import MergeStrategy
@@ -139,11 +171,12 @@ from polyforge.core import MergeStrategy
 # Correct - use enums with domain-specific parameter name
 result = merge_close_polygons(polys, margin=2.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER)
 
-# Wrong - do NOT use strings or generic 'strategy' parameter
-result = merge_close_polygons(polys, margin=2.0, strategy='selective_buffer')  # Will raise error!
+# Also works (coerce_enum accepts strings internally)
+from polyforge.core import coerce_enum
+strategy = coerce_enum('selective_buffer', MergeStrategy)  # Returns MergeStrategy.SELECTIVE_BUFFER
 ```
 
-**3. process_geometry() Pattern**
+**6. process_geometry() Pattern**
 - Core abstraction in `process.py`
 - Higher-order function that applies vertex-processing functions to any Shapely geometry
 - Automatically handles 3D coordinates (preserves/interpolates Z values)
@@ -160,21 +193,14 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
     # process_geometry handles Shapely conversion
 ```
 
-**4. Spatial Indexing for Performance**
+**7. Spatial Indexing for Performance**
 - `overlap.py` and `merge/core.py` use Shapely's STRtree for O(n log n) performance
 - Shared implementation in `core/spatial_utils.py`
 - Critical for handling 1000+ polygons efficiently
 - Reduces candidate comparisons by 90-99% in typical cases
 - Pattern: build index → query candidates → validate actual overlaps
 
-**5. Strategy Pattern with Enums**
-- Multiple modules use enum strategy parameters with **consistent naming**:
-  - `split_overlap(..., overlap_strategy=OverlapStrategy.SPLIT)`
-  - `repair_geometry(..., repair_strategy=RepairStrategy.AUTO)`
-  - `merge_close_polygons(..., merge_strategy=MergeStrategy.SELECTIVE_BUFFER)`  ⚠️ Note: `merge_strategy` not `strategy`
-  - `collapse_short_edges(..., snap_mode=CollapseMode.MIDPOINT)`
-
-**6. Iterative Resolution**
+**8. Iterative Resolution**
 - `remove_overlaps()` uses iterative algorithm:
   1. Build spatial index
   2. Find overlapping pairs
@@ -184,7 +210,7 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
 - Most cases converge in 1-5 iterations
 - Default max_iterations: 100 for batch operations, 10 for single-geometry operations
 
-**7. Exception Hierarchy**
+**9. Exception Hierarchy**
 - All custom exceptions inherit from `PolyforgeError`
 - Specific exceptions for different error types:
   - `RepairError` - geometry repair failures
@@ -193,9 +219,10 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
   - `MergeError` - merge operation failures
   - `ClearanceError` - clearance fixing failures
   - `ConfigurationError` - invalid parameters
+  - `FixWarning` - warnings about partial fixes
 - Exceptions carry metadata (geometry, strategies_tried, suggested_strategy, etc.)
 
-**8. Constraint Validation System**
+**10. Constraint Validation System**
 - `GeometryConstraints` defines quality requirements that must be met
 - Constraints are validated using `constraints.check()` which returns `ConstraintStatus`
 - Supported constraints:
@@ -204,35 +231,26 @@ def _internal_function(vertices: np.ndarray, param) -> np.ndarray:
   - `must_be_valid`: Topological validity requirement
   - `allow_multipolygon`: Whether MultiPolygon results are acceptable
   - `max_holes`: Maximum number of interior holes
-  - **`min_hole_area`**: Minimum hole area (smaller holes flagged as violations)
-  - **`max_hole_aspect_ratio`**: Maximum hole aspect ratio (using OBB)
-  - **`min_hole_width`**: Minimum hole width (using OBB shorter dimension)
+  - `min_hole_area`: Minimum hole area (smaller holes flagged as violations)
+  - `max_hole_aspect_ratio`: Maximum hole aspect ratio (using OBB)
+  - `min_hole_width`: Minimum hole width (using OBB shorter dimension)
 - Constraint validation happens automatically during iterative fixing
-- Violations are detected using oriented bounding box (OBB) metrics for holes
 
-**9. Robust Fixing Pipeline (robust_fix_batch)**
+**11. Robust Fixing Pipeline (robust_fix_batch)**
 The batch fixing pipeline runs in 3 phases:
-- **Phase 0.5: Polygon Merging (FIRST!)**
-  - Merges touching/close polygons before individual fixes
-  - Prevents fixes from pushing polygons apart
-  - Uses `merge_close_polygons()` with configurable `MergeConstraints`
 - **Phase 1: Individual Fixes**
   - Applies `robust_fix_geometry()` to each geometry
   - Iteratively attempts fixes until constraints satisfied
-  - Includes hole cleanup at end of each geometry fix
+  - Uses `pipeline.run_steps()` for orchestration
 - **Phase 2: Overlap Resolution**
   - Uses `remove_overlaps()` to resolve remaining overlaps
   - Validates that overlap fixes don't violate other constraints
-  - Rolls back if constraint regression detected
-- **Phase 3: Final Cleanup** ⭐
+- **Phase 3: Final Cleanup**
   - Removes zero-area holes
   - Removes small holes (min_hole_area)
   - Removes narrow holes (max_hole_aspect_ratio, min_hole_width)
-  - **Removes degenerate exterior features** using erosion-dilation
+  - Removes degenerate exterior features using erosion-dilation
   - Critical for cleaning up artifacts from overlap resolution
-
-**Why Phase 3 is Essential:**
-Overlap resolution can create thin holes and zero-width exterior features that weren't present after Phase 1. Phase 3 ensures the final output meets all quality constraints by applying hole cleanup and degenerate feature removal AFTER all geometric operations complete.
 
 ### Important Implementation Details
 
@@ -243,18 +261,20 @@ Overlap resolution can create thin holes and zero-width exterior features that w
 - Closed rings: First and last vertices must be identical
 
 **Overlap Resolution:**
-- `split_overlap()` handles pairwise overlaps
+- `split_overlap()` is now an alias for `resolve_overlap_pair()` in `overlap.py`
 - `remove_overlaps()` handles many-to-many overlaps using spatial indexing
 - Returns originals unchanged for: no overlap, containment, or touching-only
 
 **Clearance Fixing:**
 - "Clearance" = minimum distance a vertex can move before creating invalid geometry (Shapely's `minimum_clearance`)
+- Public API in `clearance/` delegates to implementations in `ops/clearance/`
 - Each clearance module targets specific issue types (protrusions, holes, passages)
 - Uses minimal geometric modifications to achieve target clearance
 - Default max_iterations: 10
 
 **Geometry Repair:**
-- `repair_geometry()` tries multiple strategies in order: clean coords → buffer(0) → simplify → reconstruct
+- `repair_geometry()` tries multiple strategies in order based on RepairStrategy enum
+- Strategies implemented in `repair/strategies/`: auto, buffer, simplify, reconstruct, strict
 - Buffer(0) trick: often fixes self-intersections and topology errors
 - Strict mode: only applies conservative fixes that preserve geometric intent
 - Raises `RepairError` if geometry cannot be repaired
@@ -262,18 +282,18 @@ Overlap resolution can create thin holes and zero-width exterior features that w
 
 **Robust Fixing (Advanced):**
 - `robust_fix_geometry()` iteratively fixes geometries until all constraints satisfied
-- `robust_fix_batch()` processes multiple geometries with 3-phase pipeline (merge → fix → overlap → cleanup)
+- Uses new `pipeline.run_steps()` for orchestration (replaces old transaction/stage system)
+- `robust_fix_batch()` processes multiple geometries with 3-phase pipeline
 - Constraint-driven: uses `GeometryConstraints` to define quality requirements
 - Automatic hole cleanup: removes small, narrow, and degenerate holes
 - Degenerate feature removal: eliminates zero-width slivers using erosion-dilation
-- Validates constraints at each step, rolls back on regression
 - Essential for production use where quality guarantees are required
 
 **Polygon Merging:**
 - `merge_close_polygons()` merges polygons within specified margin distance
 - Five strategies available: SIMPLE_BUFFER, SELECTIVE_BUFFER, VERTEX_MOVEMENT, BOUNDARY_EXTENSION, CONVEX_BRIDGES
+- Strategy implementations in `ops/merge_*.py` files
 - Uses spatial indexing (via `core/spatial_utils.py`) for efficient group detection
-- Supports vertex insertion for improved merge quality
 - Parameter name: `merge_strategy` (not `strategy`)
 
 **Tolerance Parameters:**
@@ -285,10 +305,10 @@ Overlap resolution can create thin holes and zero-width exterior features that w
 ## Testing Conventions
 
 ### Test Organization
-- One test file per module: `test_split.py`, `test_overlap.py`, `test_repair.py`, `test_robust_fix.py`, etc.
+- One test file per module: `test_overlap.py`, `test_repair.py`, `test_robust_fix.py`, etc.
 - Tests organized into classes by functionality
 - Pattern: `TestFunctionName` for main tests, `TestEdgeCases` for edge cases
-- **Total: 468 tests** (all passing as of latest constraint validation update)
+- **Total: 427 tests** (all passing as of latest refactoring)
 
 ### Test Patterns Used
 ```python
@@ -311,8 +331,8 @@ def test_something():
 # Run all tests in a class
 pytest tests/test_overlap.py::TestRemoveOverlaps -v
 
-# Run all performance tests
-pytest tests/test_overlap.py::TestPerformance -v
+# Run all merge tests
+pytest tests/test_merge.py -v
 
 # Run merge strategy tests
 pytest tests/test_merge.py::TestSelectiveBufferStrategy -v
@@ -321,35 +341,36 @@ pytest tests/test_merge.py::TestSelectiveBufferStrategy -v
 ## Code Patterns to Follow
 
 ### When Adding New Functions with Strategy Parameters
-1. **Always use enum types** for strategy parameters
+1. **Use enum types** for strategy parameters in public API
 2. Define enum in `core/types.py` if it doesn't exist
 3. **Use domain-specific parameter names**: `merge_strategy`, `overlap_strategy`, `repair_strategy` (not generic `strategy`)
-4. Function signature pattern:
+4. Accept both enum and string values using `coerce_enum()`
+5. Function signature pattern:
 ```python
-from .core.types import MyStrategy
+from .core.types import MyStrategy, coerce_enum
 
-def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
+def my_function(geometry, my_strategy: Union[MyStrategy, str] = MyStrategy.DEFAULT):
+    my_strategy = coerce_enum(my_strategy, MyStrategy)
+
     if my_strategy == MyStrategy.OPTION1:
         # handle option 1
     elif my_strategy == MyStrategy.OPTION2:
         # handle option 2
 ```
-5. **Never accept `Union[str, EnumType]`** - only the enum type
 6. Add to module's `__all__` list
 
 ### When Adding New Simplification Functions
-1. Create private `_function_name(vertices: np.ndarray, ...) -> np.ndarray`
-2. Create public wrapper using `process_geometry()`
+1. Create private `_function_name(vertices: np.ndarray, ...) -> np.ndarray` in `ops/simplify_ops.py`
+2. Create public wrapper in `simplify.py` using `process_geometry()`
 3. Handle 2D coordinate arrays only (process_geometry handles 3D)
 4. Export via `__all__` in module and `__init__.py`
 
-### When Adding New Geometry Fixes
-1. Add to appropriate clearance submodule or repair strategy
-2. Follow minimal modification principle
-3. Validate result before returning
-4. Raise appropriate exception type (RepairError, ClearanceError, etc.)
-5. Add diagnostic information for failures
-6. Use standard `max_iterations=10` for single-geometry operations
+### When Adding New Geometry Operations
+1. Add pure operation function to appropriate `ops/` module
+2. Create public API wrapper in top-level module (if needed)
+3. Follow pattern: geometry in → geometry out, no side effects
+4. Use existing utilities from `core/` where applicable
+5. Validate result before returning
 
 ### When Adding New Exception Types
 1. Always inherit from `PolyforgeError` or one of its subclasses
@@ -359,9 +380,7 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
 
 ### When Working with Large Datasets
 - Always use spatial indexing (STRtree) for polygon-to-polygon operations
-- Use shared utilities from `core/spatial_utils.py`:
-  - `build_adjacency_graph()` for finding close polygon pairs
-  - `find_connected_components()` for graph-based grouping
+- Use shared utilities from `core/spatial_utils.py`
 - Avoid O(n²) nested loops over polygons
 - See `overlap.py` and `merge/core.py` for reference implementations
 
@@ -371,7 +390,7 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
   - Validation → `core/validation_utils.py`
   - Spatial operations → `core/spatial_utils.py`
   - Iterative patterns → `core/iterative_utils.py`
-- Prevents code duplication across modules
+- If it's a pure low-level operation, consider `ops/` instead
 - Add to `__all__` for proper exports
 
 ## Performance Considerations
@@ -410,7 +429,7 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
 - Breaking changes are acceptable during development
 
 ### Enum Usage
-- All strategy parameters use enum types
+- All strategy parameters accept enum types (and strings via coerce_enum)
 - Enums are defined in `core/types.py`:
   - `OverlapStrategy` - SPLIT, LARGEST, SMALLEST
   - `MergeStrategy` - SIMPLE_BUFFER, SELECTIVE_BUFFER, VERTEX_MOVEMENT, BOUNDARY_EXTENSION, CONVEX_BRIDGES
@@ -419,18 +438,18 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
   - `CollapseMode` - MIDPOINT, FIRST, LAST
   - Plus 5 clearance-specific enums: `HoleStrategy`, `PassageStrategy`, `IntrusionStrategy`, `IntersectionStrategy`, `EdgeStrategy`
 - Enums do NOT inherit from `str` (pure Enum types)
-- Functions only accept enum types, not strings
+- `coerce_enum()` helper allows both enum and string values internally
 
 ### Error Handling
 - Comprehensive exception hierarchy in `core/errors.py`
 - All exceptions inherit from `PolyforgeError`
 - Exceptions carry metadata for debugging
 - Consistent error handling across all modules
-- Some functions return originals on failure (e.g., `split_overlap`), others raise exceptions (e.g., `repair_geometry`)
+- Some functions return originals on failure (e.g., `resolve_overlap_pair`), others raise exceptions (e.g., `repair_geometry`)
 
 ## Common Gotchas
 
-1. **Use Enums, Not Strings:** All strategy parameters require enum types from `core/types.py`, not strings
+1. **Enum/String Coercion:** Public API uses enums, but `coerce_enum()` accepts strings too. Tests can use either.
 2. **Parameter Names Matter:** Use `merge_strategy` not `strategy`, `min_area_threshold` not `tolerance` (context-dependent)
 3. **Closed Rings:** Polygon exterior/interior rings must have first == last vertex
 4. **Empty Geometries:** Always check `geom.is_empty` before accessing properties
@@ -439,31 +458,19 @@ def my_function(geometry, my_strategy: MyStrategy = MyStrategy.DEFAULT):
 7. **Buffer Distance:** `buffer(0)` is not the same as `buffer(0.0)` in some Shapely versions
 8. **Function Names:** Use `repair_geometry` not `fix_geometry`, `collapse_short_edges` not `snap_short_edges`
 9. **Exception Names:** Use `RepairError` not `GeometryRepairError` or `GeometryFixError`
-10. **Recent API Changes:** If you see old code using `strategy=`, `tolerance=` in merge/overlap/topology functions, update to new parameter names
-11. **Thin Slits After Overlap Resolution:** If you see thin slits despite hole constraints, they're likely zero-width exterior features, not holes. Phase 3 cleanup in `robust_fix_batch()` handles this automatically. For direct overlap resolution, apply cleanup afterward.
-12. **Constraint Validation Timing:** Hole constraints (`min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`) are enforced during iterative fixing AND in Phase 3 cleanup. Don't assume cleanup only happens once.
+10. **split_overlap is now an alias:** `split_overlap()` directly calls `resolve_overlap_pair()` in `overlap.py`
+11. **ops/ is internal:** Don't import from `polyforge.ops.*` - use public API from top-level modules
 
 ## Documentation
 
 ### Comprehensive Documentation Available
 - **README.md**: Project overview, quick start, architecture guide, performance notes
-- **API.md**: Complete API reference for all 24 functions, 10 enums, 7 exceptions
-  - Includes strategy selection guide
-  - Performance characteristics
-  - Error handling patterns
-  - Complete examples
-- **examples/**: Three comprehensive demo scripts
-  - `fix_geometry_demo.py`
-  - `remove_overlaps_demo.py`
-  - `merge_close_polygons_demo.py`
-
-### API Reference Quick Links
-- All functions documented in API.md with:
-  - Complete parameter descriptions
-  - Return types
-  - Usage examples
-  - Strategy comparisons
-  - Performance notes
+- **API.md**: Complete API reference for all functions, enums, exceptions (if exists)
+- **SIMPLIFY_CODE_DESIGN.md**: Detailed analysis of refactoring decisions
+- **SIMPLIFY_DESIGN.md**: Functional architecture proposal and rationale
+- **examples/**: Example scripts using framework
+  - `examples/framework/`: Test data generators and plotting utilities
+  - `examples/generators/`: Specific example generators (simplification, overlap)
 
 ## Quick Reference: Common Imports
 
@@ -475,8 +482,9 @@ from polyforge import (
     collapse_short_edges, deduplicate_vertices,
     remove_small_holes, remove_narrow_holes,
 
-    # Overlap handling (4 functions)
-    split_overlap, remove_overlaps, count_overlaps, find_overlapping_groups,
+    # Overlap handling (5 functions)
+    split_overlap, resolve_overlap_pair, remove_overlaps,
+    count_overlaps, find_overlapping_groups,
 
     # Merging (1 function, 5 strategies)
     merge_close_polygons,
@@ -506,6 +514,7 @@ from polyforge.core import (
     MergeConstraints,     # Configure merging behavior
     ConstraintStatus,     # Validation results
     ConstraintViolation,  # Individual violations
+    ConstraintType,       # Enum of constraint types
 )
 
 # Strategy enums (10 enums)
@@ -520,9 +529,10 @@ from polyforge.core import (
     IntrusionStrategy,
     IntersectionStrategy,
     EdgeStrategy,
+    coerce_enum,  # Helper to convert string → enum
 )
 
-# Exceptions (7 exceptions)
+# Exceptions (8 exceptions)
 from polyforge.core import (
     PolyforgeError,
     ValidationError,
@@ -531,92 +541,128 @@ from polyforge.core import (
     MergeError,
     ClearanceError,
     ConfigurationError,
+    FixWarning,
 )
 ```
 
 ## Recent Major Changes (for context)
 
-### Constraint Validation & Phase 3 Cleanup (Latest - Production Critical)
-**Major enhancement to robust fixing system:**
-
-**Problem Solved:**
-Users reported thin slits remaining in output despite using `--min-hole-area` and `--min-hole-width` parameters. Investigation revealed two issues:
-1. Constraint validation wasn't checking hole properties (area, aspect ratio, width)
-2. Overlap resolution in Phase 2 created degenerate features that weren't cleaned up
+### Architectural Refactoring (Latest - Major Simplification)
+**Major restructuring of the codebase to separate concerns:**
 
 **Changes Made:**
 
-1. **Enhanced Constraint Validation** (`core/constraints.py`):
-   - `GeometryConstraints.check()` now validates hole properties using oriented bounding box (OBB)
-   - Added validation for: `min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`
-   - Holes violating constraints now properly flagged as `HOLE_VALIDITY` violations
-   - Iterative fixing can now detect and respond to hole quality issues
+1. **Created `ops/` Layer**:
+   - Moved all low-level geometry operations to `polyforge/ops/`
+   - Pure functions with no orchestration logic
+   - Modules: `simplify_ops.py`, `cleanup_ops.py`, `merge_*.py`, `clearance/*`
+   - Clear separation from public API and business logic
 
-2. **Added Phase 3 Final Cleanup** (`repair/robust.py`):
-   - `robust_fix_batch()` now includes Phase 3 after overlap resolution
-   - Cleanup steps:
-     - Remove zero-area holes
-     - Remove small holes (min_hole_area)
-     - Remove narrow holes (max_hole_aspect_ratio, min_hole_width)
-     - **Remove degenerate exterior features** using erosion-dilation technique
-   - Degenerate feature removal: detects clearance < 0.01, applies buffer(-0.01) then buffer(+0.01)
-   - Critical for eliminating zero-width slivers created by overlap splitting
+2. **Added Pipeline System**:
+   - New `pipeline.py` module for minimal orchestration
+   - `FixConfig`: Lightweight configuration from constraints
+   - `PipelineContext`: Shares state across steps
+   - `run_steps()`: Iterative execution until constraints satisfied
+   - Replaces heavy transaction/stage system
 
-3. **New Function** (`simplify.py`):
-   - Added `remove_narrow_holes()` function
-   - Filters holes by aspect ratio and/or absolute width
-   - Uses oriented bounding box (OBB) for accurate narrow hole detection
-   - Supports both criteria independently or combined
+3. **Added Metrics Module**:
+   - New `metrics.py` for measurement functions
+   - `measure_geometry()`: Returns validation metrics as dict
+   - `total_overlap_area()`: Computes overlap in collections
+   - Decouples measurement from constraint validation
+
+4. **Consolidated Overlap Module**:
+   - `overlap/` package → `overlap.py` single file
+   - `split.py` removed - `split_overlap()` now alias in `overlap.py`
+   - All overlap logic in one place: resolution, batch removal, counting, grouping
+
+5. **Clearance Delegation**:
+   - `clearance/` now delegates to `ops/clearance/`
+   - Public API stable, implementations moved to ops layer
+   - Clear separation of interface and implementation
+
+6. **Enum Coercion**:
+   - Added `coerce_enum()` helper in `core/types.py`
+   - Public API enforces enums for type safety
+   - Internal code can accept both enum and string values
+   - Simplifies testing while maintaining API guarantees
 
 **Impact:**
-- Geometries with clearance = 0.0000 now properly cleaned (improved to ~0.001-0.003)
-- Thin slits from overlap resolution automatically removed
-- All hole quality constraints now enforced throughout pipeline
-- **All 468 tests pass** (up from 371 tests)
+- Clearer separation of concerns (API / orchestration / operations)
+- More testable pure functions in `ops/` layer
+- Lighter orchestration without transaction/stage overhead
+- **All 427 tests pass**
 
-**Example:**
-```python
-from polyforge import robust_fix_batch
-from polyforge.core import GeometryConstraints
+**Philosophy:**
+- **Functional core, object shell**: Pure operations internally, typed API externally
+- **Measure, don't model**: Use simple metrics over complex constraint objects where possible
+- **Explicit over implicit**: Clear module boundaries, obvious data flow
 
-constraints = GeometryConstraints(
-    min_hole_area=10.0,        # Remove holes < 10 sq units
-    min_hole_width=2.0,        # Remove holes narrower than 2 units
-    max_hole_aspect_ratio=50.0 # Remove holes with aspect > 50
-)
+### Constraint Validation & Phase 3 Cleanup (Previous Major Update)
+**Enhanced constraint validation and final cleanup in batch fixing:**
 
-fixed, warnings, _ = robust_fix_batch(
-    geometries,
-    constraints=constraints,
-    handle_overlaps=True  # Phase 3 cleanup runs automatically
-)
-```
+1. **Enhanced Constraint Validation** (`core/constraints.py`):
+   - `GeometryConstraints.check()` validates hole properties using OBB
+   - Checks: `min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`
+   - Holes violating constraints flagged as violations
 
-### API Consistency Update (Breaking Changes)
-Five breaking changes were made to improve API consistency:
-1. `merge_close_polygons(..., strategy=)` → `merge_strategy=`
-2. `count_overlaps(..., tolerance=)` → `min_area_threshold=`
-3. `find_overlapping_groups(..., tolerance=)` → `min_area_threshold=`
-4. `align_boundaries(..., tolerance=)` → `distance_tolerance=`
-5. `fix_sharp_intrusion(..., max_iterations=5)` → default now 10
+2. **Added Phase 3 Final Cleanup** (`repair/robust.py`):
+   - `robust_fix_batch()` includes Phase 3 after overlap resolution
+   - Removes: zero-area holes, small holes, narrow holes, degenerate exterior features
+   - Degenerate feature removal uses erosion-dilation technique
 
-**All tests updated and passing** after these changes.
+3. **New Function** (`simplify.py`):
+   - `remove_narrow_holes()` filters by aspect ratio and/or width
+   - Uses oriented bounding box (OBB) for accurate detection
 
-### DRY Refactoring
-Created four shared utility modules in `core/` to eliminate 200-250 lines of duplicated code:
-- `geometry_utils.py` - Common geometry operations
-- `validation_utils.py` - Validation patterns
-- `spatial_utils.py` - Spatial indexing utilities
-- `iterative_utils.py` - Iterative improvement frameworks
+## Architecture Decision Records
 
-Key additions:
-- `to_single_polygon()` - Convert MultiPolygon/GeometryCollection to largest Polygon
-- `remove_holes()` - Unified hole preservation/removal
-- `calculate_internal_angles()` - Calculate vertex angles for Polygon or LineString
-- `build_adjacency_graph()` - Spatial indexing for polygon grouping
-- `find_connected_components()` - DFS-based component finding
+### Why ops/ Layer?
+**Decision:** Separate pure operations from orchestration and public API
 
-### Module Restructuring
-- `merge.py` split into `merge/` package with strategies/ and utils/ subdirectories
-- `fix.py` renamed to `repair/` package with strategies/ and utils/ subdirectories
-- Improved separation of concerns and code organization
+**Rationale:**
+- **Testability**: Pure functions easier to test in isolation
+- **Reusability**: Operations can be composed in different ways
+- **Clarity**: Clear boundary between "what" (API) and "how" (ops)
+- **Maintainability**: Changes to operations don't affect public API
+
+**Tradeoffs:**
+- ✅ Better separation of concerns
+- ✅ More testable code
+- ❌ Extra directory level
+- ❌ Potential import confusion (use public API, not ops directly)
+
+### Why Pipeline System Instead of Transactions/Stages?
+**Decision:** Replace transaction/stage system with lightweight pipeline
+
+**Rationale:**
+- **Simpler**: Transactions add complexity for no benefit (geometry ops are cheap)
+- **Clearer**: Explicit step execution vs. hidden transaction tracking
+- **Flexible**: Easy to compose custom pipelines
+- **Lighter**: No snapshot history, rollback infrastructure
+
+**Tradeoffs:**
+- ✅ 80% less code for same functionality
+- ✅ Easier to understand and debug
+- ❌ Less "enterprise-y" (but we don't need that)
+
+### Why Enum Coercion Instead of Pure Strings?
+**Decision:** Accept enums at API, convert internally with coerce_enum()
+
+**Rationale:**
+- **Type Safety**: Enums catch errors at write-time (IDE) and runtime (mypy)
+- **Discoverability**: IDE autocomplete shows all valid options
+- **Testing Flexibility**: Tests can use string literals if convenient
+- **Best of Both**: Safety at API boundary, flexibility internally
+
+**Tradeoffs:**
+- ✅ Type-safe public API
+- ✅ Flexible testing
+- ❌ Slight conversion overhead (negligible)
+
+---
+
+**Document Version**: 2.0
+**Date**: 2025-11-11
+**Last Updated**: 2025-11-11 (Complete architectural refactoring update)
+**Author**: Updated to reflect ops/ layer, pipeline system, and current codebase structure

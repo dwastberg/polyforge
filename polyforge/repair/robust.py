@@ -1,11 +1,10 @@
 """
-Robust constraint-aware geometry fixing orchestrated via composable stages.
+Robust constraint-aware geometry fixing orchestrated via the lightweight pipeline.
 
-The previous implementation embedded the entire fixing pipeline inside two
-monolithic functions. This module now uses the stage helpers defined in
-``polyforge.repair.stages`` so that each responsibility (validity repair,
-clearance improvement, component merging, cleanup, etc.) is isolated, testable,
-and can be extended without editing a thousand-line function.
+This module translates the legacy stage/transaction system into a much simpler
+loop: a handful of deterministic steps run in order, each step keeps its result
+only if it improves the current constraint status, and the pipeline exits once
+the constraints are satisfied or progress stalls.
 """
 
 from __future__ import annotations
@@ -21,17 +20,19 @@ from ..core.cleanup import CleanupConfig, cleanup_polygon
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
 from ..core.errors import FixWarning
 from ..core.geometry_utils import validate_and_fix
-from ..core.types import OverlapStrategy
+from ..core.types import OverlapStrategy, RepairStrategy
 from ..clearance.fix_clearance import fix_clearance
-from ..overlap import remove_overlaps
 from ..merge import merge_close_polygons
-from .transaction import FixTransaction
-from .stages import (
-    build_default_stages,
-    execute_stage_pipeline,
-    StageResult,
-    _cleanup_geometry,
+from ..overlap import remove_overlaps
+from ..pipeline import (
+    FixConfig,
+    PipelineContext,
+    PipelineStep,
+    StepResult,
+    config_from_constraints,
+    run_steps,
 )
+from .core import repair_geometry
 
 
 def robust_fix_geometry(
@@ -42,39 +43,37 @@ def robust_fix_geometry(
     merge_constraints: Optional[MergeConstraints] = None,
     verbose: bool = False,
 ) -> Tuple[BaseGeometry, Optional[FixWarning]]:
-    """
-    Fix a single geometry while enforcing the supplied constraints.
-
-    The geometry flows through a sequence of stages (validity repair, clearance
-    improvement, optional component merging, cleanup). Each stage either commits
-    its change through :class:`FixTransaction` or rolls back if constraints
-    regress. The best result discovered during the pipeline is always returned.
-    """
+    """Fix a single geometry using the lightweight pipeline."""
     prepared = _prepare_geometry(geometry)
-    transaction = FixTransaction(prepared, prepared, constraints)
-    stage_history = execute_stage_pipeline(
-        transaction=transaction,
+    config = config_from_constraints(constraints)
+    context = PipelineContext(
+        original=prepared,
         constraints=constraints,
+        config=config,
         merge_constraints=merge_constraints,
-        stages=build_default_stages(merge_constraints),
-        max_iterations=max_iterations,
-        verbose=verbose,
+    )
+    steps = _build_pipeline_steps(config, merge_constraints)
+
+    fixed, status, history = run_steps(
+        prepared,
+        steps,
+        context,
+        max_passes=max_iterations,
     )
 
-    best_geometry, best_status = transaction.get_best_result()
-    best_geometry = _finalize_geometry(best_geometry, constraints)
-    best_status = constraints.check(best_geometry, prepared)
-    history = _stage_history_summary(stage_history) + transaction.get_history_summary()
+    finalized = _finalize_geometry(fixed, constraints)
+    final_status = constraints.check(finalized, prepared)
+    history_strings = _history_strings(history)
 
-    if best_status.all_satisfied():
-        return best_geometry, None
+    if final_status.all_satisfied():
+        return finalized, None
 
-    warning = _build_warning(best_geometry, best_status, history)
+    warning = _build_warning(finalized, final_status, history_strings)
     if raise_on_failure:
         raise warning
 
     warnings.warn(str(warning), UserWarning, stacklevel=2)
-    return best_geometry, warning
+    return finalized, warning
 
 
 def robust_fix_batch(
@@ -86,10 +85,7 @@ def robust_fix_batch(
     properties: Optional[List[Dict[str, Any]]] = None,
     verbose: bool = False,
 ) -> Tuple[List[BaseGeometry], List[Optional[FixWarning]], Optional[List[Dict[str, Any]]]]:
-    """
-    Apply :func:`robust_fix_geometry` to multiple geometries and optionally
-    resolve overlaps between the fixed results.
-    """
+    """Apply :func:`robust_fix_geometry` to multiple geometries."""
     if not geometries:
         return [], [], None if properties is None else []
 
@@ -98,7 +94,11 @@ def robust_fix_batch(
     working_properties = _copy_properties(properties) if properties is not None else None
 
     if merge_constraints and merge_constraints.enabled:
-        working_geometries, working_originals, working_properties = _apply_initial_merge(
+        (
+            working_geometries,
+            working_originals,
+            working_properties,
+        ) = _apply_initial_merge(
             working_geometries,
             working_originals,
             working_properties,
@@ -106,28 +106,29 @@ def robust_fix_batch(
             verbose,
         )
 
-    stage_template = build_default_stages(merge_constraints)
+    config = config_from_constraints(constraints)
+    steps = _build_pipeline_steps(config, merge_constraints)
 
     fixed: List[BaseGeometry] = []
     statuses: List[ConstraintStatus] = []
     histories: List[List[str]] = []
 
     for geom, orig in zip(working_geometries, working_originals):
-        transaction = FixTransaction(geom, orig, constraints)
-        stage_history = execute_stage_pipeline(
-            transaction=transaction,
+        context = PipelineContext(
+            original=orig,
             constraints=constraints,
+            config=config,
             merge_constraints=merge_constraints,
-            stages=stage_template,
-            max_iterations=max_iterations,
-            verbose=verbose,
         )
-        best_geom, best_status = transaction.get_best_result()
-        history = _stage_history_summary(stage_history) + transaction.get_history_summary()
-
-        fixed.append(best_geom)
-        statuses.append(best_status)
-        histories.append(history)
+        result_geom, status, history = run_steps(
+            geom,
+            steps,
+            context,
+            max_passes=max_iterations,
+        )
+        fixed.append(result_geom)
+        statuses.append(status)
+        histories.append(_history_strings(history))
 
     overlap_notes: List[str] = [""] * len(fixed)
     if handle_overlaps and constraints.max_overlap_area == 0.0:
@@ -147,57 +148,126 @@ def robust_fix_batch(
         finalized_geometries.append(finalized)
         finalized_statuses.append(constraints.check(finalized, original))
 
-    fixed = finalized_geometries
-    statuses = finalized_statuses
-
     warnings_list: List[Optional[FixWarning]] = []
-    for idx, (geom, status, history) in enumerate(zip(fixed, statuses, histories)):
+    for idx, (geom, status, history) in enumerate(zip(finalized_geometries, finalized_statuses, histories)):
         note = overlap_notes[idx]
-        if note:
-            history = history + [note]
-            histories[idx] = history
+        history_with_notes = history + ([note] if note else [])
 
         if status.all_satisfied():
             warnings_list.append(None)
             continue
 
-        warning = _build_warning(geom, status, history)
+        warning = _build_warning(geom, status, history_with_notes)
         warnings_list.append(warning)
         warnings.warn(str(warning), UserWarning, stacklevel=2)
 
-    return fixed, warnings_list, working_properties
+    return finalized_geometries, warnings_list, working_properties
 
 
-def _copy_properties(
-    props: Optional[List[Dict[str, Any]]],
-) -> Optional[List[Dict[str, Any]]]:
-    if props is None:
-        return None
-    return [p.copy() if p else {} for p in props]
+# ---------------------------------------------------------------------------
+# Pipeline step construction
+# ---------------------------------------------------------------------------
+
+def _build_pipeline_steps(
+    config: FixConfig,
+    merge_constraints: Optional[MergeConstraints],
+) -> List[PipelineStep]:
+    steps: List[PipelineStep] = [
+        _validity_step,
+        _clearance_step,
+    ]
+
+    if merge_constraints and merge_constraints.enabled:
+        steps.append(_merge_components_step)
+
+    if config.cleanup:
+        steps.append(_cleanup_step)
+
+    return steps
 
 
-def _build_warning(
-    geometry: BaseGeometry,
-    status: ConstraintStatus,
-    history: List[str],
-) -> FixWarning:
-    unmet = [v.constraint_type.name for v in status.violations]
-    message = (
-        f"Could not satisfy constraints ({', '.join(unmet)}) "
-        f"after stage pipeline. Returning best-effort geometry."
+def _validity_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
+    if not ctx.config.must_be_valid or geometry.is_valid:
+        return StepResult("validity", geometry, False, "already valid")
+
+    repaired = repair_geometry(geometry, repair_strategy=RepairStrategy.AUTO)
+    return _maybe_accept("validity", geometry, repaired, ctx, "repaired invalid geometry")
+
+
+def _clearance_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
+    target = ctx.config.min_clearance
+    if target is None or target <= 0:
+        return StepResult("clearance", geometry, False, "no target")
+
+    current_clearance = _safe_clearance(geometry)
+    if current_clearance is not None and current_clearance + 1e-9 >= target:
+        return StepResult("clearance", geometry, False, "meets target")
+
+    improved = _apply_clearance_fix(geometry, target)
+    if improved is geometry:
+        return StepResult("clearance", geometry, False, "no-op")
+
+    return _maybe_accept("clearance", geometry, improved, ctx, "clearance improved")
+
+
+def _merge_components_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
+    config = ctx.merge_constraints
+    if not config or not config.enabled:
+        return StepResult("merge_components", geometry, False, "disabled")
+
+    if isinstance(geometry, Polygon):
+        polygons = [geometry]
+    elif isinstance(geometry, MultiPolygon):
+        polygons = list(geometry.geoms)
+    else:
+        return StepResult("merge_components", geometry, False, "not a polygon")
+
+    merged = merge_close_polygons(
+        polygons,
+        margin=config.margin,
+        merge_strategy=config.merge_strategy,
+        preserve_holes=config.preserve_holes,
+        insert_vertices=config.insert_vertices,
     )
-    return FixWarning(
-        message=message,
-        geometry=geometry,
-        status=status,
-        unmet_constraints=unmet,
-        history=history,
-    )
+
+    if not merged:
+        return StepResult("merge_components", geometry, False, "no merge result")
+
+    if len(merged) == 1:
+        candidate: BaseGeometry = merged[0]
+    else:
+        candidate = MultiPolygon(merged)
+
+    return _maybe_accept("merge_components", geometry, candidate, ctx, "components merged")
 
 
-def _stage_history_summary(stage_history: List[StageResult]) -> List[str]:
-    return [result.summary() for result in stage_history]
+def _cleanup_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
+    cleaned = _cleanup_geometry(geometry, ctx.constraints)
+    if cleaned is None or cleaned.equals(geometry):
+        return StepResult("cleanup", geometry, False, "cleanup not needed")
+    return _maybe_accept("cleanup", geometry, cleaned, ctx, "cleanup applied")
 
+
+def _maybe_accept(
+    name: str,
+    current: BaseGeometry,
+    candidate: BaseGeometry,
+    ctx: PipelineContext,
+    success_message: str,
+) -> StepResult:
+    current_status = ctx.constraints.check(current, ctx.original)
+    candidate_status = ctx.constraints.check(candidate, ctx.original)
+
+    if candidate_status.is_better_or_equal(current_status):
+        changed = not candidate.equals(current)
+        return StepResult(name, candidate, changed, success_message)
+
+    return StepResult(name, current, False, "candidate rejected")
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 def _resolve_batch_overlaps(
     geometries: List[BaseGeometry],
@@ -218,8 +288,7 @@ def _resolve_batch_overlaps(
                 polygons.append(geom)
                 polygon_indices.append(idx)
             elif isinstance(geom, MultiPolygon) and len(geom.geoms) > 0:
-                largest = max(geom.geoms, key=lambda g: g.area)
-                polygons.append(largest)
+                polygons.append(max(geom.geoms, key=lambda g: g.area))
                 polygon_indices.append(idx)
             else:
                 if verbose:
@@ -232,15 +301,12 @@ def _resolve_batch_overlaps(
             max_iterations=max_iterations,
         )
 
-        # Apply cleanup to each resolved geometry to remove degenerate features
-        # that may have been created during overlap resolution
         cleaned_resolved = []
         for poly in resolved:
             try:
                 cleaned = _cleanup_geometry(poly, constraints)
                 cleaned_resolved.append(cleaned if cleaned is not None else poly)
             except Exception:
-                # If cleanup fails, use the uncleaned geometry
                 cleaned_resolved.append(poly)
         resolved = cleaned_resolved
 
@@ -340,7 +406,7 @@ def _apply_initial_merge(
             for group in mapping:
                 source_idx = sources[group[0]]
                 base = properties[source_idx].copy()
-                base['merge_group'] = ','.join(str(sources[i]) for i in group)
+                base["merge_group"] = ",".join(str(sources[i]) for i in group)
                 aggregated.append(base)
             new_properties = aggregated
 
@@ -349,6 +415,128 @@ def _apply_initial_merge(
         if verbose:
             print(f"[Merge] Initial merge skipped: {exc}")
         return geometries, originals, properties
+
+
+def _cleanup_geometry(
+    geometry: BaseGeometry,
+    constraints: GeometryConstraints,
+) -> BaseGeometry:
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        return geometry
+
+    config = CleanupConfig(
+        min_zero_area=1e-10,
+        hole_area_threshold=constraints.min_hole_area if constraints.min_hole_area and constraints.min_hole_area > 0 else None,
+        hole_aspect_ratio=constraints.max_hole_aspect_ratio,
+        hole_min_width=constraints.min_hole_width,
+        preserve_holes=True,
+    )
+
+    cleaned = cleanup_polygon(geometry, config)
+    try:
+        if cleaned.is_valid and not cleaned.is_empty:
+            try:
+                clearance = cleaned.minimum_clearance
+            except Exception:
+                clearance = None
+
+            if clearance is not None and clearance < 0.01:
+                eroded = cleaned.buffer(-0.01, join_style=2)
+                if (
+                    isinstance(eroded, (Polygon, MultiPolygon))
+                    and eroded.is_valid
+                    and not eroded.is_empty
+                    and eroded.area > 0
+                ):
+                    dilated = eroded.buffer(0.01, join_style=2)
+                    if (
+                        isinstance(dilated, (Polygon, MultiPolygon))
+                        and dilated.is_valid
+                        and not dilated.is_empty
+                    ):
+                        area_loss = (
+                            (cleaned.area - dilated.area) / cleaned.area
+                            if cleaned.area > 0
+                            else 0
+                        )
+                        if area_loss < 0.01:
+                            cleaned = dilated
+
+            buffered = cleaned.buffer(0)
+            if buffered.is_valid and not buffered.is_empty:
+                cleaned = buffered
+
+    except Exception:
+        return geometry
+
+    return cleaned
+
+
+def _apply_clearance_fix(geometry: BaseGeometry, min_clearance: Optional[float]) -> BaseGeometry:
+    if min_clearance is None or min_clearance <= 0:
+        return geometry
+
+    if isinstance(geometry, Polygon):
+        return fix_clearance(geometry, min_clearance)
+
+    if isinstance(geometry, MultiPolygon):
+        united = unary_union(geometry)
+        if isinstance(united, Polygon):
+            return fix_clearance(united, min_clearance)
+        if isinstance(united, MultiPolygon):
+            fixed_parts = [fix_clearance(poly, min_clearance) for poly in united.geoms]
+            valid_parts = [poly for poly in fixed_parts if isinstance(poly, Polygon) and not poly.is_empty]
+            if not valid_parts:
+                return geometry
+            return MultiPolygon(valid_parts)
+        return geometry
+
+    return geometry
+
+
+def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
+    try:
+        return geometry.minimum_clearance
+    except Exception:
+        return None
+
+
+def _copy_properties(
+    props: Optional[List[Dict[str, Any]]],
+) -> Optional[List[Dict[str, Any]]]:
+    if props is None:
+        return None
+    return [p.copy() if p else {} for p in props]
+
+
+def _build_warning(
+    geometry: BaseGeometry,
+    status: ConstraintStatus,
+    history: List[str],
+) -> FixWarning:
+    unmet = [v.constraint_type.name for v in status.violations]
+    message = (
+        f"Could not satisfy constraints ({', '.join(unmet)}) "
+        f"after pipeline. Returning best-effort geometry."
+    )
+    return FixWarning(
+        message=message,
+        geometry=geometry,
+        status=status,
+        unmet_constraints=unmet,
+        history=history,
+    )
+
+
+def _history_strings(results: List[StepResult]) -> List[str]:
+    history: List[str] = []
+    for result in results:
+        status = "changed" if result.changed else "skipped"
+        if result.message:
+            history.append(f"{result.name}: {result.message}")
+        else:
+            history.append(f"{result.name}: {status}")
+    return history
 
 
 __all__ = [
