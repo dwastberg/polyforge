@@ -17,9 +17,12 @@ from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from ..core.cleanup import CleanupConfig, cleanup_polygon
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
 from ..core.errors import FixWarning
+from ..core.geometry_utils import validate_and_fix
 from ..core.types import OverlapStrategy
+from ..clearance.fix_clearance import fix_clearance
 from ..overlap import remove_overlaps
 from ..merge import merge_close_polygons
 from .transaction import FixTransaction
@@ -47,7 +50,8 @@ def robust_fix_geometry(
     its change through :class:`FixTransaction` or rolls back if constraints
     regress. The best result discovered during the pipeline is always returned.
     """
-    transaction = FixTransaction(geometry, geometry, constraints)
+    prepared = _prepare_geometry(geometry)
+    transaction = FixTransaction(prepared, prepared, constraints)
     stage_history = execute_stage_pipeline(
         transaction=transaction,
         constraints=constraints,
@@ -58,6 +62,8 @@ def robust_fix_geometry(
     )
 
     best_geometry, best_status = transaction.get_best_result()
+    best_geometry = _finalize_geometry(best_geometry, constraints)
+    best_status = constraints.check(best_geometry, prepared)
     history = _stage_history_summary(stage_history) + transaction.get_history_summary()
 
     if best_status.all_satisfied():
@@ -87,43 +93,18 @@ def robust_fix_batch(
     if not geometries:
         return [], [], None if properties is None else []
 
-    # Track both working geometries and their "originals" for constraint validation
-    working_geometries = list(geometries)
-    working_originals = list(geometries)  # Track what "original" means for each geometry
+    working_geometries = [_prepare_geometry(geom) for geom in geometries]
+    working_originals = list(working_geometries)
     working_properties = _copy_properties(properties) if properties is not None else None
 
     if merge_constraints and merge_constraints.enabled:
-        try:
-            merged, mapping = merge_close_polygons(
-                [geom for geom in working_geometries if isinstance(geom, Polygon)],
-                margin=merge_constraints.margin,
-                merge_strategy=merge_constraints.merge_strategy,
-                preserve_holes=merge_constraints.preserve_holes,
-                insert_vertices=merge_constraints.insert_vertices,
-                return_mapping=True,
-            )
-            working_geometries = merged
-
-            # Update working_originals to reflect merge groups
-            # For each merged geometry, the "original" is the union of the pre-merge originals
-            new_originals: List[BaseGeometry] = []
-            for group in mapping:
-                group_originals = [working_originals[idx] for idx in group]
-                merged_original = unary_union(group_originals)
-                new_originals.append(merged_original)
-            working_originals = new_originals
-
-            if working_properties is not None:
-                flat_props: List[Dict[str, Any]] = []
-                original_props = working_properties
-                for group in mapping:
-                    base = original_props[group[0]].copy()
-                    base["merge_group"] = ",".join(str(idx) for idx in group)
-                    flat_props.append(base)
-                working_properties = flat_props
-        except Exception:
-            if verbose:
-                print("[Merge] Initial merge skipped due to error; continuing without merges.")
+        working_geometries, working_originals, working_properties = _apply_initial_merge(
+            working_geometries,
+            working_originals,
+            working_properties,
+            merge_constraints,
+            verbose,
+        )
 
     stage_template = build_default_stages(merge_constraints)
 
@@ -158,6 +139,16 @@ def robust_fix_batch(
             max_iterations=max_iterations,
             verbose=verbose,
         )
+
+    finalized_geometries: List[BaseGeometry] = []
+    finalized_statuses: List[ConstraintStatus] = []
+    for geom, original in zip(fixed, working_originals):
+        finalized = _finalize_geometry(geom, constraints)
+        finalized_geometries.append(finalized)
+        finalized_statuses.append(constraints.check(finalized, original))
+
+    fixed = finalized_geometries
+    statuses = finalized_statuses
 
     warnings_list: List[Optional[FixWarning]] = []
     for idx, (geom, status, history) in enumerate(zip(fixed, statuses, histories)):
@@ -268,6 +259,96 @@ def _resolve_batch_overlaps(
             notes[idx] = "overlap_resolution: rolled back"
 
     return geometries, statuses, notes
+
+
+def _prepare_geometry(geometry: BaseGeometry) -> BaseGeometry:
+    if geometry is None:
+        return geometry
+    geom = geometry
+    if isinstance(geom, (Polygon, MultiPolygon)):
+        cfg = CleanupConfig(min_zero_area=1e-10, preserve_holes=True)
+        geom = cleanup_polygon(geom, cfg)
+    fixed = validate_and_fix(geom)
+    return fixed if fixed is not None else geom
+
+
+def _finalize_geometry(geometry: BaseGeometry, constraints: GeometryConstraints) -> BaseGeometry:
+    geom = _cleanup_geometry(geometry, constraints)
+    return _apply_min_clearance(geom, constraints.min_clearance)
+
+
+def _apply_min_clearance(geometry: BaseGeometry, min_clearance: Optional[float]) -> BaseGeometry:
+    if min_clearance is None or min_clearance <= 0:
+        return geometry
+
+    if isinstance(geometry, Polygon):
+        try:
+            return fix_clearance(geometry, min_clearance)
+        except Exception:
+            return geometry
+
+    if isinstance(geometry, MultiPolygon):
+        unioned = unary_union(geometry)
+        if isinstance(unioned, Polygon):
+            return _apply_min_clearance(unioned, min_clearance)
+        if isinstance(unioned, MultiPolygon):
+            parts = [_apply_min_clearance(part, min_clearance) for part in unioned.geoms]
+            polys = [part for part in parts if isinstance(part, Polygon) and not part.is_empty]
+            if polys:
+                return MultiPolygon(polys)
+    return geometry
+
+
+def _apply_initial_merge(
+    geometries: List[BaseGeometry],
+    originals: List[BaseGeometry],
+    properties: Optional[List[Dict[str, Any]]],
+    merge_constraints: MergeConstraints,
+    verbose: bool,
+) -> Tuple[List[BaseGeometry], List[BaseGeometry], Optional[List[Dict[str, Any]]]]:
+    try:
+        polygons: List[Polygon] = []
+        sources: List[int] = []
+        for idx, geom in enumerate(geometries):
+            if isinstance(geom, Polygon):
+                polygons.append(geom)
+                sources.append(idx)
+            elif isinstance(geom, MultiPolygon) and len(geom.geoms) > 0:
+                polygons.append(max(geom.geoms, key=lambda g: g.area))
+                sources.append(idx)
+        if not polygons:
+            return geometries, originals, properties
+
+        merged, mapping = merge_close_polygons(
+            polygons,
+            margin=merge_constraints.margin,
+            merge_strategy=merge_constraints.merge_strategy,
+            preserve_holes=merge_constraints.preserve_holes,
+            insert_vertices=merge_constraints.insert_vertices,
+            return_mapping=True,
+        )
+
+        new_originals: List[BaseGeometry] = []
+        for group in mapping:
+            source_indices = [sources[i] for i in group]
+            group_originals = [originals[idx] for idx in source_indices]
+            new_originals.append(unary_union(group_originals))
+
+        new_properties = properties
+        if properties is not None:
+            aggregated: List[Dict[str, Any]] = []
+            for group in mapping:
+                source_idx = sources[group[0]]
+                base = properties[source_idx].copy()
+                base['merge_group'] = ','.join(str(sources[i]) for i in group)
+                aggregated.append(base)
+            new_properties = aggregated
+
+        return merged, new_originals, new_properties
+    except Exception as exc:
+        if verbose:
+            print(f"[Merge] Initial merge skipped: {exc}")
+        return geometries, originals, properties
 
 
 __all__ = [
