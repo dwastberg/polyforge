@@ -23,7 +23,7 @@ from polyforge.ops.clearance import (
     _calculate_curvature_at_vertex,
 )
 from polyforge.core.geometry_utils import to_single_polygon
-from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy, EdgeStrategy
+from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
 from polyforge.core.iterative_utils import iterative_improve
 
 
@@ -223,7 +223,7 @@ def _strategy_parallel_edges(
     return fix_parallel_close_edges(
         geometry,
         min_clearance,
-        strategy=EdgeStrategy.SIMPLIFY,
+        strategy=IntersectionStrategy.SIMPLIFY,
     )
 
 

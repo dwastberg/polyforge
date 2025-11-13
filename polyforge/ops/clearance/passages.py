@@ -17,7 +17,6 @@ from polyforge.core.geometry_utils import safe_buffer_fix
 from polyforge.core.types import (
     PassageStrategy,
     IntersectionStrategy,
-    EdgeStrategy,
     coerce_enum,
 )
 

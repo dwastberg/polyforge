@@ -177,22 +177,6 @@ class IntersectionStrategy(Enum):
     SMOOTH = 'smooth'
 
 
-class EdgeStrategy(Enum):
-    """Strategy for fixing parallel close edges.
-
-    Attributes:
-        SIMPLIFY: Simplify to remove close parallel edges (default)
-        BUFFER: Use buffer to adjust edges
-
-    Examples:
-        >>> from polyforge.clearance import fix_parallel_close_edges
-        >>> from polyforge.core.types import EdgeStrategy
-        >>> fixed = fix_parallel_close_edges(poly, min_clearance=1.0, strategy=EdgeStrategy.SIMPLIFY)
-    """
-    SIMPLIFY = 'simplify'
-    BUFFER = 'buffer'
-
-
 __all__ = [
     'OverlapStrategy',
     'MergeStrategy',
@@ -203,7 +187,6 @@ __all__ = [
     'PassageStrategy',
     'IntrusionStrategy',
     'IntersectionStrategy',
-    'EdgeStrategy',
     'coerce_enum',
 ]
 

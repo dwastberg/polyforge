@@ -12,7 +12,7 @@ from polyforge.clearance import (
     fix_near_self_intersection,
     fix_parallel_close_edges,
 )
-from polyforge.core.types import HoleStrategy, PassageStrategy, IntrusionStrategy, IntersectionStrategy, EdgeStrategy
+from polyforge.core.types import HoleStrategy, PassageStrategy, IntrusionStrategy, IntersectionStrategy
 from polyforge.ops.clearance.passages import _find_self_intersection_vertices
 
 

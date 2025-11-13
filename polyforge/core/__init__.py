@@ -14,7 +14,6 @@ from .types import (
     PassageStrategy,
     IntrusionStrategy,
     IntersectionStrategy,
-    EdgeStrategy,
     coerce_enum,
 )
 
@@ -48,7 +47,6 @@ __all__ = [
     'PassageStrategy',
     'IntrusionStrategy',
     'IntersectionStrategy',
-    'EdgeStrategy',
     'coerce_enum',
 
     # Exceptions
