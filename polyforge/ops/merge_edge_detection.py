@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 from shapely.geometry import Polygon, LineString
 
+from polyforge.core.spatial_utils import iterate_unique_pairs
 
 def find_parallel_close_edges(
     polygons: List[Polygon],
@@ -41,38 +42,36 @@ def find_parallel_close_edges(
     parallel_pairs = []
     angle_threshold_rad = np.radians(angle_threshold)
 
-    for i, (poly_idx_i, edge_i) in enumerate(all_edges):
-        for j, (poly_idx_j, edge_j) in enumerate(all_edges[i + 1:], i + 1):
+    for i, j in iterate_unique_pairs(all_edges):
+        poly_idx_i, edge_i = all_edges[i]
+        poly_idx_j, edge_j = all_edges[j]
             # Only consider edges from different polygons
-            if poly_idx_i != poly_idx_j:
-                distance = edge_i.distance(edge_j)
-                if distance <= margin:
-                    # Check if edges are parallel
-                    # Calculate edge directions
-                    coords_i = np.array(edge_i.coords)
-                    coords_j = np.array(edge_j.coords)
+        if poly_idx_i == poly_idx_j:
+            continue
+        distance = edge_i.distance(edge_j)
+        if distance > margin:
+            continue
 
-                    dir_i = coords_i[1] - coords_i[0]
-                    dir_j = coords_j[1] - coords_j[0]
+        coords_i = np.array(edge_i.coords)
+        coords_j = np.array(edge_j.coords)
 
-                    # Normalize
-                    len_i = np.linalg.norm(dir_i)
-                    len_j = np.linalg.norm(dir_j)
+        dir_i = coords_i[1] - coords_i[0]
+        dir_j = coords_j[1] - coords_j[0]
 
-                    if len_i < 1e-10 or len_j < 1e-10:
-                        continue
+        len_i = np.linalg.norm(dir_i)
+        len_j = np.linalg.norm(dir_j)
+        if len_i < 1e-10 or len_j < 1e-10:
+            continue
 
-                    dir_i = dir_i / len_i
-                    dir_j = dir_j / len_j
+        dir_i = dir_i / len_i
+        dir_j = dir_j / len_j
 
-                    # Calculate angle between edges (consider both orientations)
-                    dot_product = np.abs(np.dot(dir_i, dir_j))
-                    dot_product = np.clip(dot_product, -1.0, 1.0)
-                    angle = np.arccos(dot_product)
+        dot_product = np.abs(np.dot(dir_i, dir_j))
+        dot_product = np.clip(dot_product, -1.0, 1.0)
+        angle = np.arccos(dot_product)
 
-                    # Check if parallel (angle close to 0 or 180 degrees)
-                    if angle <= angle_threshold_rad or angle >= (np.pi - angle_threshold_rad):
-                        parallel_pairs.append((edge_i, edge_j, distance))
+        if angle <= angle_threshold_rad or angle >= (np.pi - angle_threshold_rad):
+            parallel_pairs.append((edge_i, edge_j, distance))
 
     # Filter overlapping matches: if the same edge is matched with multiple
     # collinear segments, keep only the match with the best overlap

@@ -1,93 +1,83 @@
 """Geometry analysis and diagnostic functions."""
 
+from typing import Dict, List, Tuple
+
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
 
 def analyze_geometry(geometry: BaseGeometry) -> dict:
-    """Analyze geometry validity issues.
+    """Analyze geometry validity issues."""
+    metrics = _collect_geometry_metrics(geometry)
+    issues, suggestions = _categorize_issues(metrics["is_valid"], metrics["validity_message"])
+    extra_issues, extra_suggestions = _collect_coordinate_issues(geometry)
+    issues.extend(extra_issues)
+    suggestions.extend(extra_suggestions)
 
-    Returns a dictionary with diagnostic information about the geometry.
+    return _format_analysis(metrics, issues, suggestions)
 
-    Args:
-        geometry: Geometry to analyze
 
-    Returns:
-        Dictionary with keys:
-            - 'is_valid': bool
-            - 'validity_message': str (from Shapely)
-            - 'issues': list of detected issues
-            - 'suggestions': list of suggested repairs
+def _collect_geometry_metrics(geometry: BaseGeometry) -> Dict[str, object]:
+    return {
+        "is_valid": geometry.is_valid,
+        "validity_message": explain_validity(geometry),
+        "geometry_type": geometry.geom_type,
+        "is_empty": geometry.is_empty,
+        "area": geometry.area if hasattr(geometry, "area") else None,
+    }
 
-    Examples:
-        >>> poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
-        >>> analysis = analyze_geometry(poly)
-        >>> analysis['is_valid']
-        False
-        >>> 'Self-intersection' in analysis['issues']
-        True
-    """
-    issues = []
-    suggestions = []
 
-    # Check validity
-    is_valid = geometry.is_valid
-    validity_msg = explain_validity(geometry)
+def _categorize_issues(is_valid: bool, validity_message: str) -> Tuple[List[str], List[str]]:
+    issues: List[str] = []
+    suggestions: List[str] = []
 
     if not is_valid:
-        # Analyze validity message
-        msg_lower = validity_msg.lower()
-
-        if 'self-intersection' in msg_lower or 'self intersection' in msg_lower:
-            issues.append('Self-intersection')
-            suggestions.append('Try buffer(0) or simplification')
-
-        if 'duplicate' in msg_lower:
-            issues.append('Duplicate vertices')
-            suggestions.append('Clean coordinates')
-
-        if 'not closed' in msg_lower or 'unclosed' in msg_lower:
-            issues.append('Unclosed ring')
-            suggestions.append('Close coordinate rings')
-
-        if 'ring' in msg_lower and 'invalid' in msg_lower:
-            issues.append('Invalid ring')
-            suggestions.append('Reconstruct ring geometry')
-
-        if 'hole' in msg_lower:
-            issues.append('Invalid hole')
-            suggestions.append('Remove or fix interior rings')
-
-        if 'spike' in msg_lower or 'collapse' in msg_lower:
-            issues.append('Collapsed/spike geometry')
-            suggestions.append('Simplification or buffer')
+        msg = validity_message.lower()
+        rules = [
+            (("self-intersection", "self intersection"), False, "Self-intersection", "Try buffer(0) or simplification"),
+            (("duplicate",), False, "Duplicate vertices", "Clean coordinates"),
+            (("not closed", "unclosed"), False, "Unclosed ring", "Close coordinate rings"),
+            (("ring", "invalid"), True, "Invalid ring", "Reconstruct ring geometry"),
+            (("hole",), False, "Invalid hole", "Remove or fix interior rings"),
+            (("spike", "collapse"), False, "Collapsed/spike geometry", "Simplification or buffer"),
+        ]
+        for keywords, match_all, issue, suggestion in rules:
+            match_func = all if match_all else any
+            if match_func(keyword in msg for keyword in keywords):
+                issues.append(issue)
+                suggestions.append(suggestion)
 
         if not issues:
-            issues.append('Unknown validity issue')
-            suggestions.append('Try auto-fix strategy')
+            issues.append("Unknown validity issue")
+            suggestions.append("Try auto-fix strategy")
 
-    # Check for other potential issues
-    if hasattr(geometry, 'exterior'):
-        exterior_coords = list(geometry.exterior.coords)
-        if len(exterior_coords) < 4:
-            issues.append('Too few vertices')
-            suggestions.append('Geometry may be degenerate')
+    return issues, suggestions
 
-        # Check for duplicate consecutive vertices
-        for i in range(len(exterior_coords) - 1):
-            if exterior_coords[i] == exterior_coords[i + 1]:
-                issues.append('Consecutive duplicate vertices')
-                suggestions.append('Clean coordinates')
+
+def _collect_coordinate_issues(geometry: BaseGeometry) -> Tuple[List[str], List[str]]:
+    issues: List[str] = []
+    suggestions: List[str] = []
+
+    if hasattr(geometry, "exterior"):
+        coords = list(geometry.exterior.coords)
+        if len(coords) < 4:
+            issues.append("Too few vertices")
+            suggestions.append("Geometry may be degenerate")
+
+        for i in range(len(coords) - 1):
+            if coords[i] == coords[i + 1]:
+                issues.append("Consecutive duplicate vertices")
+                suggestions.append("Clean coordinates")
                 break
 
+    return issues, suggestions
+
+
+def _format_analysis(metrics: Dict[str, object], issues: List[str], suggestions: List[str]) -> Dict[str, object]:
     return {
-        'is_valid': is_valid,
-        'validity_message': validity_msg,
-        'issues': issues,
-        'suggestions': suggestions,
-        'geometry_type': geometry.geom_type,
-        'is_empty': geometry.is_empty,
-        'area': geometry.area if hasattr(geometry, 'area') else None,
+        **metrics,
+        "issues": issues,
+        "suggestions": suggestions,
     }
 
 

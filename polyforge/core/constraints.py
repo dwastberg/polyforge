@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
+import math
 from typing import Dict, List, Optional, Tuple
 
 from shapely.geometry import MultiPolygon, Polygon
@@ -11,6 +12,7 @@ from shapely.geometry.base import BaseGeometry
 
 from ..metrics import measure_geometry
 from .types import MergeStrategy
+from .geometry_utils import hole_shape_metrics
 
 
 class ConstraintType(Enum):
@@ -93,9 +95,32 @@ class GeometryConstraints:
     max_hole_aspect_ratio: Optional[float] = None
     min_hole_width: Optional[float] = None
 
-    def check(self, geometry: BaseGeometry, original: BaseGeometry) -> ConstraintStatus:
-        metrics = measure_geometry(geometry, original)
+    def check(
+        self,
+        geometry: BaseGeometry,
+        original: BaseGeometry,
+        overlap_area: Optional[float] = None,
+        metrics: Optional[Dict] = None,
+    ) -> ConstraintStatus:
+        """Check constraints against geometry.
+
+        Args:
+            geometry: Geometry to check
+            original: Original geometry for comparison
+            overlap_area: Optional overlap area value
+            metrics: Optional pre-computed metrics (for caching)
+
+        Returns:
+            ConstraintStatus with violations list
+        """
+        # Use cached metrics if provided, otherwise calculate
+        if metrics is None:
+            # Auto-detect if clearance calculation needed
+            skip_clearance = (self.min_clearance is None)
+            metrics = measure_geometry(geometry, original, skip_clearance=skip_clearance)
+
         violations: List[ConstraintViolation] = []
+        overlap_value = max(0.0, overlap_area or 0.0)
 
         if metrics.get("is_empty", False):
             violations.append(
@@ -112,6 +137,15 @@ class GeometryConstraints:
                     constraint_type=ConstraintType.VALIDITY,
                     severity=1.0,
                     message="geometry is invalid",
+                )
+            )
+
+        if not self.allow_multipolygon and isinstance(geometry, MultiPolygon):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=1.0,
+                    message="multipolygon results are not allowed",
                 )
             )
 
@@ -151,11 +185,112 @@ class GeometryConstraints:
                 )
 
         self._check_holes(geometry, violations)
+        if (
+            self.max_overlap_area is not None
+            and not math.isinf(self.max_overlap_area)
+            and overlap_value > self.max_overlap_area + 1e-9
+        ):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.OVERLAP,
+                    severity=overlap_value - self.max_overlap_area,
+                    message="overlap area above threshold",
+                    actual_value=overlap_value,
+                    required_value=self.max_overlap_area,
+                )
+            )
 
         return ConstraintStatus(
             geometry=geometry,
             violations=violations,
             metrics=metrics,
+            overlap_area=overlap_value,
+        )
+
+    def _check_validity(self, geometry: BaseGeometry, metrics: Dict, violations: List[ConstraintViolation]) -> None:
+        if metrics.get("is_empty", False):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=float("inf"),
+                    message="geometry is empty",
+                )
+            )
+            return
+
+        if self.must_be_valid and not metrics.get("is_valid", False):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=1.0,
+                    message="geometry is invalid",
+                )
+            )
+
+        if not self.allow_multipolygon and isinstance(geometry, MultiPolygon):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.VALIDITY,
+                    severity=1.0,
+                    message="multipolygon results are not allowed",
+                )
+            )
+
+    def _check_clearance(self, metrics: Dict, violations: List[ConstraintViolation]) -> None:
+        clearance = metrics.get("clearance")
+        if self.min_clearance and (clearance is None or clearance + 1e-9 < self.min_clearance):
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.CLEARANCE,
+                    severity=self.min_clearance - (clearance or 0.0),
+                    message="minimum clearance not met",
+                    actual_value=clearance,
+                    required_value=self.min_clearance,
+                )
+            )
+
+    def _check_area(self, metrics: Dict, violations: List[ConstraintViolation]) -> None:
+        area_ratio = metrics.get("area_ratio")
+        if area_ratio is None:
+            return
+
+        if area_ratio < self.min_area_ratio:
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.AREA_PRESERVATION,
+                    severity=self.min_area_ratio - area_ratio,
+                    message="area ratio below threshold",
+                    actual_value=area_ratio,
+                    required_value=self.min_area_ratio,
+                )
+            )
+        if self.max_area_ratio != float("inf") and area_ratio > self.max_area_ratio:
+            violations.append(
+                ConstraintViolation(
+                    constraint_type=ConstraintType.AREA_PRESERVATION,
+                    severity=area_ratio - self.max_area_ratio,
+                    message="area ratio above threshold",
+                    actual_value=area_ratio,
+                    required_value=self.max_area_ratio,
+                )
+            )
+
+    def _check_overlap(self, overlap_value: float, violations: List[ConstraintViolation]) -> None:
+        if (
+            self.max_overlap_area is None
+            or math.isinf(self.max_overlap_area)
+            or overlap_value <= self.max_overlap_area + 1e-9
+        ):
+            return
+
+        violations.append(
+            ConstraintViolation(
+                constraint_type=ConstraintType.OVERLAP,
+                severity=overlap_value - self.max_overlap_area,
+                message="overlap area above threshold",
+                actual_value=overlap_value,
+                required_value=self.max_overlap_area,
+            )
         )
 
     def _check_holes(self, geometry: BaseGeometry, violations: List[ConstraintViolation]) -> None:
@@ -189,7 +324,7 @@ class GeometryConstraints:
         if self.max_hole_aspect_ratio or self.min_hole_width:
             for hole in holes:
                 try:
-                    aspect_ratio, width = _hole_shape_metrics(Polygon(hole))
+                    aspect_ratio, width = hole_shape_metrics(Polygon(hole))
                 except Exception:
                     continue
 
@@ -237,24 +372,6 @@ def _collect_holes(geometry: BaseGeometry) -> List:
             rings.extend(poly.interiors)
         return rings
     return []
-
-
-def _hole_shape_metrics(hole_polygon: Polygon) -> Tuple[float, float]:
-    obb = hole_polygon.minimum_rotated_rectangle
-    coords = list(obb.exterior.coords)
-    if len(coords) < 4:
-        raise ValueError("degenerate hole")
-    from shapely.geometry import Point
-
-    edge1 = Point(coords[0]).distance(Point(coords[1]))
-    edge2 = Point(coords[1]).distance(Point(coords[2]))
-    longer = max(edge1, edge2)
-    shorter = min(edge1, edge2)
-    if shorter <= 0:
-        raise ValueError("degenerate width")
-    aspect_ratio = longer / shorter
-    width = shorter
-    return aspect_ratio, width
 
 
 __all__ = [

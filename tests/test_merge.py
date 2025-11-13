@@ -2,9 +2,15 @@
 
 import pytest
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
+
 from polyforge import merge_close_polygons
 from polyforge.core.types import MergeStrategy
+from polyforge.ops.merge_boundary_extension import (
+    _bridge_for_vertical_edges,
+    _bridge_for_horizontal_edges,
+    _bridge_for_angled_edges,
+)
 
 
 class TestProximityDetection:
@@ -217,6 +223,27 @@ class TestVertexMovementStrategy:
 
 class TestBoundaryExtensionStrategy:
     """Tests for boundary_extension strategy."""
+
+    def test_vertical_bridge_helper(self):
+        edge1 = LineString([(0, 0), (0, 5)])
+        edge2 = LineString([(2, 1), (2, 6)])
+        bridge = _bridge_for_vertical_edges(edge1.coords, edge2.coords, 1e-6)
+        assert bridge is not None
+        assert bridge.area == pytest.approx(8.0)
+
+    def test_horizontal_bridge_helper(self):
+        edge1 = LineString([(0, 0), (6, 0)])
+        edge2 = LineString([(1, 2), (5, 2)])
+        bridge = _bridge_for_horizontal_edges(edge1.coords, edge2.coords, 1e-6)
+        assert bridge is not None
+        assert bridge.area == pytest.approx(8.0)
+
+    def test_angled_bridge_helper(self):
+        edge1 = LineString([(0, 0), (4, 1)])
+        edge2 = LineString([(2, 3), (6, 4)])
+        bridge = _bridge_for_angled_edges(edge1.coords, edge2.coords)
+        assert bridge is not None
+        assert bridge.area > 0
 
     def test_parallel_edge_merge(self):
         """Test merging polygons with parallel edges."""

@@ -10,8 +10,10 @@ the constraints are satisfied or progress stalls.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+import math
 import warnings
 
+from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
@@ -19,8 +21,9 @@ from shapely.ops import unary_union
 from ..core.cleanup import CleanupConfig, cleanup_polygon
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
 from ..core.errors import FixWarning
-from ..core.geometry_utils import validate_and_fix
+from ..core.geometry_utils import safe_buffer_fix, validate_and_fix
 from ..core.types import OverlapStrategy, RepairStrategy
+from ..metrics import overlap_area_by_geometry, total_overlap_area
 from ..clearance.fix_clearance import fix_clearance
 from ..merge import merge_close_polygons
 from ..overlap import remove_overlaps
@@ -33,6 +36,9 @@ from ..pipeline import (
     run_steps,
 )
 from .core import repair_geometry
+
+_CLEARANCE_SMOOTH_DISTANCE = 0.01
+_CLEARANCE_SMOOTH_AREA_LOSS = 0.01
 
 
 def robust_fix_geometry(
@@ -62,7 +68,7 @@ def robust_fix_geometry(
     )
 
     finalized = _finalize_geometry(fixed, constraints)
-    final_status = constraints.check(finalized, prepared)
+    final_status = constraints.check(finalized, prepared, overlap_area=0.0)
     history_strings = _history_strings(history)
 
     if final_status.all_satisfied():
@@ -89,6 +95,61 @@ def robust_fix_batch(
     if not geometries:
         return [], [], None if properties is None else []
 
+    (
+        working_geometries,
+        working_originals,
+        working_properties,
+    ) = _prepare_batch_inputs(
+        geometries,
+        merge_constraints,
+        properties,
+        verbose,
+    )
+
+    fixed, statuses, histories = _run_batch_steps(
+        working_geometries,
+        working_originals,
+        constraints,
+        merge_constraints,
+        max_iterations,
+    )
+
+    fixed, statuses, overlap_notes = _enforce_overlap_limits(
+        fixed,
+        statuses,
+        constraints,
+        working_originals,
+        max_iterations,
+        handle_overlaps,
+        verbose,
+    )
+
+    finalized_geometries, finalized_statuses = _finalize_batch_results(
+        fixed,
+        working_originals,
+        constraints,
+    )
+
+    warnings_list = _build_batch_warnings(
+        finalized_geometries,
+        finalized_statuses,
+        histories,
+        overlap_notes,
+    )
+
+    return finalized_geometries, warnings_list, working_properties
+
+
+# ---------------------------------------------------------------------------
+# Pipeline step construction
+# ---------------------------------------------------------------------------
+
+def _prepare_batch_inputs(
+    geometries: List[BaseGeometry],
+    merge_constraints: Optional[MergeConstraints],
+    properties: Optional[List[Dict[str, Any]]],
+    verbose: bool,
+) -> Tuple[List[BaseGeometry], List[BaseGeometry], Optional[List[Dict[str, Any]]]]:
     working_geometries = [_prepare_geometry(geom) for geom in geometries]
     working_originals = list(working_geometries)
     working_properties = _copy_properties(properties) if properties is not None else None
@@ -106,6 +167,16 @@ def robust_fix_batch(
             verbose,
         )
 
+    return working_geometries, working_originals, working_properties
+
+
+def _run_batch_steps(
+    geometries: List[BaseGeometry],
+    originals: List[BaseGeometry],
+    constraints: GeometryConstraints,
+    merge_constraints: Optional[MergeConstraints],
+    max_iterations: int,
+) -> Tuple[List[BaseGeometry], List[ConstraintStatus], List[List[str]]]:
     config = config_from_constraints(constraints)
     steps = _build_pipeline_steps(config, merge_constraints)
 
@@ -113,7 +184,7 @@ def robust_fix_batch(
     statuses: List[ConstraintStatus] = []
     histories: List[List[str]] = []
 
-    for geom, orig in zip(working_geometries, working_originals):
+    for geom, orig in zip(geometries, originals):
         context = PipelineContext(
             original=orig,
             constraints=constraints,
@@ -130,27 +201,69 @@ def robust_fix_batch(
         statuses.append(status)
         histories.append(_history_strings(history))
 
-    overlap_notes: List[str] = [""] * len(fixed)
-    if handle_overlaps and constraints.max_overlap_area == 0.0:
-        fixed, statuses, overlap_notes = _resolve_batch_overlaps(
-            fixed,
-            statuses,
-            constraints,
-            originals=working_originals,
-            max_iterations=max_iterations,
-            verbose=verbose,
-        )
+    return fixed, statuses, histories
 
+
+def _enforce_overlap_limits(
+    geometries: List[BaseGeometry],
+    statuses: List[ConstraintStatus],
+    constraints: GeometryConstraints,
+    originals: List[BaseGeometry],
+    max_iterations: int,
+    handle_overlaps: bool,
+    verbose: bool,
+) -> Tuple[List[BaseGeometry], List[ConstraintStatus], List[str]]:
+    overlap_notes: List[str] = [""] * len(geometries)
+    if not handle_overlaps:
+        return geometries, statuses, overlap_notes
+
+    max_overlap_allowed = constraints.max_overlap_area
+    if max_overlap_allowed is None or math.isinf(max_overlap_allowed):
+        return geometries, statuses, overlap_notes
+
+    current_overlap = total_overlap_area(geometries)
+    if current_overlap <= max_overlap_allowed + 1e-9:
+        return geometries, statuses, overlap_notes
+
+    return _resolve_batch_overlaps(
+        geometries,
+        statuses,
+        constraints,
+        originals=originals,
+        max_iterations=max_iterations,
+        verbose=verbose,
+    )
+
+
+def _finalize_batch_results(
+    geometries: List[BaseGeometry],
+    originals: List[BaseGeometry],
+    constraints: GeometryConstraints,
+) -> Tuple[List[BaseGeometry], List[ConstraintStatus]]:
     finalized_geometries: List[BaseGeometry] = []
-    finalized_statuses: List[ConstraintStatus] = []
-    for geom, original in zip(fixed, working_originals):
+    for geom in geometries:
         finalized = _finalize_geometry(geom, constraints)
         finalized_geometries.append(finalized)
-        finalized_statuses.append(constraints.check(finalized, original))
 
+    overlap_by_geometry = overlap_area_by_geometry(finalized_geometries)
+    finalized_statuses: List[ConstraintStatus] = []
+    for idx, (geom, original) in enumerate(zip(finalized_geometries, originals)):
+        overlap_value = overlap_by_geometry[idx] if idx < len(overlap_by_geometry) else 0.0
+        finalized_statuses.append(constraints.check(geom, original, overlap_area=overlap_value))
+
+    return finalized_geometries, finalized_statuses
+
+
+def _build_batch_warnings(
+    geometries: List[BaseGeometry],
+    statuses: List[ConstraintStatus],
+    histories: List[List[str]],
+    overlap_notes: List[str],
+) -> List[Optional[FixWarning]]:
     warnings_list: List[Optional[FixWarning]] = []
-    for idx, (geom, status, history) in enumerate(zip(finalized_geometries, finalized_statuses, histories)):
-        note = overlap_notes[idx]
+
+    for idx, (geom, status, history) in enumerate(zip(geometries, statuses, histories)):
+        note = overlap_notes[idx] if idx < len(overlap_notes) else ""
         history_with_notes = history + ([note] if note else [])
 
         if status.all_satisfied():
@@ -161,12 +274,8 @@ def robust_fix_batch(
         warnings_list.append(warning)
         warnings.warn(str(warning), UserWarning, stacklevel=2)
 
-    return finalized_geometries, warnings_list, working_properties
+    return warnings_list
 
-
-# ---------------------------------------------------------------------------
-# Pipeline step construction
-# ---------------------------------------------------------------------------
 
 def _build_pipeline_steps(
     config: FixConfig,
@@ -255,12 +364,27 @@ def _maybe_accept(
     ctx: PipelineContext,
     success_message: str,
 ) -> StepResult:
-    current_status = ctx.constraints.check(current, ctx.original)
-    candidate_status = ctx.constraints.check(candidate, ctx.original)
+    """Accept candidate if it satisfies constraints better than current.
+
+    Performance optimizations:
+    - Early exit if geometries are equal (no point comparing)
+    - Uses cached metrics from PipelineContext
+    - Only calculates clearance if min_clearance constraint exists
+    """
+    # Early exit: if geometries are equal, no change occurred
+    if candidate.equals(current):
+        return StepResult(name, current, False, "no change")
+
+    # Get cached metrics (automatically handles clearance caching)
+    current_metrics = ctx.get_metrics(current)
+    candidate_metrics = ctx.get_metrics(candidate)
+
+    # Check constraints with pre-computed metrics
+    current_status = ctx.constraints.check(current, ctx.original, metrics=current_metrics)
+    candidate_status = ctx.constraints.check(candidate, ctx.original, metrics=candidate_metrics)
 
     if candidate_status.is_better_or_equal(current_status):
-        changed = not candidate.equals(current)
-        return StepResult(name, candidate, changed, success_message)
+        return StepResult(name, candidate, True, success_message)
 
     return StepResult(name, current, False, "candidate rejected")
 
@@ -316,7 +440,7 @@ def _resolve_batch_overlaps(
         return geometries, statuses, notes
 
     for poly, idx in zip(resolved, polygon_indices):
-        status = constraints.check(poly, originals[idx])
+        status = constraints.check(poly, originals[idx], overlap_area=0.0)
         if status.is_better_or_equal(statuses[idx]):
             geometries[idx] = poly
             statuses[idx] = status
@@ -340,7 +464,16 @@ def _prepare_geometry(geometry: BaseGeometry) -> BaseGeometry:
 
 def _finalize_geometry(geometry: BaseGeometry, constraints: GeometryConstraints) -> BaseGeometry:
     geom = _cleanup_geometry(geometry, constraints)
-    return _apply_min_clearance(geom, constraints.min_clearance)
+    geom = _apply_min_clearance(geom, constraints.min_clearance)
+    if not constraints.allow_multipolygon and isinstance(geom, MultiPolygon):
+        candidates = [
+            poly for poly in geom.geoms
+            if isinstance(poly, Polygon) and not poly.is_empty
+        ]
+        if candidates:
+            return max(candidates, key=lambda g: g.area)
+        return Polygon()
+    return geom
 
 
 def _apply_min_clearance(geometry: BaseGeometry, min_clearance: Optional[float]) -> BaseGeometry:
@@ -421,54 +554,17 @@ def _cleanup_geometry(
     geometry: BaseGeometry,
     constraints: GeometryConstraints,
 ) -> BaseGeometry:
+    """Apply constraint-aware cleanup heuristics to polygonal geometries."""
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         return geometry
 
-    config = CleanupConfig(
-        min_zero_area=1e-10,
-        hole_area_threshold=constraints.min_hole_area if constraints.min_hole_area and constraints.min_hole_area > 0 else None,
-        hole_aspect_ratio=constraints.max_hole_aspect_ratio,
-        hole_min_width=constraints.min_hole_width,
-        preserve_holes=True,
+    cleaned = _apply_hole_constraints(geometry, constraints)
+    cleaned = _smooth_low_clearance(
+        cleaned,
+        distance=_CLEARANCE_SMOOTH_DISTANCE,
+        max_area_loss=_CLEARANCE_SMOOTH_AREA_LOSS,
     )
-
-    cleaned = cleanup_polygon(geometry, config)
-    try:
-        if cleaned.is_valid and not cleaned.is_empty:
-            try:
-                clearance = cleaned.minimum_clearance
-            except Exception:
-                clearance = None
-
-            if clearance is not None and clearance < 0.01:
-                eroded = cleaned.buffer(-0.01, join_style=2)
-                if (
-                    isinstance(eroded, (Polygon, MultiPolygon))
-                    and eroded.is_valid
-                    and not eroded.is_empty
-                    and eroded.area > 0
-                ):
-                    dilated = eroded.buffer(0.01, join_style=2)
-                    if (
-                        isinstance(dilated, (Polygon, MultiPolygon))
-                        and dilated.is_valid
-                        and not dilated.is_empty
-                    ):
-                        area_loss = (
-                            (cleaned.area - dilated.area) / cleaned.area
-                            if cleaned.area > 0
-                            else 0
-                        )
-                        if area_loss < 0.01:
-                            cleaned = dilated
-
-            buffered = cleaned.buffer(0)
-            if buffered.is_valid and not buffered.is_empty:
-                cleaned = buffered
-
-    except Exception:
-        return geometry
-
+    cleaned = _heal_geometry(cleaned)
     return cleaned
 
 
@@ -507,6 +603,77 @@ def _copy_properties(
     if props is None:
         return None
     return [p.copy() if p else {} for p in props]
+
+
+def _apply_hole_constraints(
+    geometry: BaseGeometry,
+    constraints: GeometryConstraints,
+) -> BaseGeometry:
+    """Remove degenerate holes/slivers based on constraint thresholds."""
+    config = CleanupConfig(
+        min_zero_area=1e-10,
+        hole_area_threshold=(
+            constraints.min_hole_area
+            if constraints.min_hole_area and constraints.min_hole_area > 0
+            else None
+        ),
+        hole_aspect_ratio=constraints.max_hole_aspect_ratio,
+        hole_min_width=constraints.min_hole_width,
+        preserve_holes=True,
+    )
+    return cleanup_polygon(geometry, config)
+
+
+def _smooth_low_clearance(
+    geometry: BaseGeometry,
+    distance: float,
+    max_area_loss: float,
+) -> BaseGeometry:
+    """Erode/dilate low-clearance regions while bounding acceptable area loss."""
+    if (
+        distance <= 0
+        or not isinstance(geometry, (Polygon, MultiPolygon))
+        or geometry.is_empty
+    ):
+        return geometry
+
+    clearance = _safe_clearance(geometry)
+    if clearance is None or clearance >= distance:
+        return geometry
+
+    original_area = getattr(geometry, "area", 0.0) or 0.0
+
+    try:
+        eroded = geometry.buffer(-distance, join_style=2)
+    except GEOSException:
+        return geometry
+
+    if not isinstance(eroded, (Polygon, MultiPolygon)) or eroded.is_empty or not eroded.is_valid:
+        return geometry
+
+    try:
+        dilated = eroded.buffer(distance, join_style=2)
+    except GEOSException:
+        return geometry
+
+    if not isinstance(dilated, (Polygon, MultiPolygon)) or dilated.is_empty or not dilated.is_valid:
+        return geometry
+
+    if original_area > 0.0:
+        cleaned_area = getattr(dilated, "area", 0.0) or 0.0
+        area_loss = max(0.0, (original_area - cleaned_area) / original_area)
+        if area_loss > max_area_loss:
+            return geometry
+
+    return dilated
+
+
+def _heal_geometry(geometry: BaseGeometry) -> BaseGeometry:
+    """Attempt to fix minor topological issues via buffer(0) while preserving validity."""
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        return geometry
+    healed = safe_buffer_fix(geometry, distance=0.0, return_largest=False)
+    return healed if healed is not None else geometry
 
 
 def _build_warning(

@@ -127,53 +127,35 @@ def progressive_simplify(
         ...     target_value=2.0
         ... )
     """
-    result = geometry
+    current = geometry
     best_result = geometry
-    best_metric = 0.0
-
-    if target_metric_func:
-        best_metric = target_metric_func(geometry)
+    best_metric = target_metric_func(geometry) if target_metric_func else None
 
     for iteration in range(max_iterations):
-        # Calculate epsilon for this iteration
-        epsilon = base_epsilon * (epsilon_multiplier ** iteration)
+        epsilon = _iteration_epsilon(
+            base_epsilon,
+            epsilon_multiplier,
+            iteration,
+            geometry,
+            max_epsilon_ratio,
+        )
+        simplified = _apply_simplification_step(current, simplify_func, epsilon)
+        if simplified is None:
+            break
 
-        # Cap epsilon at fraction of geometry length
-        if hasattr(geometry, 'length'):
-            max_epsilon = geometry.length * max_epsilon_ratio
-            epsilon = min(epsilon, max_epsilon)
+        if not target_metric_func or not target_value:
+            current = best_result = simplified
+            continue
 
-        try:
-            # Apply simplification
-            simplified = simplify_func(result, epsilon)
+        current_metric = target_metric_func(simplified)
+        if current_metric >= target_value:
+            return simplified
 
-            # Check validity
-            if not simplified.is_valid or simplified.is_empty:
-                break
-
-            # If we have a target metric, check if we achieved it
-            if target_metric_func and target_value:
-                current_metric = target_metric_func(simplified)
-
-                if current_metric >= target_value:
-                    # Target achieved!
-                    return simplified
-
-                # Track best result
-                if current_metric > best_metric:
-                    best_result = simplified
-                    best_metric = current_metric
-                    result = simplified
-                elif iteration > 0:
-                    # No improvement, stop
-                    break
-            else:
-                # No target metric, just keep simplifying
-                result = simplified
-                best_result = simplified
-
-        except Exception:
-            # Simplification failed
+        if _metric_improved(current_metric, best_metric):
+            best_result = simplified
+            best_metric = current_metric
+            current = simplified
+        elif iteration > 0:
             break
 
     return best_result
@@ -220,6 +202,39 @@ def iterative_clearance_fix(
         metric_func=get_clearance,
         max_iterations=max_iterations
     )
+
+
+def _iteration_epsilon(
+    base: float,
+    multiplier: float,
+    iteration: int,
+    reference_geometry: BaseGeometry,
+    max_ratio: float,
+) -> float:
+    epsilon = base * (multiplier ** iteration)
+    if hasattr(reference_geometry, "length"):
+        epsilon = min(epsilon, reference_geometry.length * max_ratio)
+    return epsilon
+
+
+def _apply_simplification_step(
+    geometry: BaseGeometry,
+    simplify_func: Callable[[BaseGeometry, float], BaseGeometry],
+    epsilon: float,
+) -> Optional[BaseGeometry]:
+    try:
+        simplified = simplify_func(geometry, epsilon)
+    except Exception:
+        return None
+    if not simplified.is_valid or simplified.is_empty:
+        return None
+    return simplified
+
+
+def _metric_improved(current: float, best: Optional[float]) -> bool:
+    if best is None:
+        return True
+    return current > best
 
 
 __all__ = [

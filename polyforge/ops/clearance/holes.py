@@ -124,69 +124,52 @@ def _move_hole_away_from_exterior(
     """
     from shapely.affinity import translate
 
-    # Find the actual closest points between hole boundary and exterior boundary
+    closest = _closest_boundary_points(hole, exterior)
+    if closest is None:
+        return None
+
+    pt_on_hole, pt_on_exterior, current_distance = closest
+    if current_distance >= target_distance:
+        return hole
+
+    move_direction = _normalized_direction(pt_on_exterior, pt_on_hole)
+    if move_direction is None:
+        return None
+
+    exterior_poly = Polygon(exterior)
+    required_move = (target_distance - current_distance) * 1.1
+
+    for multiplier in (1.0, 1.5, 2.0, 3.0):
+        candidate = translate(
+            hole,
+            xoff=move_direction[0] * required_move * multiplier,
+            yoff=move_direction[1] * required_move * multiplier,
+        )
+        if not exterior_poly.contains(candidate):
+            continue
+        if _calculate_hole_to_exterior_distance(candidate, exterior) >= target_distance:
+            return candidate
+
+    return None
+
+
+def _closest_boundary_points(hole: Polygon, exterior: LinearRing):
     hole_ring = LinearRing(hole.exterior.coords)
     exterior_ring = LinearRing(exterior.coords)
-
-    # Get closest points on both boundaries
-    pt_on_hole, pt_on_exterior = shapely.ops.nearest_points(hole_ring, exterior_ring)
-
-    # Calculate current minimum distance
-    current_distance = pt_on_hole.distance(pt_on_exterior)
-
-    if current_distance >= target_distance:
-        return hole  # Already far enough
-
-    # Calculate move direction: from exterior point toward hole point, then beyond
-    move_vec = np.array(pt_on_hole.coords[0]) - np.array(pt_on_exterior.coords[0])
-    move_dist = np.linalg.norm(move_vec)
-
-    if move_dist < 1e-10:
-        return None  # Points coincide, can't determine direction
-
-    # Normalize move direction
-    move_direction = move_vec / move_dist
-
-    # Calculate required movement: need to increase distance from current to target
-    required_move = target_distance - current_distance
-
-    # Add small buffer to ensure we exceed target
-    required_move *= 1.1
-
-    # Translate hole away from exterior
-    moved_hole = translate(
-        hole,
-        xoff=move_direction[0] * required_move,
-        yoff=move_direction[1] * required_move
-    )
-
-    # Verify hole is still inside exterior
-    exterior_poly = Polygon(exterior)
-    if not exterior_poly.contains(moved_hole):
-        return None  # Move would put hole outside exterior
-
-    # Verify the move actually achieved the target distance
-    new_distance = _calculate_hole_to_exterior_distance(moved_hole, exterior)
-
-    if new_distance >= target_distance:
-        return moved_hole
-    else:
-        # Move didn't achieve target (might happen with complex shapes)
-        # Try with larger movement factor
-        for multiplier in [1.5, 2.0, 3.0]:
-            larger_move = translate(
-                hole,
-                xoff=move_direction[0] * required_move * multiplier,
-                yoff=move_direction[1] * required_move * multiplier
-            )
-
-            if exterior_poly.contains(larger_move):
-                new_distance = _calculate_hole_to_exterior_distance(larger_move, exterior)
-                if new_distance >= target_distance:
-                    return larger_move
-
-        # Could not achieve target distance
+    try:
+        pt_on_hole, pt_on_exterior = shapely.ops.nearest_points(hole_ring, exterior_ring)
+    except Exception:
         return None
+    distance = pt_on_hole.distance(pt_on_exterior)
+    return pt_on_hole, pt_on_exterior, distance
+
+
+def _normalized_direction(source: Point, target: Point) -> Optional[np.ndarray]:
+    move_vec = np.array(target.coords[0]) - np.array(source.coords[0])
+    move_dist = np.linalg.norm(move_vec)
+    if move_dist < 1e-10:
+        return None
+    return move_vec / move_dist
 
 
 __all__ = [

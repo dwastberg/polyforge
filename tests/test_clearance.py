@@ -10,9 +10,10 @@ from polyforge.clearance import (
     fix_sharp_intrusion,
     fix_narrow_passage,
     fix_near_self_intersection,
-    fix_parallel_close_edges
+    fix_parallel_close_edges,
 )
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntrusionStrategy, IntersectionStrategy, EdgeStrategy
+from polyforge.ops.clearance.passages import _find_self_intersection_vertices
 
 
 class TestFixHoleTooClose:
@@ -575,6 +576,18 @@ class TestFixNarrowPassage:
 
 class TestFixNearSelfIntersection:
     """Tests for fix_near_self_intersection function."""
+
+    def test_detects_self_intersection_context(self):
+        """Helper should detect near-intersection metadata."""
+        coords = [
+            (0, 0), (5, 0), (5, 3), (4, 3), (4, 4), (5, 4), (5, 6), (0, 6)
+        ]
+        poly = Polygon(coords)
+
+        context = _find_self_intersection_vertices(poly)
+        assert context is not None
+        assert context.clearance == pytest.approx(poly.minimum_clearance)
+        assert context.vertex_idx_a != context.vertex_idx_b
 
     def test_simplify_close_edges(self):
         """Test fixing near-intersecting edges via simplification."""

@@ -22,6 +22,7 @@ from polyforge.ops.clearance import (
     _find_nearest_vertex_index,
     _calculate_curvature_at_vertex,
 )
+from polyforge.core.geometry_utils import to_single_polygon
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy, EdgeStrategy
 from polyforge.core.iterative_utils import iterative_improve
 
@@ -239,12 +240,8 @@ def _normalize_polygon(candidate: Optional[BaseGeometry]) -> Optional[Polygon]:
         return None
     if candidate.is_empty or not candidate.is_valid:
         return None
-    if isinstance(candidate, Polygon):
-        return candidate
-    if isinstance(candidate, MultiPolygon) and candidate.geoms:
-        largest = max(candidate.geoms, key=lambda g: g.area)
-        return largest if isinstance(largest, Polygon) else None
-    return None
+    polygon = to_single_polygon(candidate)
+    return polygon if polygon.is_valid and not polygon.is_empty else None
 
 
 def _safe_clearance(geometry: Polygon) -> float:
@@ -270,82 +267,100 @@ def _diagnose_clearance_issue(
     Returns:
         A :class:`ClearanceIssue` describing the detected problem.
     """
-    # Check for holes
-    if geometry.interiors:
-        # Check if any hole is too close to exterior
-        exterior_ring = LinearRing(geometry.exterior.coords)
+    if _has_close_hole(geometry, min_clearance):
+        return ClearanceIssue.HOLE_TOO_CLOSE
 
-        for hole in geometry.interiors:
-            hole_ring = LinearRing(hole.coords)
-            distance = hole_ring.distance(exterior_ring)
+    context = _build_clearance_context(geometry)
+    if context is None:
+        return ClearanceIssue.UNKNOWN
 
-            if distance < min_clearance:
-                return ClearanceIssue.HOLE_TOO_CLOSE
+    for heuristic in (
+        _looks_like_protrusion,
+        _looks_like_near_self_intersection,
+        _looks_like_parallel_edges,
+        _default_clearance_issue,
+    ):
+        issue = heuristic(context, min_clearance)
+        if issue is not None:
+            return issue
+    return ClearanceIssue.UNKNOWN
 
-    # Get clearance line to analyze the issue
+
+def _has_close_hole(geometry: Polygon, min_clearance: float) -> bool:
+    if not geometry.interiors:
+        return False
+    exterior_ring = LinearRing(geometry.exterior.coords)
+    for hole in geometry.interiors:
+        hole_ring = LinearRing(hole.coords)
+        if hole_ring.distance(exterior_ring) < min_clearance:
+            return True
+    return False
+
+
+def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
     except Exception:
-        return ClearanceIssue.UNKNOWN
+        return None
 
     if clearance_line.is_empty:
-        return ClearanceIssue.UNKNOWN
+        return None
 
-    # Get endpoints of clearance line
     coords_2d = np.array(clearance_line.coords)
     if len(coords_2d) < 2:
-        return ClearanceIssue.UNKNOWN
+        return None
 
-    pt1 = coords_2d[0]
-    pt2 = coords_2d[1]
-
-    # Convert to array
+    pt1, pt2 = coords_2d[:2]
     exterior_coords = np.array(geometry.exterior.coords)
-
-    # Find which vertices the clearance points are near
     idx1 = _find_nearest_vertex_index(exterior_coords, pt1)
     idx2 = _find_nearest_vertex_index(exterior_coords, pt2)
-
-    # Calculate curvature at these vertices
     curvature1 = _calculate_curvature_at_vertex(exterior_coords, idx1)
     curvature2 = _calculate_curvature_at_vertex(exterior_coords, idx2)
-
-    # Determine vertex separation along boundary
     n = len(exterior_coords) - 1
     separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
 
-    # Decision logic:
-    # 1. High curvature at one endpoint -> likely protrusion/spike
-    # 2. Points very close along boundary (1-3 vertices) -> protrusion
-    # 3. Points on opposite sides but close -> narrow passage
-    # 4. Points adjacent with very close distance -> near self-intersection
-    # 5. Points far apart along boundary -> parallel close edges
+    return ClearanceContext(
+        curvature=(curvature1, curvature2),
+        separation=separation,
+        vertex_count=n,
+    )
 
-    # Threshold for "sharp" turn (likely protrusion)
-    sharp_angle_threshold = 135.0  # degrees
 
-    # Check for narrow protrusion/spike
+@dataclass
+class ClearanceContext:
+    curvature: Tuple[float, float]
+    separation: int
+    vertex_count: int
+
+
+def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    curvature1, curvature2 = context.curvature
+    sharp_angle_threshold = 135.0
     if curvature1 > sharp_angle_threshold or curvature2 > sharp_angle_threshold:
         return ClearanceIssue.NARROW_PROTRUSION
 
-    # Check for very close vertices (protrusion or near-self-intersection)
-    if separation <= 3:
-        # Very close along boundary
-        if curvature1 > 90 or curvature2 > 90:
-            return ClearanceIssue.NARROW_PROTRUSION
-        else:
+    if context.separation <= 3 and (curvature1 > 90 or curvature2 > 90):
+        return ClearanceIssue.NARROW_PROTRUSION
+    return None
+
+
+def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    if context.separation <= 3:
+        curvature1, curvature2 = context.curvature
+        if curvature1 <= 90 and curvature2 <= 90:
             return ClearanceIssue.NEAR_SELF_INTERSECTION
+    return None
 
-    # Check for narrow passage (medium separation)
-    if 3 < separation < n // 3:
-        # Points are somewhat separated - likely narrow passage/neck
-        return ClearanceIssue.NARROW_PASSAGE
 
-    # Check for parallel close edges (large separation)
-    if separation >= n // 3:
+def _looks_like_parallel_edges(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    if context.vertex_count <= 0:
+        return None
+    if context.separation >= context.vertex_count // 3:
         return ClearanceIssue.PARALLEL_CLOSE_EDGES
+    return None
 
-    # Default to narrow passage (most common)
+
+def _default_clearance_issue(_: ClearanceContext, __: float) -> ClearanceIssue:
     return ClearanceIssue.NARROW_PASSAGE
 
 

@@ -3,6 +3,8 @@
 import pytest
 from shapely.geometry import Polygon, MultiPolygon, Point
 
+from polyforge.repair import robust as robust_mod
+
 from polyforge import (
     robust_fix_geometry,
     robust_fix_batch,
@@ -15,6 +17,69 @@ from polyforge.core import (
     ConstraintViolation,
     FixWarning,
 )
+
+
+def _spike_polygon() -> Polygon:
+    return Polygon([
+        (0, 0),
+        (10, 0),
+        (10, 10),
+        (5.001, 10),
+        (5.001, 10.002),
+        (4.999, 10.002),
+        (4.999, 10),
+        (0, 10),
+        (0, 0),
+    ])
+
+
+def _sensitive_polygon() -> Polygon:
+    return Polygon([
+        (0, 0),
+        (1, 0),
+        (1, 1),
+        (0.55, 1),
+        (0.55, 1.1),
+        (0.45, 1.1),
+        (0.45, 1),
+        (0, 1),
+        (0, 0),
+    ])
+
+
+class TestCleanupHelpers:
+    """Unit coverage for the new cleanup helpers."""
+
+    def test_smooth_low_clearance_improves_clearance(self):
+        spike = _spike_polygon()
+        baseline = spike.minimum_clearance
+
+        improved = robust_mod._smooth_low_clearance(
+            spike,
+            distance=0.01,
+            max_area_loss=0.05,
+        )
+
+        assert improved.minimum_clearance > baseline
+        assert improved.is_valid
+
+    def test_smooth_low_clearance_respects_area_limit(self):
+        sensitive = _sensitive_polygon()
+
+        strict = robust_mod._smooth_low_clearance(
+            sensitive,
+            distance=0.12,
+            max_area_loss=0.001,
+        )
+
+        assert strict.equals(sensitive)
+
+    def test_cleanup_geometry_noop_for_non_polygon(self):
+        point = Point(0, 0)
+        constraints = GeometryConstraints(must_be_valid=True)
+
+        result = robust_mod._cleanup_geometry(point, constraints)
+        assert result.equals(point)
 
 
 class TestGeometryConstraints:
@@ -89,6 +154,30 @@ class TestGeometryConstraints:
 
         assert not status.all_satisfied()
         assert len(status.violations) > 0
+
+    def test_overlap_constraint_violation(self):
+        """Overlap area exceeding threshold triggers violation."""
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        constraints = GeometryConstraints(max_overlap_area=1.0)
+        status = constraints.check(poly, poly, overlap_area=5.0)
+
+        assert not status.all_satisfied()
+        overlap_violations = status.get_violations_by_type(ConstraintType.OVERLAP)
+        assert overlap_violations
+        assert overlap_violations[0].actual_value == pytest.approx(5.0)
+
+    def test_disallow_multipolygon_constraint(self):
+        """Disallowing multipolygons adds validity violation."""
+        multi = MultiPolygon([
+            Polygon([(0, 0), (5, 0), (5, 5), (0, 5)]),
+            Polygon([(10, 0), (15, 0), (15, 5), (10, 5)]),
+        ])
+        constraints = GeometryConstraints(allow_multipolygon=False)
+        status = constraints.check(multi, multi)
+
+        assert not status.all_satisfied()
+        validity = status.get_violations_by_type(ConstraintType.VALIDITY)
+        assert any("multipolygon" in v.message for v in validity)
 
 
 class TestConstraintStatus:
@@ -218,6 +307,23 @@ class TestRobustFixGeometry:
         assert isinstance(warning, FixWarning)
         assert len(warning.unmet_constraints) > 0
         assert 'CLEARANCE' in warning.unmet_constraints
+
+    def test_allow_multipolygon_false_returns_single_polygon(self):
+        """robust_fix_geometry collapses multipolygons when disallowed."""
+        multi = MultiPolygon([
+            Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+            Polygon([(5, 0), (7, 0), (7, 2), (5, 2)]),
+        ])
+        constraints = GeometryConstraints(
+            allow_multipolygon=False,
+            must_be_valid=True,
+        )
+
+        fixed, warning = robust_fix_geometry(multi, constraints)
+
+        assert isinstance(fixed, Polygon)
+        assert fixed.area == pytest.approx(4.0)
+        assert warning is None
 
     def test_raises_on_failure_when_requested(self):
         """Test that FixWarning is raised when raise_on_failure=True."""
@@ -378,6 +484,30 @@ class TestRobustFixBatch:
         # Check areas are roughly preserved (order maintained)
         for original, fixed in zip(geometries, fixed_list):
             assert abs(fixed.area - original.area) < 1.0
+
+    def test_overlap_violation_reported_without_resolution(self):
+        """Overlap violations are surfaced when not resolving overlaps."""
+        poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        poly2 = Polygon([(5, 0), (15, 0), (15, 10), (5, 10)])
+
+        constraints = GeometryConstraints(
+            must_be_valid=True,
+            max_overlap_area=1.0,
+        )
+
+        with pytest.warns(UserWarning):
+            _, warnings, _ = robust_fix_batch(
+                [poly1, poly2],
+                constraints,
+                handle_overlaps=False,
+                verbose=False,
+            )
+
+        assert any(warnings)
+        first_warning = next(w for w in warnings if w is not None)
+        assert first_warning is not None
+        overlap_violations = first_warning.status.get_violations_by_type(ConstraintType.OVERLAP)
+        assert overlap_violations
 
 
 class TestIntegration:

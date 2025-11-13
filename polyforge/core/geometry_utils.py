@@ -4,9 +4,9 @@ This module provides reusable utilities for common geometry operations
 to eliminate code duplication across the codebase.
 """
 
-from typing import Union, List
+from typing import Union, List, Tuple, Optional
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString
+from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, LineString, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.errors import GEOSException
 
@@ -137,6 +137,25 @@ def validate_and_fix(
     return None
 
 
+def safe_buffer_fix(
+    geometry: BaseGeometry,
+    distance: float = 0.0,
+    return_largest: bool = True,
+) -> Optional[BaseGeometry]:
+    """Apply buffer trick with MultiPolygon handling and validity checks."""
+    try:
+        buffered = geometry.buffer(distance)
+    except GEOSException:
+        return None
+
+    if return_largest and isinstance(buffered, MultiPolygon) and buffered.geoms:
+        buffered = max(buffered.geoms, key=lambda p: p.area)
+
+    if isinstance(buffered, (Polygon, MultiPolygon)) and buffered.is_valid and not buffered.is_empty:
+        return buffered
+    return None
+
+
 def update_coord_preserve_z(
     coords: np.ndarray,
     index: int,
@@ -238,48 +257,10 @@ def calculate_internal_angles(
         - For polygons, internal angles > 180° indicate reflex (concave) vertices
     """
     if isinstance(geometry, Polygon):
-        coords = np.array(geometry.exterior.coords)
-        # Exclude the closing vertex (last point == first point)
-        coords = coords[:-1]
-        calculate_for_closed = True
-    elif isinstance(geometry, LineString):
-        coords = np.array(geometry.coords)
-        calculate_for_closed = False
-    else:
-        raise TypeError(f"Geometry must be Polygon or LineString, got {type(geometry)}")
-
-    if len(coords) < 3:
-        return []
-
-    angles = []
-    n = len(coords)
-
-    if calculate_for_closed:
-        # For closed polygon: calculate angle at each vertex
-        for i in range(n):
-            prev_idx = (i - 1) % n
-            next_idx = (i + 1) % n
-
-            # Vectors from current point to previous and next
-            v1 = coords[prev_idx] - coords[i]
-            v2 = coords[next_idx] - coords[i]
-
-            # Calculate the internal angle
-            angle = _calculate_angle_between_vectors(v1, v2, degrees=degrees)
-            angles.append(angle)
-    else:
-        # For open linestring: calculate angle at interior vertices only
-        for i in range(1, n - 1):
-            # Vector from current to previous
-            v1 = coords[i - 1] - coords[i]
-            # Vector from current to next
-            v2 = coords[i + 1] - coords[i]
-
-            # Calculate the angle
-            angle = _calculate_angle_between_vectors(v1, v2, degrees=degrees)
-            angles.append(angle)
-
-    return angles
+        return _polygon_internal_angles(geometry, degrees)
+    if isinstance(geometry, LineString):
+        return _linestring_internal_angles(geometry, degrees)
+    raise TypeError(f"Geometry must be Polygon or LineString, got {type(geometry)}")
 
 
 def _calculate_angle_between_vectors(
@@ -320,30 +301,95 @@ def _calculate_angle_between_vectors(
     angle1 = np.arctan2(v1_norm[1], v1_norm[0])
     angle2 = np.arctan2(v2_norm[1], v2_norm[0])
 
-    # Calculate the angle from v1 to v2 (counter-clockwise)
     angle = angle2 - angle1
-
-    # Normalize to [0, 2π]
     if angle < 0:
         angle += 2 * np.pi
-
-    # For polygon internal angles, we want the angle measured "inside" the polygon
-    # For a counter-clockwise polygon, the internal angle is the complement
-    # Actually, we need to measure the angle the "other way"
-    # The internal angle is 2π - angle (or 360° - angle)
     angle = 2 * np.pi - angle
-
     if degrees:
         angle = np.degrees(angle)
-
     return float(angle)
+
+
+def _polygon_internal_angles(geometry: Polygon, degrees: bool) -> List[float]:
+    coords = np.array(geometry.exterior.coords)
+    if len(coords) < 4:
+        return []
+    coords = coords[:-1]
+    angles: List[float] = []
+    n = len(coords)
+
+    for i in range(n):
+        prev_idx = (i - 1) % n
+        next_idx = (i + 1) % n
+        angle = _angle_at_vertex(coords[prev_idx], coords[i], coords[next_idx], degrees)
+        angles.append(angle)
+
+    return angles
+
+
+def _linestring_internal_angles(geometry: LineString, degrees: bool) -> List[float]:
+    coords = np.array(geometry.coords)
+    if len(coords) < 3:
+        return []
+    angles: List[float] = []
+    for i in range(1, len(coords) - 1):
+        angle = _angle_at_vertex(coords[i - 1], coords[i], coords[i + 1], degrees)
+        angles.append(angle)
+    return angles
+
+
+def _angle_at_vertex(prev_point: np.ndarray, point: np.ndarray, next_point: np.ndarray, degrees: bool) -> float:
+    v1 = prev_point - point
+    v2 = next_point - point
+    return _calculate_angle_between_vectors(v1, v2, degrees=degrees)
+
+
+def hole_shape_metrics(hole_polygon: Polygon) -> Tuple[float, float]:
+    """Calculate aspect ratio and width of a hole using oriented bounding box.
+
+    Args:
+        hole_polygon: Polygon representing a hole
+
+    Returns:
+        Tuple of (aspect_ratio, width) where:
+        - aspect_ratio: ratio of longer edge to shorter edge of OBB
+        - width: length of shorter edge of OBB
+
+    Raises:
+        ValueError: If hole is degenerate (< 4 coords or zero width)
+
+    Examples:
+        >>> hole = Polygon([(0, 0), (10, 0), (10, 2), (0, 2)])
+        >>> aspect_ratio, width = hole_shape_metrics(hole)
+        >>> aspect_ratio  # 10/2 = 5.0
+        5.0
+        >>> width  # shorter dimension
+        2.0
+    """
+    obb = hole_polygon.minimum_rotated_rectangle
+    coords = list(obb.exterior.coords)
+    if len(coords) < 4:
+        raise ValueError("degenerate hole")
+
+    edge1 = Point(coords[0]).distance(Point(coords[1]))
+    edge2 = Point(coords[1]).distance(Point(coords[2]))
+    longer = max(edge1, edge2)
+    shorter = min(edge1, edge2)
+    if shorter <= 0:
+        raise ValueError("degenerate hole")
+
+    aspect_ratio = longer / shorter
+    width = shorter
+    return aspect_ratio, width
 
 
 __all__ = [
     'to_single_polygon',
     'remove_holes',
     'validate_and_fix',
+    'safe_buffer_fix',
     'update_coord_preserve_z',
     'create_polygon_with_z_preserved',
     'calculate_internal_angles',
+    'hole_shape_metrics',
 ]

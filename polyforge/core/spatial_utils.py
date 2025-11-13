@@ -5,7 +5,7 @@ and geometric calculations to eliminate code duplication.
 """
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Set, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
@@ -18,7 +18,8 @@ def find_polygon_pairs(
     polygons: List[Polygon],
     margin: float = 0.0,
     predicate: str = 'intersects',
-    validate_func: Optional[Callable[[Polygon, Polygon], bool]] = None
+    validate_func: Optional[Callable[[Polygon, Polygon], bool]] = None,
+    tree: Optional[STRtree] = None,
 ) -> List[Tuple[int, int]]:
     """Find pairs of polygons that satisfy spatial predicate within margin.
 
@@ -47,8 +48,8 @@ def find_polygon_pairs(
     if not polygons:
         return []
 
-    # Build spatial index
-    tree = STRtree(polygons)
+    if tree is None:
+        tree = STRtree(polygons)
 
     # Track checked pairs to avoid duplicates
     pairs = []
@@ -259,12 +260,21 @@ def find_connected_components(
     return components
 
 
+def iterate_unique_pairs(items: Sequence) -> Iterable[Tuple[int, int]]:
+    """Yield unique index pairs (i, j) with i < j for the given sequence."""
+    length = len(items)
+    for i in range(length):
+        for j in range(i + 1, length):
+            yield i, j
+
+
 __all__ = [
     'find_polygon_pairs',
     'find_nearest_boundary_point',
     'point_to_segment_projection',
     'build_adjacency_graph',
     'find_connected_components',
+    'iterate_unique_pairs',
     'SegmentIndex',
     'build_segment_index',
     'query_close_segments',

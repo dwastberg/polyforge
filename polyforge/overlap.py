@@ -74,13 +74,12 @@ def remove_overlaps(
 
     strategy = coerce_enum(overlap_strategy, OverlapStrategy)
     result = list(polygons)
-    changed = True
     iteration = 0
+    tree = STRtree(result)
 
-    while changed and iteration < max_iterations:
+    while iteration < max_iterations:
         changed = False
         iteration += 1
-        tree = STRtree(result)
         overlapping_pairs = []
         seen = set()
 
@@ -118,6 +117,11 @@ def remove_overlaps(
                 strategy=strategy,
             )
             changed = True
+
+        if not changed:
+            break
+
+        tree = STRtree(result)
 
     return result
 

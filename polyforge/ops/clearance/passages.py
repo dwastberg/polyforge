@@ -4,19 +4,31 @@ This module provides functions to handle narrow passages (hourglass shapes),
 near self-intersections, and parallel edges that run too close together.
 """
 
-from typing import Union, List
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
+
 from shapely.geometry import Polygon, MultiPolygon, LinearRing
 import numpy as np
 import shapely
 import shapely.ops
 
 from .utils import _find_nearest_vertex_index
+from polyforge.core.geometry_utils import safe_buffer_fix
 from polyforge.core.types import (
     PassageStrategy,
     IntersectionStrategy,
     EdgeStrategy,
     coerce_enum,
 )
+
+
+@dataclass
+class SelfIntersectionContext:
+    clearance: float
+    point_a: np.ndarray
+    point_b: np.ndarray
+    vertex_idx_a: int
+    vertex_idx_b: int
 
 
 def _validate_holes_after_buffer(
@@ -196,29 +208,26 @@ def _create_polygon_with_new_coords(
         Valid polygon or None if validation fails
     """
     try:
-        if len(original_geometry.interiors) > 0:
-            holes = [list(interior.coords) for interior in original_geometry.interiors]
-            new_poly = Polygon(new_coords, holes=holes)
-        else:
-            new_poly = Polygon(new_coords)
-
-        # Validate and fix if needed
-        if not new_poly.is_valid:
-            new_poly = new_poly.buffer(0)
-            if new_poly.geom_type == 'MultiPolygon':
-                new_poly = max(new_poly.geoms, key=lambda p: p.area)
-
-        # Check validity constraints
-        if (new_poly.is_valid and
-            not new_poly.is_empty and
-            new_poly.geom_type == 'Polygon' and
-            new_poly.area > min_area):
-            return new_poly
-        else:
-            return None
-
+        holes = [list(interior.coords) for interior in original_geometry.interiors] if original_geometry.interiors else None
+        new_poly = Polygon(new_coords, holes=holes) if holes else Polygon(new_coords)
     except Exception:
         return None
+
+    if not new_poly.is_valid or new_poly.is_empty:
+        healed = safe_buffer_fix(new_poly, distance=0.0, return_largest=True)
+        if healed is None:
+            return None
+        new_poly = healed
+
+    if (
+        new_poly.geom_type != 'Polygon'
+        or not new_poly.is_valid
+        or new_poly.is_empty
+        or new_poly.area <= min_area
+    ):
+        return None
+
+    return new_poly
 
 
 def _move_single_vertex_perpendicular(
@@ -557,86 +566,16 @@ def fix_near_self_intersection(
         True
     """
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
+    context = _find_self_intersection_vertices(geometry)
+    current_clearance = context.clearance if context else geometry.minimum_clearance
 
-    if strategy_enum == IntersectionStrategy.BUFFER:
-        # Use small buffer to push edges apart
-        current_clearance = geometry.minimum_clearance
-
-        if current_clearance >= min_clearance:
-            return geometry
-
-        buffer_dist = (min_clearance - current_clearance) / 2 + 0.01
-
-        # Try progressive buffer sizes if initial buffer insufficient
-        for multiplier in [1.0, 1.5, 2.0, 3.0]:
-            try:
-                buffered = geometry.buffer(buffer_dist * multiplier)
-
-                if isinstance(buffered, Polygon) and buffered.is_valid:
-                    # Validate and filter holes (added in Phase 1.3)
-                    if len(geometry.interiors) > 0:
-                        valid_holes = _validate_holes_after_buffer(
-                            buffered.exterior,
-                            list(geometry.interiors),
-                            min_clearance
-                        )
-                        buffered = Polygon(buffered.exterior, holes=valid_holes)
-
-                    # Validate that buffering achieved target clearance
-                    if buffered.is_valid and buffered.minimum_clearance >= min_clearance:
-                        return buffered
-                    # else: try next multiplier
-
-            except Exception:
-                continue  # Try next multiplier
-
-        # Could not achieve target clearance
+    if current_clearance >= min_clearance:
         return geometry
 
-    else:  # 'simplify' or 'smooth' - both use progressive simplification
-        from polyforge.simplify import simplify_rdp
+    if strategy_enum == IntersectionStrategy.BUFFER:
+        return _fix_near_self_intersection_buffer(geometry, min_clearance, context, current_clearance)
 
-        result = geometry
-        best_result = geometry
-        best_clearance = geometry.minimum_clearance
-
-        # Use gentler epsilon for smoothing
-        if strategy_enum == IntersectionStrategy.SMOOTH:
-            base_epsilon = min_clearance / 3
-        else:
-            base_epsilon = min_clearance / 2
-
-        # Try progressive simplification
-        for iteration in range(5):
-            current_clearance = result.minimum_clearance
-
-            if current_clearance >= min_clearance:
-                return result
-
-            epsilon = base_epsilon * (1.5 ** iteration)
-            epsilon = min(epsilon, result.length / 12)
-
-            try:
-                simplified = simplify_rdp(result, epsilon=epsilon)
-
-                if (simplified.is_valid and
-                    not simplified.is_empty and
-                    simplified.area > geometry.area * 0.8 and
-                    len(simplified.exterior.coords) >= 4):
-
-                    new_clearance = simplified.minimum_clearance
-
-                    if new_clearance > best_clearance:
-                        best_result = simplified
-                        best_clearance = new_clearance
-                        result = simplified
-                    elif iteration > 0:
-                        break
-
-            except Exception:
-                break
-
-        return best_result
+    return _fix_near_self_intersection_simplify(geometry, min_clearance, strategy_enum)
 
 
 def fix_parallel_close_edges(
@@ -649,6 +588,170 @@ def fix_parallel_close_edges(
     # Parallel close edges are essentially a type of near-self-intersection
     # We can reuse the same fixing logic
     return fix_near_self_intersection(geometry, min_clearance, strategy)
+
+
+def _find_self_intersection_vertices(geometry: Polygon) -> Optional[SelfIntersectionContext]:
+    """Return information about the closest approach between two edges."""
+    try:
+        clearance_line = shapely.minimum_clearance_line(geometry)
+    except Exception:
+        return None
+
+    if clearance_line is None or clearance_line.is_empty:
+        return None
+
+    coords = list(clearance_line.coords)
+    if len(coords) != 2:
+        return None
+
+    point_a = np.array(coords[0], dtype=float)
+    point_b = np.array(coords[1], dtype=float)
+    exterior_coords = np.array(geometry.exterior.coords)
+    idx_a = _find_nearest_vertex_index(exterior_coords, point_a)
+    idx_b = _find_nearest_vertex_index(exterior_coords, point_b)
+
+    try:
+        clearance = float(geometry.minimum_clearance)
+    except Exception:
+        clearance = 0.0
+
+    return SelfIntersectionContext(
+        clearance=clearance,
+        point_a=point_a,
+        point_b=point_b,
+        vertex_idx_a=idx_a,
+        vertex_idx_b=idx_b,
+    )
+
+
+def _fix_near_self_intersection_buffer(
+    geometry: Polygon,
+    min_clearance: float,
+    context: Optional[SelfIntersectionContext],
+    current_clearance: float,
+) -> Polygon:
+    """Use buffering to push edges apart."""
+    deficit = max(0.0, min_clearance - current_clearance)
+    buffer_dist = deficit / 2 + 0.01
+    candidates = [buffer_dist * m for m in (1.0, 1.5, 2.0, 3.0)]
+
+    for dist in candidates:
+        buffered = _buffer_geometry(geometry, dist)
+        if buffered is None:
+            continue
+
+        if geometry.interiors:
+            valid_holes = _validate_holes_after_buffer(
+                buffered.exterior,
+                list(geometry.interiors),
+                min_clearance,
+            )
+            buffered = Polygon(buffered.exterior, holes=valid_holes)
+
+        new_context = _find_self_intersection_vertices(buffered)
+        if new_context and new_context.clearance >= min_clearance:
+            return buffered
+        if new_context is None:
+            try:
+                if buffered.minimum_clearance >= min_clearance:
+                    return buffered
+            except Exception:
+                pass
+
+    return geometry
+
+
+def _fix_near_self_intersection_simplify(
+    geometry: Polygon,
+    min_clearance: float,
+    strategy: IntersectionStrategy,
+    max_iterations: int = 5,
+) -> Polygon:
+    """Use progressive simplification or smoothing to separate edges."""
+    base_epsilon = (min_clearance / 3) if strategy == IntersectionStrategy.SMOOTH else (min_clearance / 2)
+    return _run_simplification_loop(
+        geometry,
+        min_clearance=min_clearance,
+        base_epsilon=base_epsilon,
+        max_iterations=max_iterations,
+        min_area_ratio=0.8,
+    )
+
+
+def _buffer_geometry(geometry: Polygon, distance: float) -> Optional[Polygon]:
+    """Buffer geometry safely and return a polygon candidate."""
+    if distance <= 0:
+        return None
+    try:
+        buffered = geometry.buffer(distance)
+    except Exception:
+        return None
+
+    if isinstance(buffered, Polygon):
+        return buffered if buffered.is_valid else None
+
+    if isinstance(buffered, MultiPolygon) and buffered.geoms:
+        largest = max(buffered.geoms, key=lambda p: p.area)
+        return largest if largest.is_valid else None
+
+    return None
+
+
+def _run_simplification_loop(
+    geometry: Polygon,
+    min_clearance: float,
+    base_epsilon: float,
+    max_iterations: int,
+    min_area_ratio: float,
+) -> Polygon:
+    """Iteratively simplify geometry until clearance target is met."""
+    from polyforge.simplify import simplify_rdp
+
+    current = geometry
+    best = geometry
+    best_clearance = geometry.minimum_clearance
+
+    for iteration in range(max_iterations):
+        current_clearance = current.minimum_clearance
+        if current_clearance >= min_clearance:
+            break
+
+        epsilon = base_epsilon * (1.5 ** iteration)
+        if current.length > 0:
+            epsilon = min(epsilon, current.length / 12)
+
+        try:
+            candidate = simplify_rdp(current, epsilon=epsilon)
+        except Exception:
+            break
+
+        if not _is_valid_simplification_candidate(candidate, geometry, min_area_ratio):
+            continue
+
+        candidate_clearance = candidate.minimum_clearance
+        if candidate_clearance > best_clearance:
+            best = candidate
+            best_clearance = candidate_clearance
+            current = candidate
+        elif iteration > 0:
+            break
+
+    return best
+
+
+def _is_valid_simplification_candidate(
+    candidate: Polygon,
+    original: Polygon,
+    min_area_ratio: float,
+) -> bool:
+    """Validate simplified polygon before acceptance."""
+    if candidate is None or candidate.is_empty or not candidate.is_valid:
+        return False
+    if len(candidate.exterior.coords) < 4:
+        return False
+    if original.area > 0 and candidate.area < original.area * min_area_ratio:
+        return False
+    return True
 
 
 __all__ = [

@@ -4,10 +4,28 @@ import pytest
 import numpy as np
 from shapely.geometry import Polygon
 from polyforge import remove_narrow_protrusions
+from polyforge.ops.clearance.remove_protrusions import _collect_protrusion_candidate
 
 
 class TestRemoveNarrowProtrusions:
     """Tests for basic protrusion removal functionality."""
+
+    def test_collect_candidate_helper(self):
+        coords = np.array([
+            (0, 0),
+            (5, 0),
+            (5, 2),
+            (5.2, 2.2),
+            (5, 4),
+            (0, 4),
+            (0, 0),
+        ])
+
+        candidate = _collect_protrusion_candidate(coords, threshold=3.0)
+        assert candidate is not None
+        idx, aspect_ratio = candidate
+        assert idx == 2  # central spike vertex after removal
+        assert aspect_ratio > 3.0
 
     def test_horizontal_spike(self):
         """Test removing a simple horizontal spike."""

@@ -6,16 +6,19 @@ protrusions from polygons based on aspect ratio.
 
 import numpy as np
 from shapely.geometry import Polygon
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from .utils import _point_to_line_perpendicular_distance
+
+
+class _ProtrusionCandidate(Tuple[int, float]): ...
 
 
 def remove_narrow_protrusions(
     geometry: Polygon,
     aspect_ratio_threshold: float = 5.0,
     min_iterations: int = 1,
-    max_iterations: int = 10
+    max_iterations: int = 10,
 ) -> Polygon:
     """Remove narrow protrusions by identifying high aspect ratio triangles.
 
@@ -56,67 +59,72 @@ def remove_narrow_protrusions(
 
     while iteration < max_iterations:
         coords = np.array(result.exterior.coords)
-        n = len(coords) - 1  # Exclude closing vertex
-
-        if n < 4:  # Need at least 4 vertices for a valid polygon
+        if len(coords) - 1 < 4:
             break
 
-        # Find the most problematic narrow protrusion
-        best_protrusion = None
-        best_aspect_ratio = aspect_ratio_threshold
-
-        for i in range(n):
-            # Get three consecutive vertices forming a potential protrusion
-            prev_idx = (i - 1) % n
-            curr_idx = i
-            next_idx = (i + 1) % n
-
-            prev_pt = coords[prev_idx][:2]
-            curr_pt = coords[curr_idx][:2]
-            next_pt = coords[next_idx][:2]
-
-            # Calculate aspect ratio of this triangle
-            aspect_ratio = _calculate_triangle_aspect_ratio(prev_pt, curr_pt, next_pt)
-
-            # Check if this is a narrow protrusion
-            if aspect_ratio > best_aspect_ratio:
-                best_aspect_ratio = aspect_ratio
-                best_protrusion = curr_idx
-
-        # If we found a protrusion to remove
-        if best_protrusion is not None:
-            # Remove the middle vertex
-            new_coords = np.delete(coords, best_protrusion, axis=0)
-
-            # Ensure the ring is still closed
-            if not np.allclose(new_coords[0], new_coords[-1]):
-                new_coords[-1] = new_coords[0]
-
-            # Create new polygon (preserve holes)
-            try:
-                if len(result.interiors) > 0:
-                    holes = [list(interior.coords) for interior in result.interiors]
-                    new_poly = Polygon(new_coords, holes=holes)
-                else:
-                    new_poly = Polygon(new_coords)
-
-                # Validate the result
-                if new_poly.is_valid and not new_poly.is_empty:
-                    result = new_poly
-                    iteration += 1
-                else:
-                    # Invalid result, stop trying
-                    break
-            except Exception:
-                # Failed to create valid polygon
-                break
-        else:
-            # No more protrusions found
+        candidate = _collect_protrusion_candidate(coords, aspect_ratio_threshold)
+        if candidate is None:
             if iteration >= min_iterations:
                 break
             iteration += 1
+            continue
+
+        new_poly = _remove_candidate_vertex(result, coords, candidate[0])
+        if new_poly is None:
+            break
+
+        result = new_poly
+        iteration += 1
 
     return result
+
+
+def _collect_protrusion_candidate(
+    coords: np.ndarray,
+    threshold: float,
+) -> Optional[Tuple[int, float]]:
+    """Return the vertex index with highest aspect ratio beyond the threshold."""
+    n = len(coords) - 1
+    best_idx: Optional[int] = None
+    best_ratio = threshold
+
+    for i in range(n):
+        prev_idx = (i - 1) % n
+        next_idx = (i + 1) % n
+        prev_pt = coords[prev_idx][:2]
+        curr_pt = coords[i][:2]
+        next_pt = coords[next_idx][:2]
+
+        aspect_ratio = _calculate_triangle_aspect_ratio(prev_pt, curr_pt, next_pt)
+        if aspect_ratio > best_ratio:
+            best_ratio = aspect_ratio
+            best_idx = i
+
+    if best_idx is None:
+        return None
+    return best_idx, best_ratio
+
+
+def _remove_candidate_vertex(
+    geometry: Polygon,
+    coords: np.ndarray,
+    index: int,
+) -> Optional[Polygon]:
+    """Remove the vertex at index and rebuild a polygon."""
+    new_coords = np.delete(coords, index, axis=0)
+    if not np.allclose(new_coords[0], new_coords[-1]):
+        new_coords[-1] = new_coords[0]
+
+    holes = [list(interior.coords) for interior in geometry.interiors]
+    try:
+        new_poly = Polygon(new_coords, holes=holes) if holes else Polygon(new_coords)
+    except Exception:
+        return None
+
+    if not new_poly.is_valid or new_poly.is_empty:
+        return None
+
+    return new_poly
 
 
 def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.ndarray) -> float:

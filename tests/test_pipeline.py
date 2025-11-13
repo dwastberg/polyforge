@@ -1,5 +1,6 @@
 """Unit tests for the lightweight pipeline helpers."""
 
+import pytest
 from shapely.affinity import scale
 from shapely.geometry import Polygon
 
@@ -69,3 +70,65 @@ def test_pipeline_accepts_clearance_improvement():
     assert history[-1].changed
     assert status.clearance is not None
     assert status.clearance >= 1.0
+
+
+def test_pipeline_context_metric_cache(monkeypatch):
+    square = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    constraints = GeometryConstraints()
+    ctx = PipelineContext(
+        original=square,
+        constraints=constraints,
+        config=config_from_constraints(constraints),
+    )
+
+    call_count = {"count": 0}
+
+    def fake_measure(geometry, original, skip_clearance):
+        call_count["count"] += 1
+        return {
+            "is_valid": True,
+            "is_empty": False,
+            "clearance": None,
+            "area": geometry.area,
+            "area_ratio": 1.0,
+        }
+
+    monkeypatch.setattr("polyforge.metrics.measure_geometry", fake_measure)
+
+    ctx.get_metrics(square)
+    ctx.get_metrics(square)
+
+    assert call_count["count"] == 1
+
+
+def test_run_steps_uses_metric_cache(monkeypatch):
+    square = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+    constraints = GeometryConstraints()
+    config = config_from_constraints(constraints)
+    ctx = PipelineContext(
+        original=square,
+        constraints=constraints,
+        config=config,
+    )
+
+    call_count = {"count": 0}
+
+    def fake_measure(geometry, original, skip_clearance):
+        call_count["count"] += 1
+        return {
+            "is_valid": True,
+            "is_empty": False,
+            "clearance": None,
+            "area": geometry.area,
+            "area_ratio": 1.0,
+        }
+
+    monkeypatch.setattr("polyforge.metrics.measure_geometry", fake_measure)
+
+    def noop_step(geometry, context):
+        return StepResult("noop", geometry, False, "no change")
+
+    run_steps(square, [noop_step], ctx, max_passes=1)
+
+    # Only the first metrics computation should invoke measure_geometry
+    assert call_count["count"] == 1

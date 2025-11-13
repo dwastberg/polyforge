@@ -5,6 +5,8 @@ import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import unary_union, nearest_points
 
+from polyforge.core.geometry_utils import safe_buffer_fix
+
 
 def merge_vertex_movement(
     group_polygons: List[Polygon],
@@ -73,9 +75,10 @@ def merge_vertex_movement(
     # Union the modified polygons
     result = unary_union(modified_polygons)
 
-    # Validate and fix if needed
     if not result.is_valid:
-        result = result.buffer(0)
+        healed = safe_buffer_fix(result, distance=0.0, return_largest=False)
+        if healed is not None:
+            result = healed
 
     return result
 

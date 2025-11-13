@@ -8,10 +8,19 @@ import pytest
 from shapely.geometry import Polygon
 from polyforge import merge_close_polygons
 from polyforge.core.types import MergeStrategy
+from polyforge.ops.merge_convex_bridges import _bridge_for_polygon_pair
 
 
 class TestConvexBridgesFix:
     """Test the convex_bridges strategy bug fix."""
+
+    def test_bridge_helper_returns_polygon(self):
+        poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        poly2 = Polygon([(3, 0), (5, 0), (5, 2), (3, 2)])
+        bridge = _bridge_for_polygon_pair(poly1, poly2, margin=2.0)
+        assert bridge is not None
+        assert bridge.is_valid
+        assert bridge.area > 0
 
     def test_separated_rectangles_no_diagonal_cuts(self):
         """Test that separated rectangles merge without diagonal cuts.

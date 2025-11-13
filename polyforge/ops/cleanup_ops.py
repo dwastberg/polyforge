@@ -8,6 +8,8 @@ from typing import List, Optional, Tuple, Union
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
+from ..core.geometry_utils import hole_shape_metrics
+
 
 @dataclass
 class CleanupConfig:
@@ -98,7 +100,7 @@ def _filter_holes_by_shape(
     for interior in polygon.interiors:
         hole_poly = Polygon(interior)
         try:
-            aspect, width = _hole_shape_metrics(hole_poly)
+            aspect, width = hole_shape_metrics(hole_poly)
         except Exception:
             continue
         if aspect > max_aspect_ratio:
@@ -107,22 +109,6 @@ def _filter_holes_by_shape(
             continue
         holes.append(list(interior.coords))
     return Polygon(polygon.exterior, holes=holes)
-
-
-def _hole_shape_metrics(hole: Polygon) -> Tuple[float, float]:
-    rectangle = hole.minimum_rotated_rectangle
-    coords = list(rectangle.exterior.coords)
-    if len(coords) < 4:
-        raise ValueError("degenerate hole")
-    from shapely.geometry import Point
-
-    edge1 = Point(coords[0]).distance(Point(coords[1]))
-    edge2 = Point(coords[1]).distance(Point(coords[2]))
-    longer = max(edge1, edge2)
-    shorter = min(edge1, edge2)
-    if shorter <= 0:
-        raise ValueError("degenerate hole")
-    return longer / shorter, shorter
 
 
 def _strip_all_holes(

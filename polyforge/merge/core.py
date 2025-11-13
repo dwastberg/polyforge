@@ -2,6 +2,7 @@
 
 from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
+from shapely.strtree import STRtree
 
 from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
@@ -21,7 +22,7 @@ def merge_close_polygons(
     merge_strategy: Union[MergeStrategy, str] = MergeStrategy.SELECTIVE_BUFFER,
     preserve_holes: bool = True,
     return_mapping: bool = False,
-    insert_vertices: bool = False
+    insert_vertices: bool = False,
 ) -> Union[List[Polygon], Tuple[List[Polygon], List[List[int]]]]:
     """Merge polygons that overlap or are within margin distance.
 
@@ -57,57 +58,25 @@ def merge_close_polygons(
         return ([], []) if return_mapping else []
 
     strategy = coerce_enum(merge_strategy, MergeStrategy)
-
-    # Phase 1: Find close polygon groups using spatial indexing
     isolated_indices, merge_groups = find_close_polygon_groups(polygons, margin)
 
-    # Build result list and mapping
-    result = []
-    mapping = []
+    result: List[Polygon] = []
+    mapping: List[List[int]] = []
 
-    # Fast path: Add isolated polygons unchanged
-    for idx in isolated_indices:
-        result.append(polygons[idx])
-        if return_mapping:
-            mapping.append([idx])
+    _append_isolated_polygons(result, mapping, polygons, isolated_indices, return_mapping)
 
-    # Phase 2: Merge each group using selected strategy
     for group_indices in merge_groups:
-        group_polygons = [polygons[i] for i in group_indices]
+        merged_group = _merge_group_polygons(
+            [polygons[i] for i in group_indices],
+            group_indices,
+            strategy,
+            margin,
+            preserve_holes,
+            insert_vertices,
+        )
+        _append_merge_result(result, mapping, merged_group, group_indices, return_mapping)
 
-        # Optional: Insert vertices at optimal connection points
-        if insert_vertices:
-            group_polygons = insert_connection_vertices(group_polygons, margin)
-
-        # Select and apply merge strategy
-        if strategy == MergeStrategy.SIMPLE_BUFFER:
-            merged = merge_simple_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.SELECTIVE_BUFFER:
-            merged = merge_selective_buffer(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.VERTEX_MOVEMENT:
-            merged = merge_vertex_movement(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.BOUNDARY_EXTENSION:
-            merged = merge_boundary_extension(group_polygons, margin, preserve_holes)
-        elif strategy == MergeStrategy.CONVEX_BRIDGES:
-            merged = merge_convex_bridges(group_polygons, margin, preserve_holes)
-        else:
-            raise ValueError(f"Unknown merge_strategy: {merge_strategy}")
-
-        # Handle MultiPolygon results
-        if isinstance(merged, MultiPolygon):
-            # Split into separate polygons
-            for poly in merged.geoms:
-                result.append(poly)
-                if return_mapping:
-                    mapping.append(group_indices)
-        elif isinstance(merged, Polygon):
-            result.append(merged)
-            if return_mapping:
-                mapping.append(group_indices)
-
-    if return_mapping:
-        return result, mapping
-    return result
+    return (result, mapping) if return_mapping else result
 
 
 def find_close_polygon_groups(
@@ -131,8 +100,8 @@ def find_close_polygon_groups(
     if not polygons:
         return [], []
 
-    # Build adjacency graph using shared utility
-    adjacency = build_adjacency_graph(polygons, margin)
+    tree = STRtree(polygons)
+    adjacency = build_adjacency_graph(polygons, margin, tree=tree)
 
     # Find connected components using shared utility
     groups = find_connected_components(adjacency)
@@ -142,6 +111,66 @@ def find_close_polygon_groups(
     to_merge = [g for g in groups if len(g) > 1]
 
     return isolated, to_merge
+
+
+def _merge_group_polygons(
+    group_polygons: List[Polygon],
+    group_indices: List[int],
+    strategy: MergeStrategy,
+    margin: float,
+    preserve_holes: bool,
+    insert_vertices: bool,
+):
+    """Merge a group of polygons according to the selected strategy."""
+    if insert_vertices:
+        group_polygons = insert_connection_vertices(group_polygons, margin)
+
+    strategy_map = {
+        MergeStrategy.SIMPLE_BUFFER: merge_simple_buffer,
+        MergeStrategy.SELECTIVE_BUFFER: merge_selective_buffer,
+        MergeStrategy.VERTEX_MOVEMENT: merge_vertex_movement,
+        MergeStrategy.BOUNDARY_EXTENSION: merge_boundary_extension,
+        MergeStrategy.CONVEX_BRIDGES: merge_convex_bridges,
+    }
+
+    if strategy not in strategy_map:
+        raise ValueError(f"Unknown merge_strategy: {strategy}")
+
+    merge_func = strategy_map[strategy]
+    return merge_func(group_polygons, margin, preserve_holes)
+
+
+def _append_isolated_polygons(
+    result: List[Polygon],
+    mapping: List[List[int]],
+    polygons: List[Polygon],
+    isolated_indices: List[int],
+    return_mapping: bool,
+) -> None:
+    """Append isolated polygons directly to the result."""
+    for idx in isolated_indices:
+        result.append(polygons[idx])
+        if return_mapping:
+            mapping.append([idx])
+
+
+def _append_merge_result(
+    result: List[Polygon],
+    mapping: List[List[int]],
+    merged,
+    group_indices: List[int],
+    return_mapping: bool,
+) -> None:
+    """Append merged geometry to outputs, handling MultiPolygon cases."""
+    if isinstance(merged, MultiPolygon):
+        for poly in merged.geoms:
+            result.append(poly)
+            if return_mapping:
+                mapping.append(group_indices)
+    elif isinstance(merged, Polygon):
+        result.append(merged)
+        if return_mapping:
+            mapping.append(group_indices)
 
 
 __all__ = ['merge_close_polygons', 'find_close_polygon_groups']
