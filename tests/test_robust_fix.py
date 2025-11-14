@@ -47,6 +47,51 @@ def _sensitive_polygon() -> Polygon:
     ])
 
 
+def _polygon_with_sliver() -> Polygon:
+    """Create a polygon with a thin sliver extending from the main body."""
+    # Main body is a large ellipse
+    # Add a thin sliver extending from the right side
+    # The sliver has width ~1.2 and extends horizontally
+    coords = [
+        # Main ellipse body (approximate)
+        (250, 400),
+        (300, 390),
+        (350, 395),
+        (400, 405),
+        (450, 420),
+        (500, 440),
+        (550, 465),
+        (600, 490),
+        (650, 510),
+        (700, 520),
+        (750, 520),
+        # Sliver extends here - thin horizontal protrusion
+        (800, 520),  # Tip of sliver
+        (875, 520.6),  # Sliver top edge (width = 1.2)
+        (800, 521.2),  # Sliver returns
+        (750, 521.2),
+        # Bottom half of ellipse
+        (700, 521),
+        (650, 531),
+        (600, 550),
+        (550, 575),
+        (500, 600),
+        (450, 620),
+        (400, 635),
+        (350, 645),
+        (300, 650),
+        (250, 640),
+        (200, 620),
+        (150, 590),
+        (100, 550),
+        (60, 500),
+        (40, 450),
+        (200, 430),
+        (250, 400),
+    ]
+    return Polygon(coords)
+
+
 class TestCleanupHelpers:
     """Unit coverage for the new cleanup helpers."""
 
@@ -54,10 +99,11 @@ class TestCleanupHelpers:
         spike = _spike_polygon()
         baseline = spike.minimum_clearance
 
+        # With new signature: pass min_clearance target
+        # The function will buffer by min_clearance * 0.5
         improved = robust_mod._smooth_low_clearance(
             spike,
-            distance=0.01,
-            max_area_loss=0.05,
+            min_clearance=0.02,  # Will buffer by 0.01
         )
 
         assert improved.minimum_clearance > baseline
@@ -66,12 +112,15 @@ class TestCleanupHelpers:
     def test_smooth_low_clearance_respects_area_limit(self):
         sensitive = _sensitive_polygon()
 
+        # With new signature: use large min_clearance to trigger area loss rejection
+        # The function will attempt to buffer by min_clearance * 0.5 = 0.5
+        # This should exceed the automatic area loss tolerance for this small polygon
         strict = robust_mod._smooth_low_clearance(
             sensitive,
-            distance=0.12,
-            max_area_loss=0.001,
+            min_clearance=1.0,  # Will attempt to buffer by 0.5
         )
 
+        # Should return original due to excessive area loss
         assert strict.equals(sensitive)
 
     def test_cleanup_geometry_noop_for_non_polygon(self):
@@ -289,6 +338,39 @@ class TestRobustFixGeometry:
             original_clearance = thin.minimum_clearance
             # Should not make clearance worse
             assert fixed_clearance >= original_clearance
+
+    def test_remove_thin_sliver_with_buffer_approach(self):
+        """Test that thin slivers are removed when they violate min_clearance."""
+        # Create polygon with thin sliver (width ~1.2)
+        poly_with_sliver = _polygon_with_sliver()
+
+        # Verify the polygon has low clearance initially
+        original_clearance = poly_with_sliver.minimum_clearance
+        assert original_clearance < 2.0, "Test polygon should have clearance < 2.0"
+
+        constraints = GeometryConstraints(
+            min_clearance=2.0,
+            min_area_ratio=0.5,  # Allow some area loss to remove sliver
+            must_be_valid=True
+        )
+
+        fixed, warning = robust_fix_geometry(poly_with_sliver, constraints)
+
+        # Should be valid
+        assert fixed.is_valid
+        assert not fixed.is_empty
+
+        # Clearance should be improved (sliver removed by buffer operation)
+        fixed_clearance = fixed.minimum_clearance
+        assert fixed_clearance > original_clearance, "Clearance should improve after fixing"
+
+        # Should satisfy the constraint (or at least get close)
+        # The buffer-based approach should remove features narrower than min_clearance/2 = 1.0
+        # Since the sliver has width 1.2, it should be removed or significantly reduced
+        if warning and warning.unmet_constraints:
+            # If still not meeting constraint, should at least be much closer
+            assert fixed_clearance >= 0.9 * constraints.min_clearance, \
+                f"Fixed clearance {fixed_clearance} should be close to target {constraints.min_clearance}"
 
     def test_returns_warning_when_constraints_not_met(self):
         """Test that warning is returned when constraints cannot be satisfied."""

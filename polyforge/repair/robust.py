@@ -37,9 +37,6 @@ from ..pipeline import (
 )
 from .core import repair_geometry
 
-_CLEARANCE_SMOOTH_DISTANCE = 0.01
-_CLEARANCE_SMOOTH_AREA_LOSS = 0.01
-
 
 def robust_fix_geometry(
     geometry: BaseGeometry,
@@ -560,11 +557,7 @@ def _cleanup_geometry(
         return geometry
 
     cleaned = _apply_hole_constraints(geometry, constraints)
-    cleaned = _smooth_low_clearance(
-        cleaned,
-        distance=_CLEARANCE_SMOOTH_DISTANCE,
-        max_area_loss=_CLEARANCE_SMOOTH_AREA_LOSS,
-    )
+    cleaned = _smooth_low_clearance(cleaned, constraints.min_clearance)
     cleaned = _heal_geometry(cleaned)
     return cleaned
 
@@ -627,25 +620,48 @@ def _apply_hole_constraints(
 
 def _smooth_low_clearance(
     geometry: BaseGeometry,
-    distance: float,
-    max_area_loss: float,
+    min_clearance: Optional[float],
 ) -> BaseGeometry:
-    """Erode/dilate low-clearance regions while bounding acceptable area loss."""
+    """
+    Remove thin features that violate minimum clearance using scaled buffer operations.
+
+    Uses negative buffer (erosion) followed by positive buffer (dilation) to remove
+    thin slivers and protrusions that are narrower than the target clearance.
+
+    The buffer distance is scaled to min_clearance * 0.5, which removes features
+    narrower than half the target clearance while preserving the overall shape.
+
+    Args:
+        geometry: Input polygon or multipolygon
+        min_clearance: Target minimum clearance (None or <= 0 returns geometry unchanged)
+
+    Returns:
+        Cleaned geometry with thin features removed, or original if operation fails
+    """
     if (
-        distance <= 0
+        min_clearance is None
+        or min_clearance <= 0
         or not isinstance(geometry, (Polygon, MultiPolygon))
         or geometry.is_empty
     ):
         return geometry
 
     clearance = _safe_clearance(geometry)
-    if clearance is None or clearance >= distance:
+    if clearance is None or clearance >= min_clearance:
         return geometry
 
+    # Scale buffer distance to half the target clearance
+    # This removes features narrower than half the target
+    buffer_dist = min_clearance * 0.5
+
+    # Calculate expected area loss based on buffer distance
+    # Approximate as area of features with width < buffer_dist
+    # Use a generous tolerance: allow losing ~10% or area proportional to buffer
     original_area = getattr(geometry, "area", 0.0) or 0.0
+    max_area_loss = min(0.1, (buffer_dist * 2) ** 2 * 3.14159 / max(original_area, 1.0))
 
     try:
-        eroded = geometry.buffer(-distance, join_style=2)
+        eroded = geometry.buffer(-buffer_dist, join_style=2)
     except GEOSException:
         return geometry
 
@@ -653,7 +669,7 @@ def _smooth_low_clearance(
         return geometry
 
     try:
-        dilated = eroded.buffer(distance, join_style=2)
+        dilated = eroded.buffer(buffer_dist, join_style=2)
     except GEOSException:
         return geometry
 
