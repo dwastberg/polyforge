@@ -4,6 +4,7 @@ import pytest
 import numpy as np
 from shapely import affinity
 from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 from polyforge import merge_close_polygons
 from polyforge.core.types import MergeStrategy
@@ -314,6 +315,32 @@ class TestBoundaryExtensionStrategy:
         merged = result[0]
         assert merged.is_valid
         assert len(merged.interiors) == 0, "internal sliver hole should be removed"
+
+    def test_boundary_extension_does_not_create_external_tabs(self):
+        """Regression: padded bridges should not protrude outside the corridor."""
+        base = Polygon([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])
+
+        def rotated_rect(cx, cy, width, height, angle=0.0):
+            poly = affinity.scale(base, width, height, origin=(0, 0))
+            poly = affinity.rotate(poly, angle, origin=(0, 0))
+            return affinity.translate(poly, cx, cy)
+
+        poly_left = rotated_rect(-4.0, 0.0, 6.0, 2.0, angle=-3.0)
+        poly_right = rotated_rect(4.2, 0.2, 6.0, 2.0, angle=4.0)
+
+        result = merge_close_polygons(
+            [poly_left, poly_right],
+            margin=2.5,
+            merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
+            preserve_holes=True,
+        )
+
+        assert len(result) == 1
+        merged = result[0]
+        assert merged.is_valid
+        hull = unary_union([poly_left, poly_right]).convex_hull
+        spill = merged.difference(hull)
+        assert spill.area < 1e-4, f"unexpected protrusion area {spill.area}"
 
 
 class TestConvexBridgesStrategy:

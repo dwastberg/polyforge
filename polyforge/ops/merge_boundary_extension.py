@@ -2,7 +2,7 @@
 
 from typing import List, Optional, Tuple, Union
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, LineString, Point
+from shapely.geometry import Polygon, MultiPolygon, LineString, Point, box
 from shapely.ops import unary_union
 
 from polyforge.core.geometry_utils import remove_holes, to_single_polygon
@@ -67,7 +67,7 @@ def _build_bridges(
         bridge = _bridge_from_edge_pair(edge1, edge2, min_overlap)
         if bridge is None:
             continue
-        padded = _pad_bridge_geometry(bridge, distance, margin)
+        padded = _pad_bridge_geometry(bridge, edge1, edge2, distance, margin)
         if padded is None:
             continue
         candidate = padded
@@ -159,12 +159,20 @@ def _merge_with_bridges(
     """Union polygons with bridges and post-process holes."""
     all_geoms = list(polygons) + bridges
     merged = unary_union(all_geoms)
+    hull = unary_union(polygons).convex_hull
+    clip_tolerance = 0.0
+    try:
+        merged = merged.intersection(hull.buffer(clip_tolerance))
+    except Exception:
+        merged = merged.intersection(hull)
     merged = _cleanup_sliver_holes(merged, margin)
     return remove_holes(merged, preserve_holes)
 
 
 def _pad_bridge_geometry(
     bridge: Polygon,
+    edge1: LineString,
+    edge2: LineString,
     gap_distance: float,
     margin: float,
 ):
@@ -173,9 +181,19 @@ def _pad_bridge_geometry(
     if buffer_dist <= 0:
         return bridge
     try:
-        buffered = bridge.buffer(buffer_dist, cap_style=2, join_style=2)
+        buffered = bridge.buffer(
+            buffer_dist,
+            cap_style=2,
+            join_style=2,
+            mitre_limit=2.0,
+        )
         if buffered.is_empty:
             return bridge
+        corridor = _gap_corridor(edge1, edge2, max(buffer_dist, margin * 0.05))
+        if corridor is not None and not corridor.is_empty:
+            clipped = buffered.intersection(corridor)
+            if not clipped.is_empty:
+                return clipped
         return buffered
     except Exception:
         return bridge
@@ -220,6 +238,36 @@ def _strip_small_holes_from_polygon(polygon: Polygon, min_area: float) -> Polygo
         if hole_area >= min_area:
             kept.append(list(ring.coords))
     return Polygon(polygon.exterior, holes=kept)
+
+
+def _gap_corridor(
+    edge1: LineString,
+    edge2: LineString,
+    padding: float,
+):
+    """Return a polygon that approximates the gap region between edges."""
+    try:
+        hull = edge1.union(edge2).convex_hull
+    except Exception:
+        coords = list(edge1.coords) + list(edge2.coords)
+        hull = Polygon(coords)
+    try:
+        corridor = hull.buffer(
+            padding,
+            cap_style=2,
+            join_style=2,
+            mitre_limit=2.0,
+        )
+        bbox_pad = max(0.05, min(padding * 0.25, 0.5))
+        minx = min(edge1.bounds[0], edge2.bounds[0]) - bbox_pad
+        miny = min(edge1.bounds[1], edge2.bounds[1]) - bbox_pad
+        maxx = max(edge1.bounds[2], edge2.bounds[2]) + bbox_pad
+        maxy = max(edge1.bounds[3], edge2.bounds[3]) + bbox_pad
+        bbox = box(minx, miny, maxx, maxy)
+        corridor = corridor.intersection(bbox)
+        return corridor
+    except Exception:
+        return hull
 
 
 __all__ = ['merge_boundary_extension']
