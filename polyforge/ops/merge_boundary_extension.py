@@ -5,7 +5,7 @@ import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point
 from shapely.ops import unary_union
 
-from polyforge.core.geometry_utils import remove_holes
+from polyforge.core.geometry_utils import remove_holes, to_single_polygon
 from polyforge.ops.merge_edge_detection import find_parallel_close_edges
 from polyforge.ops.merge_selective_buffer import merge_selective_buffer
 
@@ -38,11 +38,11 @@ def merge_boundary_extension(
     if not parallel_edges:
         return merge_selective_buffer(group_polygons, margin, preserve_holes)
 
-    bridges = _build_bridges(parallel_edges)
+    bridges = _build_bridges(parallel_edges, margin)
     if not bridges:
         return merge_selective_buffer(group_polygons, margin, preserve_holes)
 
-    return _merge_with_bridges(group_polygons, bridges, preserve_holes)
+    return _merge_with_bridges(group_polygons, bridges, preserve_holes, margin)
 
 
 def _collect_parallel_pairs(
@@ -58,6 +58,7 @@ def _collect_parallel_pairs(
 
 def _build_bridges(
     parallel_edges,
+    margin: float,
     min_overlap: float = 1e-6,
 ) -> List[Polygon]:
     """Convert parallel edge pairs into bridge polygons."""
@@ -66,8 +67,14 @@ def _build_bridges(
         bridge = _bridge_from_edge_pair(edge1, edge2, min_overlap)
         if bridge is None:
             continue
-        if bridge.is_valid and bridge.area > min_overlap:
-            bridges.append(bridge)
+        padded = _pad_bridge_geometry(bridge, distance, margin)
+        if padded is None:
+            continue
+        candidate = padded
+        if not isinstance(candidate, Polygon):
+            candidate = to_single_polygon(candidate)
+        if candidate.is_valid and candidate.area > min_overlap:
+            bridges.append(candidate)
     return bridges
 
 
@@ -147,11 +154,72 @@ def _merge_with_bridges(
     polygons: List[Polygon],
     bridges: List[Polygon],
     preserve_holes: bool,
+    margin: float,
 ) -> Union[Polygon, MultiPolygon]:
     """Union polygons with bridges and post-process holes."""
     all_geoms = list(polygons) + bridges
     merged = unary_union(all_geoms)
+    merged = _cleanup_sliver_holes(merged, margin)
     return remove_holes(merged, preserve_holes)
+
+
+def _pad_bridge_geometry(
+    bridge: Polygon,
+    gap_distance: float,
+    margin: float,
+):
+    """Buffer bridge slightly so it overlaps both polygons."""
+    buffer_dist = _bridge_buffer_distance(gap_distance, margin)
+    if buffer_dist <= 0:
+        return bridge
+    try:
+        buffered = bridge.buffer(buffer_dist, cap_style=2, join_style=2)
+        if buffered.is_empty:
+            return bridge
+        return buffered
+    except Exception:
+        return bridge
+
+
+def _bridge_buffer_distance(gap_distance: float, margin: float) -> float:
+    """Heuristic for how much to pad a bridge so it fully closes the gap."""
+    base_gap = max(gap_distance, 1e-6)
+    base_margin = max(margin, 1e-6)
+    pad = max(base_gap * 0.5, base_margin * 0.1)
+    pad = min(pad, base_margin * 0.6)
+    return max(pad, 0.05)
+
+
+def _cleanup_sliver_holes(
+    geometry: Union[Polygon, MultiPolygon],
+    margin: float,
+) -> Union[Polygon, MultiPolygon]:
+    """Remove interior holes below a small area threshold."""
+    min_area = max(1e-6, (max(margin, 1e-6) ** 2) * 0.05)
+
+    if isinstance(geometry, Polygon):
+        return _strip_small_holes_from_polygon(geometry, min_area)
+    if isinstance(geometry, MultiPolygon):
+        cleaned = [
+            _strip_small_holes_from_polygon(poly, min_area)
+            for poly in geometry.geoms
+        ]
+        return MultiPolygon(cleaned)
+    return geometry
+
+
+def _strip_small_holes_from_polygon(polygon: Polygon, min_area: float) -> Polygon:
+    if not polygon.interiors:
+        return polygon
+    kept = []
+    for ring in polygon.interiors:
+        try:
+            hole_area = Polygon(ring).area
+        except Exception:
+            hole_area = min_area
+        if hole_area >= min_area:
+            kept.append(list(ring.coords))
+    return Polygon(polygon.exterior, holes=kept)
 
 
 __all__ = ['merge_boundary_extension']

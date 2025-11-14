@@ -2,6 +2,7 @@
 
 import pytest
 import numpy as np
+from shapely import affinity
 from shapely.geometry import LineString, Polygon
 
 from polyforge import merge_close_polygons
@@ -277,6 +278,42 @@ class TestBoundaryExtensionStrategy:
 
         # Should still merge (using fallback)
         assert all(p.is_valid for p in result)
+
+    def test_boundary_extension_removes_internal_slivers(self):
+        """Regression: ensure bridge padding removes interior sliver holes."""
+        base = Polygon([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])
+
+        def rotated_rect(cx, cy, width, height, angle):
+            poly = affinity.scale(base, width, height, origin=(0, 0))
+            poly = affinity.rotate(poly, angle, origin=(0, 0))
+            return affinity.translate(poly, cx, cy)
+
+        poly1 = rotated_rect(
+            cx=0.0,
+            cy=0.0,
+            width=4.082996985653066,
+            height=5.110582877913586,
+            angle=-9.419184248502642,
+        )
+        poly2 = rotated_rect(
+            cx=4.88676666509214,
+            cy=-0.12422481269885588,
+            width=5.479061206909253,
+            height=4.165422251287863,
+            angle=-5.382669169180314,
+        )
+
+        result = merge_close_polygons(
+            [poly1, poly2],
+            margin=1.5,
+            merge_strategy=MergeStrategy.BOUNDARY_EXTENSION,
+            preserve_holes=True,
+        )
+
+        assert len(result) == 1
+        merged = result[0]
+        assert merged.is_valid
+        assert len(merged.interiors) == 0, "internal sliver hole should be removed"
 
 
 class TestConvexBridgesStrategy:

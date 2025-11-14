@@ -463,8 +463,9 @@ def _prepare_geometry(geometry: BaseGeometry) -> BaseGeometry:
 
 
 def _finalize_geometry(geometry: BaseGeometry, constraints: GeometryConstraints) -> BaseGeometry:
-    geom = _cleanup_geometry(geometry, constraints)
-    geom = _apply_min_clearance(geom, constraints.min_clearance)
+    geom = _apply_min_clearance(geometry, constraints.min_clearance)
+    geom = _cleanup_geometry(geom, constraints)
+
     if not constraints.allow_multipolygon and isinstance(geom, MultiPolygon):
         candidates = [
             poly for poly in geom.geoms
