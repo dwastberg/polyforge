@@ -4,8 +4,7 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon, LineString
 from shapely.ops import unary_union
 
-from polyforge.simplify import simplify_vwp
-from polyforge.core.geometry_utils import remove_holes
+from polyforge.ops.merge_common import postprocess_merge_result
 from polyforge.ops.merge_ops import find_close_boundary_pairs
 
 
@@ -19,28 +18,31 @@ def merge_selective_buffer(
 
     Better shape preservation than simple buffer.
 
+    Note: The orchestrator handles preprocessing (single polygon check,
+    unary_union for overlapping polygons, margin=0 case). This function
+    assumes len(group_polygons) >= 2 and margin > 0.
+
     Args:
-        group_polygons: Polygons to merge
-        margin: Distance threshold
+        group_polygons: Polygons to merge (already processed by orchestrator)
+        margin: Distance threshold (guaranteed > 0)
         preserve_holes: Whether to preserve holes
         simplify: Whether to simplify result to reduce complexity
 
     Returns:
         Merged polygon(s)
     """
-    if len(group_polygons) == 1:
-        return group_polygons[0]
-
-    # For overlapping polygons, just use unary_union
-    if margin <= 0:
-        return unary_union(group_polygons)
-
     # Find close boundary segment pairs
     close_segments = find_close_boundary_pairs(group_polygons, margin)
 
     if not close_segments:
-        # No close segments, just union
-        return unary_union(group_polygons)
+        # No close segments, just union the polygons
+        result = unary_union(group_polygons)
+        return postprocess_merge_result(
+            result,
+            preserve_holes=preserve_holes,
+            simplify=simplify,
+            simplify_threshold=margin / 2
+        )
 
     # Create minimal bridge zones between close segments
     buffer_zones = []
@@ -72,13 +74,13 @@ def merge_selective_buffer(
     all_geoms = list(group_polygons) + buffer_zones
     result = unary_union(all_geoms)
 
-    # Handle holes
-    result = remove_holes(result, preserve_holes)
-
-    if simplify:
-        result = simplify_vwp(result, threshold=margin / 2)
-
-    return result
+    # Common post-processing (hole removal and optional simplification)
+    return postprocess_merge_result(
+        result,
+        preserve_holes=preserve_holes,
+        simplify=simplify,
+        simplify_threshold=margin / 2
+    )
 
 
 __all__ = ['merge_selective_buffer']

@@ -8,6 +8,7 @@ from shapely.ops import nearest_points, unary_union
 from polyforge.core.geometry_utils import remove_holes
 from polyforge.core.spatial_utils import iterate_unique_pairs
 from polyforge.ops.merge_ops import get_boundary_points_near
+from polyforge.ops.merge_common import union_with_bridges
 
 
 def merge_convex_bridges(
@@ -19,27 +20,27 @@ def merge_convex_bridges(
 
     Creates smooth connections for irregular gaps.
 
+    Note: The orchestrator handles preprocessing (single polygon check,
+    unary_union for overlapping polygons, margin=0 case). This function
+    assumes len(group_polygons) >= 2 and margin > 0.
+
     Args:
-        group_polygons: Polygons to merge
-        margin: Distance threshold
+        group_polygons: Polygons to merge (already processed by orchestrator)
+        margin: Distance threshold (guaranteed > 0)
         preserve_holes: Whether to preserve holes
 
     Returns:
         Merged polygon(s)
     """
-    if len(group_polygons) == 1:
-        return group_polygons[0]
-
-    # For overlapping polygons, just use unary_union
-    if margin <= 0:
-        return unary_union(group_polygons)
-
     bridges = _build_convex_bridges(group_polygons, margin)
-    if not bridges:
-        return remove_holes(unary_union(group_polygons), preserve_holes)
 
-    merged = unary_union(list(group_polygons) + bridges)
-    return remove_holes(merged, preserve_holes)
+    if not bridges:
+        # No bridges found, just union the polygons
+        merged = unary_union(group_polygons)
+        return remove_holes(merged, preserve_holes)
+
+    # Use common bridge merging pattern
+    return union_with_bridges(group_polygons, bridges, preserve_holes)
 
 
 def _build_convex_bridges(

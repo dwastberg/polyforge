@@ -4,8 +4,7 @@ from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 
-from polyforge.simplify import simplify_vwp
-from polyforge.core.geometry_utils import remove_holes
+from polyforge.ops.merge_common import postprocess_merge_result
 
 
 def merge_simple_buffer(
@@ -18,22 +17,19 @@ def merge_simple_buffer(
 
     Fast and simple, but changes polygon shape (rounds corners).
 
+    Note: The orchestrator handles preprocessing (single polygon check,
+    unary_union for overlapping polygons, margin=0 case). This function
+    assumes len(group_polygons) >= 2 and margin > 0.
+
     Args:
-        group_polygons: Polygons to merge
-        margin: Distance for buffering
+        group_polygons: Polygons to merge (already processed by orchestrator)
+        margin: Distance for buffering (guaranteed > 0)
         preserve_holes: Whether to preserve holes
         simplify: Whether to simplify result to reduce complexity
 
     Returns:
         Merged polygon(s)
     """
-    if len(group_polygons) == 1:
-        return group_polygons[0]
-
-    # For overlapping polygons (margin=0), just use unary_union
-    if margin <= 0:
-        return unary_union(group_polygons)
-
     # Expand all polygons by margin/2
     buffer_dist = margin / 2.0
     expanded = [p.buffer(buffer_dist, quad_segs=16) for p in group_polygons]
@@ -44,13 +40,13 @@ def merge_simple_buffer(
     # Contract back by margin/2
     result = merged.buffer(-buffer_dist, quad_segs=16)
 
-    # Handle holes
-    result = remove_holes(result, preserve_holes)
-
-    if simplify:
-        result = simplify_vwp(result, threshold=margin / 2)
-
-    return result
+    # Common post-processing (hole removal and optional simplification)
+    return postprocess_merge_result(
+        result,
+        preserve_holes=preserve_holes,
+        simplify=simplify,
+        simplify_threshold=margin / 2
+    )
 
 
 __all__ = ['merge_simple_buffer']

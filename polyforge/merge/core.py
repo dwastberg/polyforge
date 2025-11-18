@@ -3,9 +3,11 @@
 from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.strtree import STRtree
+from shapely.ops import unary_union
 
 from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
+from ..core.geometry_utils import remove_holes
 from polyforge.ops.merge import (
     merge_simple_buffer,
     merge_selective_buffer,
@@ -56,6 +58,26 @@ def merge_close_polygons(
     """
     if not polygons:
         return ([], []) if return_mapping else []
+
+    # Fast path for margin=0: just merge overlapping/touching polygons
+    if margin <= 0:
+        merged = unary_union(polygons)
+        if not preserve_holes:
+            merged = remove_holes(merged, preserve_holes=False)
+
+        # Convert result to list format
+        if isinstance(merged, Polygon):
+            result = [merged]
+        elif isinstance(merged, MultiPolygon):
+            result = list(merged.geoms)
+        else:
+            result = []
+
+        if return_mapping:
+            # All input polygons went into the merge
+            mapping = [list(range(len(polygons)))] * len(result)
+            return result, mapping
+        return result
 
     strategy = coerce_enum(merge_strategy, MergeStrategy)
     isolated_indices, merge_groups = find_close_polygon_groups(polygons, margin)
@@ -122,6 +144,29 @@ def _merge_group_polygons(
     insert_vertices: bool,
 ):
     """Merge a group of polygons according to the selected strategy."""
+    # Early exit for single polygon
+    if len(group_polygons) == 1:
+        return group_polygons[0]
+
+    # OPTIMIZATION: Try unary_union first to merge overlapping/touching polygons
+    # This is a fast operation and handles the common case where polygons already touch
+    base_union = unary_union(group_polygons)
+
+    # If union produces a single polygon, we're done
+    if isinstance(base_union, Polygon):
+        return remove_holes(base_union, preserve_holes)
+    if isinstance(base_union, MultiPolygon) and len(base_union.geoms) == 1:
+        return remove_holes(base_union.geoms[0], preserve_holes)
+
+    # Still multiple polygons after union → apply strategy to bridge gaps
+    # Update group_polygons to the result of unary_union (removes overlaps)
+    if isinstance(base_union, MultiPolygon):
+        group_polygons = list(base_union.geoms)
+    else:
+        # base_union is a single polygon but we already handled that case above
+        # This shouldn't happen, but handle it safely
+        group_polygons = [base_union]
+
     if insert_vertices:
         group_polygons = insert_connection_vertices(group_polygons, margin)
 

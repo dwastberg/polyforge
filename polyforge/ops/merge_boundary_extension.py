@@ -19,21 +19,18 @@ def merge_boundary_extension(
 
     Best for rectangular/architectural features.
 
+    Note: The orchestrator handles preprocessing (single polygon check,
+    unary_union for overlapping polygons, margin=0 case). This function
+    assumes len(group_polygons) >= 2 and margin > 0.
+
     Args:
-        group_polygons: Polygons to merge
-        margin: Distance threshold
+        group_polygons: Polygons to merge (already processed by orchestrator)
+        margin: Distance threshold (guaranteed > 0)
         preserve_holes: Whether to preserve holes
 
     Returns:
         Merged polygon(s)
     """
-    if len(group_polygons) == 1:
-        return group_polygons[0]
-
-    # For overlapping polygons, just use unary_union
-    if margin <= 0:
-        return unary_union(group_polygons)
-
     parallel_edges = _collect_parallel_pairs(group_polygons, margin)
     if not parallel_edges:
         return merge_selective_buffer(group_polygons, margin, preserve_holes)
