@@ -85,82 +85,6 @@ def iterative_improve(
     return best_result
 
 
-def progressive_simplify(
-    geometry: BaseGeometry,
-    simplify_func: Callable[[BaseGeometry, float], BaseGeometry],
-    base_epsilon: float,
-    target_metric_func: Optional[Callable[[BaseGeometry], float]] = None,
-    target_value: Optional[float] = None,
-    max_iterations: int = 5,
-    epsilon_multiplier: float = 1.5,
-    max_epsilon_ratio: float = 0.1
-) -> BaseGeometry:
-    """Progressively simplify geometry with increasing tolerance.
-
-    Applies simplification with progressively larger epsilon values until
-    target metric is achieved or max iterations reached.
-
-    Args:
-        geometry: Input geometry to simplify
-        simplify_func: Simplification function (geom, epsilon) -> simplified_geom
-        base_epsilon: Initial epsilon value
-        target_metric_func: Optional function to measure if target achieved
-        target_value: Optional target metric value
-        max_iterations: Maximum number of iterations
-        epsilon_multiplier: Factor to increase epsilon each iteration
-        max_epsilon_ratio: Maximum epsilon as ratio of geometry length
-
-    Returns:
-        Best simplified geometry found
-
-    Examples:
-        >>> from polyforge.simplify import simplify_rdp
-        >>>
-        >>> def get_clearance(poly):
-        ...     return poly.minimum_clearance
-        >>>
-        >>> result = progressive_simplify(
-        ...     polygon,
-        ...     simplify_func=simplify_rdp,
-        ...     base_epsilon=0.1,
-        ...     target_metric_func=get_clearance,
-        ...     target_value=2.0
-        ... )
-    """
-    current = geometry
-    best_result = geometry
-    best_metric = target_metric_func(geometry) if target_metric_func else None
-
-    for iteration in range(max_iterations):
-        epsilon = _iteration_epsilon(
-            base_epsilon,
-            epsilon_multiplier,
-            iteration,
-            geometry,
-            max_epsilon_ratio,
-        )
-        simplified = _apply_simplification_step(current, simplify_func, epsilon)
-        if simplified is None:
-            break
-
-        if not target_metric_func or not target_value:
-            current = best_result = simplified
-            continue
-
-        current_metric = target_metric_func(simplified)
-        if current_metric >= target_value:
-            return simplified
-
-        if _metric_improved(current_metric, best_metric):
-            best_result = simplified
-            best_metric = current_metric
-            current = simplified
-        elif iteration > 0:
-            break
-
-    return best_result
-
-
 def iterative_clearance_fix(
     geometry: Polygon,
     min_clearance: float,
@@ -204,41 +128,7 @@ def iterative_clearance_fix(
     )
 
 
-def _iteration_epsilon(
-    base: float,
-    multiplier: float,
-    iteration: int,
-    reference_geometry: BaseGeometry,
-    max_ratio: float,
-) -> float:
-    epsilon = base * (multiplier ** iteration)
-    if hasattr(reference_geometry, "length"):
-        epsilon = min(epsilon, reference_geometry.length * max_ratio)
-    return epsilon
-
-
-def _apply_simplification_step(
-    geometry: BaseGeometry,
-    simplify_func: Callable[[BaseGeometry, float], BaseGeometry],
-    epsilon: float,
-) -> Optional[BaseGeometry]:
-    try:
-        simplified = simplify_func(geometry, epsilon)
-    except Exception:
-        return None
-    if not simplified.is_valid or simplified.is_empty:
-        return None
-    return simplified
-
-
-def _metric_improved(current: float, best: Optional[float]) -> bool:
-    if best is None:
-        return True
-    return current > best
-
-
 __all__ = [
     'iterative_improve',
-    'progressive_simplify',
     'iterative_clearance_fix',
 ]

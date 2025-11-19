@@ -1,8 +1,8 @@
-"""Backward-compatible imports for cleanup helpers.
+"""Re-exports cleanup helpers from ops layer for organized imports.
 
-The real implementations now live under :mod:`polyforge.ops.cleanup_ops`. This
-module exists so legacy imports (``from polyforge.core import cleanup``) keep
-working while the codebase migrates toward the ops-first architecture.
+The implementations live in :mod:`polyforge.ops.cleanup_ops`. This module
+provides a cleaner import path via ``from polyforge.core.cleanup import ...``
+for use in tests and internal code.
 """
 
 from polyforge.ops.cleanup_ops import (

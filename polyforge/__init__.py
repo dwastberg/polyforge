@@ -61,7 +61,6 @@ from .core import (
     OverlapStrategy,
     MergeStrategy,
     RepairStrategy,
-    SimplifyAlgorithm,
     CollapseMode,
 )
 
@@ -133,7 +132,6 @@ __all__ = [
     'OverlapStrategy',
     'MergeStrategy',
     'RepairStrategy',
-    'SimplifyAlgorithm',
     'CollapseMode',
 
     # Core exceptions

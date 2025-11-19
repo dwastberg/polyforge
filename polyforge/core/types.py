@@ -73,17 +73,13 @@ class RepairStrategy(Enum):
 class SimplifyAlgorithm(Enum):
     """Algorithm for geometry simplification.
 
+    Note: Internal use only. Users should call simplification functions directly
+    (simplify_rdp, simplify_vw, simplify_vwp) rather than using this enum.
+
     Attributes:
         RDP: Ramer-Douglas-Peucker (fast, good general purpose)
         VW: Visvalingam-Whyatt (slower, better visual quality)
         VWP: Topology-preserving Visvalingam-Whyatt (slowest, guaranteed valid)
-
-    Examples:
-        >>> from polyforge import simplify_rdp, SimplifyAlgorithm
-        >>> # Enum can be used to document algorithm choice
-        >>> algorithm = SimplifyAlgorithm.RDP
-        >>> if algorithm == SimplifyAlgorithm.RDP:
-        ...     result = simplify_rdp(polygon, epsilon=1.0)
     """
     RDP = 'rdp'
     VW = 'vw'

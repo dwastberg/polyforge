@@ -73,7 +73,6 @@ polyforge/
 │   ├── constraints.py          # Constraint validation (GeometryConstraints, MergeConstraints, ConstraintStatus)
 │   ├── cleanup.py              # Backward-compatible imports from ops/cleanup_ops.py
 │   ├── geometry_utils.py       # Shared geometry operations (to_single_polygon, etc.)
-│   ├── validation_utils.py     # Shared validation patterns
 │   ├── spatial_utils.py        # Spatial indexing utilities (STRtree operations)
 │   └── iterative_utils.py      # Iterative improvement patterns
 ├── ops/                        # Low-level pure operations (no orchestration)
@@ -387,7 +386,6 @@ def my_function(geometry, my_strategy: Union[MyStrategy, str] = MyStrategy.DEFAU
 ### When Adding Shared Utilities
 - Place in appropriate `core/` module:
   - Geometry operations → `core/geometry_utils.py`
-  - Validation → `core/validation_utils.py`
   - Spatial operations → `core/spatial_utils.py`
   - Iterative patterns → `core/iterative_utils.py`
 - If it's a pure low-level operation, consider `ops/` instead
