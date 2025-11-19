@@ -37,12 +37,13 @@ from .constraints import (
 )
 
 __all__ = [
-    # Strategy enums
+    # Strategy enums (public)
     'OverlapStrategy',
     'MergeStrategy',
     'RepairStrategy',
     'SimplifyAlgorithm',
     'CollapseMode',
+    # Strategy enums (internal - for ops/ modules)
     'HoleStrategy',
     'PassageStrategy',
     'IntrusionStrategy',

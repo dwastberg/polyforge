@@ -110,15 +110,7 @@ class CollapseMode(Enum):
 class HoleStrategy(Enum):
     """Strategy for fixing holes too close to exterior.
 
-    Attributes:
-        REMOVE: Remove holes that are too close (default, safest)
-        SHRINK: Make holes smaller via negative buffer
-        MOVE: Move holes away from exterior (experimental)
-
-    Examples:
-        >>> from polyforge.clearance import fix_hole_too_close
-        >>> from polyforge.core.types import HoleStrategy
-        >>> fixed = fix_hole_too_close(poly, min_clearance=1.0, strategy=HoleStrategy.REMOVE)
+    Note: Internal use only - not exported in public API.
     """
     REMOVE = 'remove'
     SHRINK = 'shrink'
@@ -128,14 +120,7 @@ class HoleStrategy(Enum):
 class PassageStrategy(Enum):
     """Strategy for fixing narrow passages.
 
-    Attributes:
-        WIDEN: Move vertices apart to widen passage (default, preserves single polygon)
-        SPLIT: Split into separate polygons at narrow point
-
-    Examples:
-        >>> from polyforge.clearance import fix_narrow_passage
-        >>> from polyforge.core.types import PassageStrategy
-        >>> fixed = fix_narrow_passage(poly, min_clearance=1.0, strategy=PassageStrategy.WIDEN)
+    Note: Internal use only - not exported in public API.
     """
     WIDEN = 'widen'
     SPLIT = 'split'
@@ -144,15 +129,7 @@ class PassageStrategy(Enum):
 class IntrusionStrategy(Enum):
     """Strategy for fixing sharp intrusions.
 
-    Attributes:
-        FILL: Fill intrusion with straight edge (default)
-        SMOOTH: Apply smoothing to widen intrusion
-        SIMPLIFY: Use vertex simplification
-
-    Examples:
-        >>> from polyforge.clearance import fix_sharp_intrusion
-        >>> from polyforge.core.types import IntrusionStrategy
-        >>> fixed = fix_sharp_intrusion(poly, min_clearance=1.0, strategy=IntrusionStrategy.FILL)
+    Note: Internal use only - not exported in public API.
     """
     FILL = 'fill'
     SMOOTH = 'smooth'
@@ -162,15 +139,7 @@ class IntrusionStrategy(Enum):
 class IntersectionStrategy(Enum):
     """Strategy for fixing near self-intersections.
 
-    Attributes:
-        SIMPLIFY: Remove vertices causing near-intersection (default)
-        BUFFER: Use buffer to fix topology
-        SMOOTH: Apply smoothing
-
-    Examples:
-        >>> from polyforge.clearance import fix_near_self_intersection
-        >>> from polyforge.core.types import IntersectionStrategy
-        >>> fixed = fix_near_self_intersection(poly, min_clearance=1.0, strategy=IntersectionStrategy.SIMPLIFY)
+    Note: Internal use only - not exported in public API.
     """
     SIMPLIFY = 'simplify'
     BUFFER = 'buffer'
