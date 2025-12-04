@@ -164,6 +164,53 @@ class TestFixClearanceIterations:
         assert result.minimum_clearance >= 1.0
         assert summary.final_clearance >= summary.initial_clearance
 
+    def test_invalid_strategy_result_is_rejected(self, monkeypatch):
+        """Ensure invalid/empty candidates are discarded and we fall back to best valid."""
+        coords = [(0, 0), (10, 0), (10, 1), (9.9, 1.5), (9.9, 2.5), (10, 3), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+
+        def bad_strategy(_, __, ___):
+            # Return an empty/invalid polygon to mimic a failed fix step.
+            return Polygon()
+
+        import importlib
+        fc_module = importlib.import_module("polyforge.clearance.fix_clearance")
+        original = fc_module.STRATEGY_REGISTRY[ClearanceIssue.NARROW_PASSAGE]
+        monkeypatch.setitem(fc_module.STRATEGY_REGISTRY, ClearanceIssue.NARROW_PASSAGE, bad_strategy)
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.is_valid
+        assert not result.is_empty
+        assert summary.fixed is False or result.minimum_clearance >= original_clearance
+        assert summary.valid is True
+        assert summary.area_ratio > 0
+        # Restore happens via monkeypatch undo; ensure registry is intact for other tests
+
+    def test_area_floor_rejects_overly_small_candidate(self, monkeypatch):
+        """Ensure overly small candidates are discarded by the area ratio guard."""
+        coords = [(0, 0), (10, 0), (10, 1), (9.9, 1.5), (9.9, 2.5), (10, 3), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+        original_area = poly.area
+
+        def tiny_strategy(_, __, ___):
+            return Polygon([(0, 0), (0.1, 0), (0, 0.1)])
+
+        import importlib
+        fc_module = importlib.import_module("polyforge.clearance.fix_clearance")
+        monkeypatch.setitem(fc_module.STRATEGY_REGISTRY, ClearanceIssue.NARROW_PASSAGE, tiny_strategy)
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.area >= 0.9 * original_area
+        assert result.is_valid
+        assert summary.valid is True
+        assert summary.area_ratio >= 0.9
+        # Either we couldn't fix due to rejected tiny candidate, or we met the clearance without shrinking
+        if summary.fixed:
+            assert result.minimum_clearance >= 1.0
+
 
 class TestFixClearanceEdgeCases:
     """Tests for edge cases and error handling."""
@@ -230,6 +277,17 @@ class TestDiagnosisAccuracy:
 
             assert info.issue == expected_issue
             assert summary.issue == expected_issue or summary.history[-1] == expected_issue
+
+    def test_diagnosis_detects_hole_to_hole_clearance(self):
+        """Ensure clearance between holes is treated as hole-driven, not protrusion/passage."""
+        exterior = [(0, 0), (20, 0), (20, 20), (0, 20)]
+        hole1 = [(5, 5), (7, 5), (7, 7), (5, 7)]
+        hole2 = [(7.6, 5), (9.6, 5), (9.6, 7), (7.6, 7)]
+        poly = Polygon(exterior, holes=[hole1, hole2])
+
+        info = diagnose_clearance(poly, min_clearance=1.0)
+
+        assert info.issue == ClearanceIssue.HOLE_TOO_CLOSE
 
 
 class TestResultValidity:

@@ -71,9 +71,11 @@ class ClearanceFixSummary:
 
     initial_clearance: float
     final_clearance: float
+    area_ratio: float
     iterations: int
     issue: ClearanceIssue
     fixed: bool
+    valid: bool
     history: List[ClearanceIssue]
 
 
@@ -81,19 +83,26 @@ def fix_clearance(
     geometry: Polygon,
     min_clearance: float,
     max_iterations: int = 10,
+    min_area_ratio: float = 0.9,
     return_diagnosis: bool = False,
 ) -> Union[Polygon, Tuple[Polygon, ClearanceFixSummary]]:
     """Automatically diagnose and fix low minimum clearance in a polygon."""
     if not isinstance(geometry, Polygon):
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
 
+    if min_area_ratio <= 0 or min_area_ratio > 1.0:
+        raise ValueError("min_area_ratio must be in (0, 1].")
+
     initial_clearance = geometry.minimum_clearance
+    original_area = geometry.area
     summary = ClearanceFixSummary(
         initial_clearance=initial_clearance,
         final_clearance=initial_clearance,
+        area_ratio=1.0,
         iterations=0,
         issue=ClearanceIssue.NONE,
         fixed=initial_clearance >= min_clearance,
+        valid=geometry.is_valid,
         history=[ClearanceIssue.NONE],
     )
 
@@ -101,13 +110,22 @@ def fix_clearance(
         return (geometry, summary) if return_diagnosis else geometry
 
     issue_history: List[ClearanceIssue] = []
+    best_valid = geometry
 
     def improve(poly: Polygon, target: float) -> Optional[Polygon]:
         diagnosis = diagnose_clearance(poly, target)
         issue_history.append(diagnosis.issue)
         if diagnosis.issue == ClearanceIssue.NONE:
             return None
-        return _apply_clearance_strategy(poly, target, diagnosis)
+        candidate = _apply_clearance_strategy(poly, target, diagnosis)
+        if candidate is None or not candidate.is_valid or candidate.is_empty:
+            return None
+        nonlocal best_valid
+        if candidate.area < min_area_ratio * original_area:
+            return None
+        if _safe_clearance(candidate) > _safe_clearance(best_valid):
+            best_valid = candidate
+        return candidate
 
     metric = lambda poly: _safe_clearance(poly)  # noqa: E731
     improved = iterative_improve(
@@ -118,14 +136,22 @@ def fix_clearance(
         max_iterations=max_iterations,
     )
 
+    if improved is None or not improved.is_valid or improved.is_empty:
+        improved = best_valid
+    if improved.area < min_area_ratio * original_area:
+        improved = best_valid
+
     final_clearance = _safe_clearance(improved)
+    final_area_ratio = improved.area / original_area if original_area > 0 else float("inf")
     final_diag = diagnose_clearance(improved, min_clearance)
     summary = ClearanceFixSummary(
         initial_clearance=initial_clearance,
         final_clearance=final_clearance,
+        area_ratio=final_area_ratio,
         iterations=len(issue_history),
         issue=final_diag.issue,
         fixed=final_diag.meets_requirement,
+        valid=improved.is_valid,
         history=issue_history or [final_diag.issue],
     )
 
@@ -274,6 +300,9 @@ def _diagnose_clearance_issue(
     if context is None:
         return ClearanceIssue.UNKNOWN
 
+    if "hole" in context.ring_types:
+        return ClearanceIssue.HOLE_TOO_CLOSE
+
     for heuristic in (
         _looks_like_protrusion,
         _looks_like_near_self_intersection,
@@ -284,6 +313,30 @@ def _diagnose_clearance_issue(
         if issue is not None:
             return issue
     return ClearanceIssue.UNKNOWN
+
+
+def _classify_ring_types(geometry: Polygon, pt1: Tuple[float, float], pt2: Tuple[float, float]) -> Tuple[str, str]:
+    """Return ring type ('exterior' or 'hole') for each endpoint of the clearance line."""
+    def classify(point: Tuple[float, float]) -> Tuple[str, Optional[int]]:
+        p = Point(point)
+        exterior_ring = LinearRing(geometry.exterior.coords)
+        d_exterior = p.distance(exterior_ring)
+
+        min_hole_dist = float("inf")
+        hole_idx = None
+        for idx, hole in enumerate(geometry.interiors):
+            d = p.distance(LinearRing(hole.coords))
+            if d < min_hole_dist:
+                min_hole_dist = d
+                hole_idx = idx
+
+        if min_hole_dist < d_exterior:
+            return "hole", hole_idx
+        return "exterior", None
+
+    t1, _ = classify(pt1)
+    t2, _ = classify(pt2)
+    return t1, t2
 
 
 def _has_close_hole(geometry: Polygon, min_clearance: float) -> bool:
@@ -318,11 +371,13 @@ def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
     curvature2 = _calculate_curvature_at_vertex(exterior_coords, idx2)
     n = len(exterior_coords) - 1
     separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
+    ring_types = _classify_ring_types(geometry, pt1, pt2)
 
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
         vertex_count=n,
+        ring_types=ring_types,
     )
 
 
@@ -331,9 +386,12 @@ class ClearanceContext:
     curvature: Tuple[float, float]
     separation: int
     vertex_count: int
+    ring_types: Tuple[str, str]
 
 
 def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    if "hole" in context.ring_types:
+        return None
     curvature1, curvature2 = context.curvature
     sharp_angle_threshold = 135.0
     if curvature1 > sharp_angle_threshold or curvature2 > sharp_angle_threshold:
@@ -345,6 +403,8 @@ def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[Clea
 
 
 def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    if "hole" in context.ring_types:
+        return None
     if context.separation <= 3:
         curvature1, curvature2 = context.curvature
         if curvature1 <= 90 and curvature2 <= 90:
@@ -353,6 +413,8 @@ def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> O
 
 
 def _looks_like_parallel_edges(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    if "hole" in context.ring_types:
+        return None
     if context.vertex_count <= 0:
         return None
     if context.separation >= context.vertex_count // 3:
