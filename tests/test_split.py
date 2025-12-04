@@ -61,9 +61,11 @@ class TestSplitOverlap:
 
         result1, result2 = split_overlap(poly1, poly2)
 
-        # Should return originals
-        assert result1.equals(poly1), "Container polygon should be unchanged"
-        assert result2.equals(poly2), "Contained polygon should be unchanged"
+        # Container should be carved; contained polygon preserved
+        assert result2.equals(poly2), "Contained polygon should be preserved"
+        assert result1.area == pytest.approx(poly1.area - poly2.area)
+        overlap = result1.intersection(result2)
+        assert overlap.is_empty or overlap.area < 1e-9
 
     def test_partial_overlap_rectangles(self):
         """Test rectangles with partial overlap."""

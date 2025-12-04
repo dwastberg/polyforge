@@ -86,6 +86,24 @@ class TestProximityDetection:
         assert any(set(m) == {0, 1} for m in mapping)  # poly1 and poly2
         assert any(m == [2] for m in mapping)  # poly3 alone
 
+    def test_return_mapping_margin_zero_components(self):
+        """Mapping should reflect contributors for each unary_union component."""
+        # Two overlapping polygons (component A) and one separate polygon (component B)
+        poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        poly2 = Polygon([(1, 1), (3, 1), (3, 3), (1, 3)])
+        poly3 = Polygon([(10, 10), (12, 10), (12, 12), (10, 12)])
+
+        merged, mapping = merge_close_polygons(
+            [poly1, poly2, poly3],
+            margin=0.0,
+            return_mapping=True,
+        )
+
+        assert len(merged) == 2
+        assert len(mapping) == 2
+        assert any(set(m) == {0, 1} for m in mapping)
+        assert any(set(m) == {2} for m in mapping)
+
 
 class TestSimpleBufferStrategy:
     """Tests for simple_buffer strategy."""

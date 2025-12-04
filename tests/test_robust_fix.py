@@ -486,6 +486,28 @@ class TestRobustFixGeometry:
         assert warning is None
         assert fixed.is_valid
 
+    def test_area_ratio_compares_against_raw_input(self):
+        """Area ratio should be measured against caller-provided geometry, not pre-cleaned version."""
+        # Overlapping MultiPolygon: raw area sums components (8); union after cleanup is 6.
+        poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        poly2 = Polygon([(1, 0), (3, 0), (3, 2), (1, 2)])
+        multi = MultiPolygon([poly1, poly2])
+
+        constraints = GeometryConstraints(
+            min_area_ratio=0.9,
+            must_be_valid=True,
+        )
+
+        with pytest.warns(UserWarning):
+            fixed, warning = robust_fix_geometry(multi, constraints)
+
+        assert warning is not None
+        area_violations = warning.status.get_violations_by_type(ConstraintType.AREA_PRESERVATION)
+        assert area_violations, "Expected area preservation violation relative to raw input"
+        # Raw area = 8, cleaned/unioned area = 6
+        assert warning.status.area_ratio == pytest.approx(0.75, rel=1e-9)
+        assert fixed.is_valid
+
 
 class TestRobustFixBatch:
     """Test robust_fix_batch for multiple geometries."""

@@ -74,8 +74,7 @@ def merge_close_polygons(
             result = []
 
         if return_mapping:
-            # All input polygons went into the merge
-            mapping = [list(range(len(polygons)))] * len(result)
+            mapping = _map_components_to_inputs(result, polygons)
             return result, mapping
         return result
 
@@ -216,6 +215,38 @@ def _append_merge_result(
         result.append(merged)
         if return_mapping:
             mapping.append(group_indices)
+
+
+def _map_components_to_inputs(
+    components: List[Polygon],
+    inputs: List[Polygon],
+    area_eps: float = 1e-12,
+) -> List[List[int]]:
+    """Build component-to-input index mapping for unary_union results."""
+    mapping: List[List[int]] = []
+
+    for comp in components:
+        contributors: List[int] = []
+        if comp.is_empty:
+            mapping.append(contributors)
+            continue
+
+        for idx, poly in enumerate(inputs):
+            try:
+                if poly.is_empty:
+                    continue
+                if not comp.intersects(poly):
+                    continue
+                # Prefer positive-area intersection; fall back to touches/containment.
+                intersection = comp.intersection(poly)
+                if getattr(intersection, "area", 0.0) > area_eps or comp.touches(poly):
+                    contributors.append(idx)
+            except Exception:
+                continue
+
+        mapping.append(contributors)
+
+    return mapping
 
 
 __all__ = ['merge_close_polygons', 'find_close_polygon_groups']

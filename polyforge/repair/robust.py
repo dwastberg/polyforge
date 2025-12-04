@@ -47,10 +47,11 @@ def robust_fix_geometry(
     verbose: bool = False,
 ) -> Tuple[BaseGeometry, Optional[FixWarning]]:
     """Fix a single geometry using the lightweight pipeline."""
+    original_input = geometry
     prepared = _prepare_geometry(geometry)
     config = config_from_constraints(constraints)
     context = PipelineContext(
-        original=prepared,
+        original=original_input,
         constraints=constraints,
         config=config,
         merge_constraints=merge_constraints,
@@ -65,7 +66,7 @@ def robust_fix_geometry(
     )
 
     finalized = _finalize_geometry(fixed, constraints)
-    final_status = constraints.check(finalized, prepared, overlap_area=0.0)
+    final_status = constraints.check(finalized, original_input, overlap_area=0.0)
     history_strings = _history_strings(history)
 
     if final_status.all_satisfied():
@@ -94,7 +95,7 @@ def robust_fix_batch(
 
     (
         working_geometries,
-        working_originals,
+        raw_originals,
         working_properties,
     ) = _prepare_batch_inputs(
         geometries,
@@ -105,7 +106,7 @@ def robust_fix_batch(
 
     fixed, statuses, histories = _run_batch_steps(
         working_geometries,
-        working_originals,
+        raw_originals,
         constraints,
         merge_constraints,
         max_iterations,
@@ -115,7 +116,7 @@ def robust_fix_batch(
         fixed,
         statuses,
         constraints,
-        working_originals,
+        raw_originals,
         max_iterations,
         handle_overlaps,
         verbose,
@@ -123,7 +124,7 @@ def robust_fix_batch(
 
     finalized_geometries, finalized_statuses = _finalize_batch_results(
         fixed,
-        working_originals,
+        raw_originals,
         constraints,
     )
 
@@ -148,28 +149,28 @@ def _prepare_batch_inputs(
     verbose: bool,
 ) -> Tuple[List[BaseGeometry], List[BaseGeometry], Optional[List[Dict[str, Any]]]]:
     working_geometries = [_prepare_geometry(geom) for geom in geometries]
-    working_originals = list(working_geometries)
+    raw_originals = list(geometries)
     working_properties = _copy_properties(properties) if properties is not None else None
 
     if merge_constraints and merge_constraints.enabled:
         (
             working_geometries,
-            working_originals,
+            raw_originals,
             working_properties,
         ) = _apply_initial_merge(
             working_geometries,
-            working_originals,
+            raw_originals,
             working_properties,
             merge_constraints,
             verbose,
         )
 
-    return working_geometries, working_originals, working_properties
+    return working_geometries, raw_originals, working_properties
 
 
 def _run_batch_steps(
     geometries: List[BaseGeometry],
-    originals: List[BaseGeometry],
+    raw_originals: List[BaseGeometry],
     constraints: GeometryConstraints,
     merge_constraints: Optional[MergeConstraints],
     max_iterations: int,
@@ -181,7 +182,7 @@ def _run_batch_steps(
     statuses: List[ConstraintStatus] = []
     histories: List[List[str]] = []
 
-    for geom, orig in zip(geometries, originals):
+    for geom, orig in zip(geometries, raw_originals):
         context = PipelineContext(
             original=orig,
             constraints=constraints,
@@ -205,7 +206,7 @@ def _enforce_overlap_limits(
     geometries: List[BaseGeometry],
     statuses: List[ConstraintStatus],
     constraints: GeometryConstraints,
-    originals: List[BaseGeometry],
+    raw_originals: List[BaseGeometry],
     max_iterations: int,
     handle_overlaps: bool,
     verbose: bool,
@@ -226,7 +227,7 @@ def _enforce_overlap_limits(
         geometries,
         statuses,
         constraints,
-        originals=originals,
+        originals=raw_originals,
         max_iterations=max_iterations,
         verbose=verbose,
     )
@@ -234,7 +235,7 @@ def _enforce_overlap_limits(
 
 def _finalize_batch_results(
     geometries: List[BaseGeometry],
-    originals: List[BaseGeometry],
+    raw_originals: List[BaseGeometry],
     constraints: GeometryConstraints,
 ) -> Tuple[List[BaseGeometry], List[ConstraintStatus]]:
     finalized_geometries: List[BaseGeometry] = []
@@ -244,7 +245,7 @@ def _finalize_batch_results(
 
     overlap_by_geometry = overlap_area_by_geometry(finalized_geometries)
     finalized_statuses: List[ConstraintStatus] = []
-    for idx, (geom, original) in enumerate(zip(finalized_geometries, originals)):
+    for idx, (geom, original) in enumerate(zip(finalized_geometries, raw_originals)):
         overlap_value = overlap_by_geometry[idx] if idx < len(overlap_by_geometry) else 0.0
         finalized_statuses.append(constraints.check(geom, original, overlap_area=overlap_value))
 
@@ -498,7 +499,7 @@ def _apply_min_clearance(geometry: BaseGeometry, min_clearance: Optional[float])
 
 def _apply_initial_merge(
     geometries: List[BaseGeometry],
-    originals: List[BaseGeometry],
+    raw_originals: List[BaseGeometry],
     properties: Optional[List[Dict[str, Any]]],
     merge_constraints: MergeConstraints,
     verbose: bool,
@@ -514,7 +515,7 @@ def _apply_initial_merge(
                 polygons.append(max(geom.geoms, key=lambda g: g.area))
                 sources.append(idx)
         if not polygons:
-            return geometries, originals, properties
+            return geometries, raw_originals, properties
 
         merged, mapping = merge_close_polygons(
             polygons,
@@ -528,8 +529,13 @@ def _apply_initial_merge(
         new_originals: List[BaseGeometry] = []
         for group in mapping:
             source_indices = [sources[i] for i in group]
-            group_originals = [originals[idx] for idx in source_indices]
-            new_originals.append(unary_union(group_originals))
+            group_originals = [raw_originals[idx] for idx in source_indices]
+            try:
+                merged_original = unary_union(group_originals)
+            except Exception:
+                # Fallback to prepared geometries if raw originals are problematic
+                merged_original = unary_union([geometries[idx] for idx in source_indices])
+            new_originals.append(merged_original)
 
         new_properties = properties
         if properties is not None:
@@ -545,7 +551,7 @@ def _apply_initial_merge(
     except Exception as exc:
         if verbose:
             print(f"[Merge] Initial merge skipped: {exc}")
-        return geometries, originals, properties
+        return geometries, raw_originals, properties
 
 
 def _cleanup_geometry(

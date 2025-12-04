@@ -49,6 +49,13 @@ def resolve_overlap_pair(
 ) -> Tuple[Polygon, Polygon]:
     """Resolve an overlap between two polygons using the requested strategy."""
     strategy = coerce_enum(strategy, OverlapStrategy)
+
+
+    # Handle full containment separately so we don't loop forever with an unchanged pair.
+    containment = _detect_containment(poly1, poly2)
+    if containment is not None:
+        return _resolve_containment(containment, strategy)
+
     ctx = _build_context(poly1, poly2)
     if ctx is None:
         return poly1, poly2
@@ -184,6 +191,40 @@ def find_overlapping_groups(
             groups.append(sorted(component))
 
     return groups
+
+
+def _detect_containment(poly1: Polygon, poly2: Polygon) -> Optional[Tuple[Polygon, Polygon, bool]]:
+    """Return (outer, inner, outer_is_first) if one polygon fully contains the other."""
+    if poly1.contains(poly2):
+        return poly1, poly2, True
+    if poly2.contains(poly1):
+        return poly2, poly1, False
+    return None
+
+
+def _resolve_containment(
+    containment: Tuple[Polygon, Polygon, bool],
+    strategy: OverlapStrategy,
+) -> Tuple[Polygon, Polygon]:
+    outer, inner, outer_is_first = containment
+
+    if strategy == OverlapStrategy.LARGEST:
+        # Assign the entire overlap to the outer polygon; drop the inner to avoid double counting.
+        outer_result = outer
+        inner_result = Polygon()
+    else:
+        # Default and SMALLEST: preserve the inner and carve a hole from the outer.
+        carved = outer.difference(inner)
+        if isinstance(carved, MultiPolygon):
+            carved = to_single_polygon(carved)
+        if not isinstance(carved, Polygon):
+            carved = Polygon()
+        outer_result = carved
+        inner_result = inner
+
+    if outer_is_first:
+        return outer_result, inner_result
+    return inner_result, outer_result
 
 
 def _build_context(poly1: Polygon, poly2: Polygon) -> Optional[OverlapContext]:

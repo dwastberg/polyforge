@@ -174,6 +174,24 @@ class TestRemoveOverlaps:
             assert poly.is_valid, "All results should be valid"
             assert not poly.is_empty, "No polygon should be empty"
 
+    def test_contained_polygon_is_carved_from_container(self):
+        """Ensure containment cases are handled instead of skipped."""
+        outer = Polygon([(0, 0), (6, 0), (6, 6), (0, 6)])
+        inner = Polygon([(2, 2), (4, 2), (4, 4), (2, 4)])
+
+        result = remove_overlaps([outer, inner])
+
+        assert len(result) == 2
+        updated_outer, updated_inner = result
+
+        # Inner polygon preserved; outer has a hole carved out.
+        assert updated_inner.equals(inner)
+        assert updated_outer.area == pytest.approx(outer.area - inner.area, rel=1e-9)
+
+        # No overlap remains.
+        overlap = updated_outer.intersection(updated_inner)
+        assert overlap.is_empty or overlap.area < 1e-9
+
 
 class TestCountOverlaps:
     """Test suite for count_overlaps function."""
