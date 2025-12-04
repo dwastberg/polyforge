@@ -82,12 +82,9 @@ def remove_overlaps(
     strategy = coerce_enum(overlap_strategy, OverlapStrategy)
     result = list(polygons)
     iteration = 0
-    tree = STRtree(result)
-
     while iteration < max_iterations:
-        changed = False
-        iteration += 1
-        overlapping_pairs = []
+        tree = STRtree(result)
+        overlaps = []
         seen = set()
 
         for i, poly_i in enumerate(result):
@@ -101,26 +98,31 @@ def remove_overlaps(
                     continue
 
                 overlap = poly_i.intersection(poly_j)
-                if getattr(overlap, "area", 0.0) > 1e-10:
-                    overlapping_pairs.append((i, j))
+                area = getattr(overlap, "area", 0.0)
+                if area > 1e-10:
+                    overlaps.append((area, i, j))
 
-        if not overlapping_pairs:
+        if not overlaps:
             break
 
-        processed = set()
-        independent_pairs = []
+        # Resolve pairs in descending overlap area to prioritize the worst offenders first.
+        overlaps.sort(key=lambda item: item[0], reverse=True)
+        changed = False
 
-        for i, j in overlapping_pairs:
-            if i in processed or j in processed:
+        for _, i, j in overlaps:
+            poly_i = result[i]
+            poly_j = result[j]
+
+            if poly_i.touches(poly_j):
                 continue
-            processed.add(i)
-            processed.add(j)
-            independent_pairs.append((i, j))
 
-        for i, j in independent_pairs:
+            current_overlap = poly_i.intersection(poly_j)
+            if getattr(current_overlap, "area", 0.0) <= 1e-10:
+                continue
+
             result[i], result[j] = resolve_overlap_pair(
-                result[i],
-                result[j],
+                poly_i,
+                poly_j,
                 strategy=strategy,
             )
             changed = True
@@ -128,7 +130,7 @@ def remove_overlaps(
         if not changed:
             break
 
-        tree = STRtree(result)
+        iteration += 1
 
     return result
 

@@ -37,6 +37,20 @@ class TestRemoveOverlaps:
                 overlap = result[i].intersection(result[j])
                 assert overlap.area < 1e-6
 
+    def test_multiple_overlaps_resolved_with_low_iteration_limit(self):
+        """All overlaps are resolved even when multiple pairs share polygons."""
+        poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        poly2 = Polygon([(1, 0), (3, 0), (3, 2), (1, 2)])
+        poly3 = Polygon([(2, 0), (4, 0), (4, 2), (2, 2)])
+
+        # Previously only one pair per iteration would be processed; ensure we resolve all.
+        result = remove_overlaps([poly1, poly2, poly3], max_iterations=1)
+
+        assert len(result) == 3
+        assert count_overlaps(result) == 0
+        for poly in result:
+            assert poly.is_valid
+
     def test_multiple_overlapping_same_polygon(self):
         """Test multiple polygons overlapping the same central polygon."""
         # Central polygon
