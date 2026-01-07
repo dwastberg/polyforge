@@ -7,7 +7,7 @@ name = "polyforge"
 version = "0.1.0a1"
 description = "polygon processing and manipulation library built on Shapely - simplification, repair, merging, overlap resolution, and clearance fixing"
 authors = [
-    {name = "Dag Wastberg", email = "dag.wastberg@example.com"}
+    {name = "Dag Wastberg", email = "dwastberg@gmail.com"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
@@ -28,18 +28,18 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-[project.urls]
-Homepage = "https://github.com/dwastberg/polyforge"
-Repository = "https://github.com/dwastberg/polyforge"
-Issues = "https://github.com/dwastberg/polyforge/issues"
-Changelog = "https://github.com/dwastberg/polyforge/releases"
-
 dependencies = [
     "numpy>=2.0.1",
     "scipy>=1.15.3",
     "shapely>=2.1.0",
     "simplification>=0.7.14",
 ]
+
+[project.urls]
+Homepage = "https://github.com/dwastberg/polyforge"
+Repository = "https://github.com/dwastberg/polyforge"
+Issues = "https://github.com/dwastberg/polyforge/issues"
+Changelog = "https://github.com/dwastberg/polyforge/releases"
 
 [dependency-groups]
 dev = [
