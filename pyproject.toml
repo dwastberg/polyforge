@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "polyforge"
-version = "0.1.0"
+version = "0.1.0a"
 description = "polygon processing and manipulation library built on Shapely - simplification, repair, merging, overlap resolution, and clearance fixing"
 requires-python = ">=3.10"
 dependencies = [
