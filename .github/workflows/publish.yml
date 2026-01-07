@@ -46,7 +46,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v --tb=short
+          uv run pytest tests/ -v --tb=short
 
       - name: Build package
         run: python -m build
