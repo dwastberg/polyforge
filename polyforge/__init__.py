@@ -4,6 +4,7 @@ This library provides utilities for processing, simplifying, and manipulating
 polygon geometries using Shapely.
 """
 
+__version__ = "0.1.0a1"
 
 # Simplification functions
 from .simplify import (

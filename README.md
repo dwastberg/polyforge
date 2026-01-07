@@ -110,40 +110,7 @@ fixed = fix_hole_too_close(collapsed, min_clearance=1.0, strategy="shrink")
 merged = merge_selective_buffer([fixed, fixed.translate(1.5, 0)], margin=0.5, preserve_holes=True)
 ```
 
-These ops modules expose the same functions the public API uses internally, so they’re ideal for custom workflows or experimentation.
-
-### Using the ops modules directly
-The public API (`polyforge.simplify`, `polyforge.clearance`, `polyforge.merge`) covers most workflows, but the ops layer is available if you need fine-grained control (e.g., custom pipelines, bulk transformations). A few quick examples:
-
-```python
-from shapely.geometry import Polygon
-import numpy as np
-from polyforge.process import process_geometry
-from polyforge.ops.simplify_ops import snap_short_edges
-
-poly = Polygon([(0, 0), (1, 0.01), (2, 0), (2, 2), (0, 2)])
-# Call the raw NumPy helper via process_geometry
-short_edges_collapsed = process_geometry(
-    poly,
-    snap_short_edges,
-    min_length=0.1,
-    snap_mode="midpoint",
-)
-```
-
-```python
-from polyforge.ops.clearance import fix_hole_too_close
-
-result = fix_hole_too_close(poly, min_clearance=1.0, strategy="shrink")
-```
-
-```python
-from polyforge.ops.merge import merge_selective_buffer
-
-merged = merge_selective_buffer([poly1, poly2], margin=1.0, preserve_holes=True)
-```
-
-Use these helpers when you need to compose Polyforge primitives in ways the high-level wrappers don’t cover. For everything else, prefer the public API (`polyforge.simplify`, `polyforge.clearance`, `polyforge.merge`, `polyforge.repair`).
+These ops modules expose the same functions the public API uses internally, so they're ideal for custom workflows or experimentation.
 
 ## Running Tests
 ```bash

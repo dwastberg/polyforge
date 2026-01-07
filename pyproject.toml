@@ -4,9 +4,36 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "polyforge"
-version = "0.1.0a"
+version = "0.1.0a1"
 description = "polygon processing and manipulation library built on Shapely - simplification, repair, merging, overlap resolution, and clearance fixing"
+authors = [
+    {name = "Dag Wastberg", email = "dag.wastberg@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+keywords = ["geometry", "polygon", "shapely", "gis", "spatial", "simplification", "repair", "merge", "overlap"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/dwastberg/polyforge"
+Repository = "https://github.com/dwastberg/polyforge"
+Issues = "https://github.com/dwastberg/polyforge/issues"
+Changelog = "https://github.com/dwastberg/polyforge/releases"
+
 dependencies = [
     "numpy>=2.0.1",
     "scipy>=1.15.3",
