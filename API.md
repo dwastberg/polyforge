@@ -57,7 +57,7 @@ Underlying utilities such as `_find_nearest_vertex_index`, `_point_to_segment_di
 
 ## Overlap Management (`polyforge.overlap`)
 - `split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT)` – Convenience alias for `resolve_overlap_pair`.
-- `resolve_overlap_pair(poly1, poly2, strategy=OverlapStrategy.SPLIT)` – Resolves the shared area between two polygons. Strategies: `SPLIT` (cut overlap roughly in half along a centroid-informed line), `LARGEST` (assign entire overlap to larger polygon), `SMALLEST` (assign to smaller).
+- `resolve_overlap_pair(poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT)` – Resolves the shared area between two polygons. Strategies: `SPLIT` (cut overlap roughly in half along a centroid-informed line), `LARGEST` (assign entire overlap to larger polygon), `SMALLEST` (assign to smaller).
 - `remove_overlaps(polygons, overlap_strategy=OverlapStrategy.SPLIT, max_iterations=100)` – Iteratively resolves overlaps across a list using STRtree acceleration and pairwise resolution.
 - `count_overlaps(polygons, min_area_threshold=1e-10)` – Returns the number of polygon pairs with overlap area above the threshold.
 - `find_overlapping_groups(polygons, min_area_threshold=1e-10)` – Returns connected components (lists of indices) representing overlap groups, useful before merging or repair passes.
