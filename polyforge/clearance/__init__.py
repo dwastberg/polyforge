@@ -27,21 +27,10 @@ from .fix_clearance import (
     ClearanceFixSummary,
 )
 
-# Import utility functions from ops
-from polyforge.ops.clearance import (
-    _find_nearest_vertex_index,
-    _find_nearest_edge_index,
-    _point_to_segment_distance,
-    _point_to_line_perpendicular_distance,
-    _get_vertex_neighborhood,
-    _calculate_curvature_at_vertex,
-    _remove_vertices_between,
-)
-
 __all__ = [
     # Main public API
-    'fix_clearance',  # Auto-detection and fixing
-    'diagnose_clearance',  # Diagnosis without fixing
+    'fix_clearance',
+    'diagnose_clearance',
     'ClearanceIssue',
     'ClearanceDiagnosis',
     'ClearanceFixSummary',
@@ -52,11 +41,4 @@ __all__ = [
     'fix_narrow_passage',
     'fix_near_self_intersection',
     'fix_parallel_close_edges',
-    # Utility functions (for advanced users and tests)
-    # '_find_nearest_vertex_index',
-    # '_find_nearest_edge_index',
-    # '_point_to_segment_distance',
-    # '_get_vertex_neighborhood',
-    # '_calculate_curvature_at_vertex',
-    # '_remove_vertices_between',
 ]

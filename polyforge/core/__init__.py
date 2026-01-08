@@ -10,10 +10,6 @@ from .types import (
     RepairStrategy,
     SimplifyAlgorithm,
     CollapseMode,
-    HoleStrategy,
-    PassageStrategy,
-    IntrusionStrategy,
-    IntersectionStrategy,
     coerce_enum,
 )
 
@@ -43,11 +39,6 @@ __all__ = [
     'RepairStrategy',
     'SimplifyAlgorithm',
     'CollapseMode',
-    # Strategy enums (internal - for ops/ modules)
-    'HoleStrategy',
-    'PassageStrategy',
-    'IntrusionStrategy',
-    'IntersectionStrategy',
     'coerce_enum',
 
     # Exceptions

@@ -11,9 +11,44 @@ def fix_with_simplify(
     tolerance: float,
     verbose: bool
 ) -> BaseGeometry:
-    """Fix geometry using simplification.
+    """Fix geometry using progressive simplification.
 
-    Simplification can remove problematic vertices causing invalidity.
+    Simplification can remove problematic vertices that cause invalidity.
+    This function tries increasingly aggressive simplification until a
+    valid result is achieved.
+
+    The simplification sequence is:
+
+    1. Clean coordinates (remove duplicates, close rings)
+    2. Simplify with tolerance × 10 (topology preserving)
+    3. Simplify with tolerance × 100 (topology preserving)
+    4. Simplify with tolerance × 1000 (topology preserving)
+    5. Simplify with tolerance × 1000 (non-topology preserving, last resort)
+
+    Parameters
+    ----------
+    geometry : BaseGeometry
+        The potentially invalid geometry to repair.
+    tolerance : float
+        Base tolerance. Actual simplification uses 10x to 1000x this value.
+    verbose : bool
+        If True, print diagnostic messages (currently unused).
+
+    Returns
+    -------
+    BaseGeometry
+        A valid, simplified geometry.
+
+    Raises
+    ------
+    RepairError
+        If no simplification level produces a valid geometry.
+
+    Notes
+    -----
+    This strategy reduces vertex count and may significantly change
+    the geometry shape. For shape-preserving repairs, prefer BUFFER
+    or STRICT strategies.
     """
     try:
         # Clean coordinates first

@@ -25,6 +25,7 @@ from polyforge.ops.clearance import (
 from polyforge.core.geometry_utils import to_single_polygon
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
 from polyforge.core.iterative_utils import iterative_improve
+from polyforge.metrics import _safe_clearance
 
 
 class ClearanceIssue(Enum):
@@ -268,13 +269,6 @@ def _normalize_polygon(candidate: Optional[BaseGeometry]) -> Optional[Polygon]:
         return None
     polygon = to_single_polygon(candidate)
     return polygon if polygon.is_valid and not polygon.is_empty else None
-
-
-def _safe_clearance(geometry: Polygon) -> float:
-    try:
-        return float(geometry.minimum_clearance)
-    except Exception:
-        return 0.0
 
 
 def _diagnose_clearance_issue(

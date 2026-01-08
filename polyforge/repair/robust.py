@@ -23,7 +23,7 @@ from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConst
 from ..core.errors import FixWarning
 from ..core.geometry_utils import safe_buffer_fix, validate_and_fix
 from ..core.types import OverlapStrategy, RepairStrategy
-from ..metrics import overlap_area_by_geometry, total_overlap_area
+from ..metrics import _safe_clearance, overlap_area_by_geometry, total_overlap_area
 from ..clearance.fix_clearance import fix_clearance
 from ..merge import merge_close_polygons
 from ..overlap import remove_overlaps
@@ -307,7 +307,7 @@ def _clearance_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
         return StepResult("clearance", geometry, False, "no target")
 
     current_clearance = _safe_clearance(geometry)
-    if current_clearance is not None and current_clearance + 1e-9 >= target:
+    if current_clearance + 1e-9 >= target:
         return StepResult("clearance", geometry, False, "meets target")
 
     improved = _apply_clearance_fix(geometry, target)
@@ -590,13 +590,6 @@ def _apply_clearance_fix(geometry: BaseGeometry, min_clearance: Optional[float])
     return geometry
 
 
-def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
-    try:
-        return geometry.minimum_clearance
-    except Exception:
-        return None
-
-
 def _copy_properties(
     props: Optional[List[Dict[str, Any]]],
 ) -> Optional[List[Dict[str, Any]]]:
@@ -653,7 +646,7 @@ def _smooth_low_clearance(
         return geometry
 
     clearance = _safe_clearance(geometry)
-    if clearance is None or clearance >= min_clearance:
+    if clearance >= min_clearance:
         return geometry
 
     # Scale buffer distance to half the target clearance

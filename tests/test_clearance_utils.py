@@ -1,10 +1,14 @@
-"""Tests for clearance utility functions."""
+"""Tests for clearance utility functions.
+
+Note: These tests cover internal utility functions from the ops layer.
+They are not part of the public API but are tested for correctness.
+"""
 
 import numpy as np
 import pytest
 from shapely.geometry import Point, Polygon
 
-from polyforge.clearance import (
+from polyforge.ops.clearance.utils import (
     _find_nearest_vertex_index,
     _find_nearest_edge_index,
     _point_to_segment_distance,

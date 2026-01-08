@@ -39,31 +39,30 @@ def split_overlap(
 ) -> Tuple[Polygon, Polygon]:
     """Backwards-compatible helper that simply calls :func:`resolve_overlap_pair`."""
     strategy = coerce_enum(overlap_strategy, OverlapStrategy)
-    return resolve_overlap_pair(poly1, poly2, strategy=strategy)
+    return resolve_overlap_pair(poly1, poly2, overlap_strategy=strategy)
 
 
 def resolve_overlap_pair(
     poly1: Polygon,
     poly2: Polygon,
-    strategy: OverlapStrategy = OverlapStrategy.SPLIT,
+    overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
 ) -> Tuple[Polygon, Polygon]:
     """Resolve an overlap between two polygons using the requested strategy."""
-    strategy = coerce_enum(strategy, OverlapStrategy)
-
+    overlap_strategy = coerce_enum(overlap_strategy, OverlapStrategy)
 
     # Handle full containment separately so we don't loop forever with an unchanged pair.
     containment = _detect_containment(poly1, poly2)
     if containment is not None:
-        return _resolve_containment(containment, strategy)
+        return _resolve_containment(containment, overlap_strategy)
 
     ctx = _build_context(poly1, poly2)
     if ctx is None:
         return poly1, poly2
 
-    if strategy == OverlapStrategy.LARGEST:
+    if overlap_strategy == OverlapStrategy.LARGEST:
         prefer_first = poly1.area >= poly2.area
         return _assign_entire_overlap(ctx, prefer_first)
-    if strategy == OverlapStrategy.SMALLEST:
+    if overlap_strategy == OverlapStrategy.SMALLEST:
         prefer_first = poly1.area <= poly2.area
         return _assign_entire_overlap(ctx, prefer_first)
 
@@ -123,7 +122,7 @@ def remove_overlaps(
             result[i], result[j] = resolve_overlap_pair(
                 poly_i,
                 poly_j,
-                strategy=strategy,
+                overlap_strategy=strategy,
             )
             changed = True
 
@@ -206,11 +205,11 @@ def _detect_containment(poly1: Polygon, poly2: Polygon) -> Optional[Tuple[Polygo
 
 def _resolve_containment(
     containment: Tuple[Polygon, Polygon, bool],
-    strategy: OverlapStrategy,
+    overlap_strategy: OverlapStrategy,
 ) -> Tuple[Polygon, Polygon]:
     outer, inner, outer_is_first = containment
 
-    if strategy == OverlapStrategy.LARGEST:
+    if overlap_strategy == OverlapStrategy.LARGEST:
         # Assign the entire overlap to the outer polygon; drop the inner to avoid double counting.
         outer_result = outer
         inner_result = Polygon()

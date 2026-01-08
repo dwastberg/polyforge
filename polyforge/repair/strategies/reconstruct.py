@@ -12,9 +12,40 @@ def fix_with_reconstruct(
     tolerance: float,
     verbose: bool
 ) -> BaseGeometry:
-    """Fix geometry by reconstructing from points.
+    """Fix geometry by reconstructing from its convex hull.
 
-    Uses convex hull or point-based reconstruction.
+    This is a last-resort strategy that reconstructs the geometry using
+    its convex hull. The result is always valid but loses concave features
+    and interior holes.
+
+    Parameters
+    ----------
+    geometry : BaseGeometry
+        The potentially invalid geometry to repair.
+    tolerance : float
+        Tolerance parameter (currently unused, kept for API consistency).
+    verbose : bool
+        If True, print diagnostic messages (currently unused).
+
+    Returns
+    -------
+    BaseGeometry
+        The convex hull of the input geometry.
+
+    Raises
+    ------
+    RepairError
+        If the geometry has fewer than 3 coordinates or convex hull fails.
+
+    Warnings
+    --------
+    This strategy produces significant shape changes:
+
+    - All concave features are removed
+    - All interior holes are removed
+    - Result is always convex
+
+    Only use when other strategies have failed.
     """
     try:
         geom_type = geometry.geom_type

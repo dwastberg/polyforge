@@ -30,7 +30,7 @@ Polyforge is a polygon processing and manipulation library built on top of Shape
 
 ### Testing
 ```bash
-# Run all tests (427 tests)
+# Run all tests (497 tests)
 python -m pytest tests/ -v
 
 # Run specific test file
@@ -44,13 +44,6 @@ python -m pytest tests/ --tb=short
 
 # Quick run (quiet mode)
 python -m pytest tests/ -q
-```
-
-### Running Examples
-```bash
-# Examples require PYTHONPATH set
-PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/generators/simplification_examples.py
-PYTHONPATH=/Users/dwastberg/repos/polyforge:$PYTHONPATH python examples/generators/overlap_examples.py
 ```
 
 ### Python Environment
@@ -101,7 +94,7 @@ polyforge/
 ├── topology.py                 # Boundary alignment operations
 ├── tile.py                     # Polygon tiling functions
 ├── pipeline.py                 # Minimal pipeline runner (FixConfig, PipelineContext, run_steps)
-├── metrics.py                  # Measurement utilities (measure_geometry, total_overlap_area)
+├── metrics.py                  # Measurement utilities (measure_geometry, total_overlap_area, _safe_clearance)
 ├── merge/                      # Polygon merging public API
 │   ├── __init__.py
 │   └── core.py                 # merge_close_polygons() orchestration
@@ -151,8 +144,10 @@ Three distinct layers:
 - `metrics.py` provides measurement functions:
   - `measure_geometry()`: Returns dict with is_valid, clearance, area, area_ratio
   - `total_overlap_area()`: Computes overlap within a collection of geometries
+  - `_safe_clearance()`: Centralized helper for safe clearance extraction (returns 0.0 on error)
 - Constraint validation uses these metrics to check quality requirements
 - Avoids coupling constraint checking to specific data structures
+- **Note:** `_safe_clearance()` is used internally by `metrics.py`, `repair/robust.py`, and `clearance/fix_clearance.py`
 
 **5. Enum-Based Strategy Parameters (Public API)**
 - All strategy parameters accept enum types from `core/types.py`
@@ -261,6 +256,7 @@ The batch fixing pipeline runs in 3 phases:
 
 **Overlap Resolution:**
 - `split_overlap()` is now an alias for `resolve_overlap_pair()` in `overlap.py`
+- Both functions use the parameter name `overlap_strategy` (not `strategy`)
 - `remove_overlaps()` handles many-to-many overlaps using spatial indexing
 - Returns originals unchanged for: no overlap, containment, or touching-only
 
@@ -307,7 +303,10 @@ The batch fixing pipeline runs in 3 phases:
 - One test file per module: `test_overlap.py`, `test_repair.py`, `test_robust_fix.py`, etc.
 - Tests organized into classes by functionality
 - Pattern: `TestFunctionName` for main tests, `TestEdgeCases` for edge cases
-- **Total: 427 tests** (all passing as of latest refactoring)
+- **Total: 497 tests** (all passing as of v0.1.0 release cleanup)
+- **New test files:**
+  - `test_metrics.py`: 27 tests covering metrics module (measure_geometry, total_overlap_area, overlap_area_by_geometry)
+  - Expanded `test_pipeline.py`: From 5 to 16 tests covering multi-step pipelines and FixConfig
 
 ### Test Patterns Used
 ```python
@@ -428,13 +427,15 @@ def my_function(geometry, my_strategy: Union[MyStrategy, str] = MyStrategy.DEFAU
 
 ### Enum Usage
 - All strategy parameters accept enum types (and strings via coerce_enum)
-- Enums are defined in `core/types.py`:
+- **Public enums** exported from `core/__init__.py`:
   - `OverlapStrategy` - SPLIT, LARGEST, SMALLEST
   - `MergeStrategy` - SIMPLE_BUFFER, SELECTIVE_BUFFER, VERTEX_MOVEMENT, BOUNDARY_EXTENSION, CONVEX_BRIDGES
   - `RepairStrategy` - AUTO, BUFFER, SIMPLIFY, RECONSTRUCT, STRICT
   - `SimplifyAlgorithm` - RDP, VW, VWP
   - `CollapseMode` - MIDPOINT, FIRST, LAST
-  - Plus 5 clearance-specific enums: `HoleStrategy`, `PassageStrategy`, `IntrusionStrategy`, `IntersectionStrategy`, `EdgeStrategy`
+- **Internal enums** (defined in `core/types.py` but NOT publicly exported):
+  - `HoleStrategy`, `PassageStrategy`, `IntrusionStrategy`, `IntersectionStrategy` (for clearance operations)
+  - These are used internally by `ops/clearance/` modules
 - Enums do NOT inherit from `str` (pure Enum types)
 - `coerce_enum()` helper allows both enum and string values internally
 
@@ -448,27 +449,26 @@ def my_function(geometry, my_strategy: Union[MyStrategy, str] = MyStrategy.DEFAU
 ## Common Gotchas
 
 1. **Enum/String Coercion:** Public API uses enums, but `coerce_enum()` accepts strings too. Tests can use either.
-2. **Parameter Names Matter:** Use `merge_strategy` not `strategy`, `min_area_threshold` not `tolerance` (context-dependent)
-3. **Closed Rings:** Polygon exterior/interior rings must have first == last vertex
-4. **Empty Geometries:** Always check `geom.is_empty` before accessing properties
-5. **MultiPolygon Results:** Many operations can return MultiPolygon even when input was Polygon
-6. **Spatial Index Queries:** `tree.query()` returns candidates, must validate actual intersection
-7. **Buffer Distance:** `buffer(0)` is not the same as `buffer(0.0)` in some Shapely versions
-8. **Function Names:** Use `repair_geometry` not `fix_geometry`, `collapse_short_edges` not `snap_short_edges`
-9. **Exception Names:** Use `RepairError` not `GeometryRepairError` or `GeometryFixError`
-10. **split_overlap is now an alias:** `split_overlap()` directly calls `resolve_overlap_pair()` in `overlap.py`
-11. **ops/ is internal:** Don't import from `polyforge.ops.*` - use public API from top-level modules
+2. **Parameter Names Matter:** Use domain-specific names: `overlap_strategy`, `merge_strategy`, `repair_strategy` (not generic `strategy`)
+3. **Internal Enums Not Public:** Clearance strategy enums (`HoleStrategy`, etc.) are in `core/types.py` but NOT exported from `core/__init__.py`
+4. **Closed Rings:** Polygon exterior/interior rings must have first == last vertex
+5. **Empty Geometries:** Always check `geom.is_empty` before accessing properties
+6. **MultiPolygon Results:** Many operations can return MultiPolygon even when input was Polygon
+7. **Spatial Index Queries:** `tree.query()` returns candidates, must validate actual intersection
+8. **Buffer Distance:** `buffer(0)` is not the same as `buffer(0.0)` in some Shapely versions
+9. **Function Names:** Use `repair_geometry` not `fix_geometry`, `collapse_short_edges` not `snap_short_edges`
+10. **Exception Names:** Use `RepairError` not `GeometryRepairError` or `GeometryFixError`
+11. **split_overlap is now an alias:** `split_overlap()` directly calls `resolve_overlap_pair()` in `overlap.py`
+12. **ops/ is internal:** Don't import from `polyforge.ops.*` - use public API from top-level modules
+13. **_safe_clearance location:** Centralized in `metrics.py` - don't duplicate it elsewhere
 
 ## Documentation
 
 ### Comprehensive Documentation Available
 - **README.md**: Project overview, quick start, architecture guide, performance notes
-- **API.md**: Complete API reference for all functions, enums, exceptions (if exists)
-- **SIMPLIFY_CODE_DESIGN.md**: Detailed analysis of refactoring decisions
-- **SIMPLIFY_DESIGN.md**: Functional architecture proposal and rationale
-- **examples/**: Example scripts using framework
-  - `examples/framework/`: Test data generators and plotting utilities
-  - `examples/generators/`: Specific example generators (simplification, overlap)
+- **API.md**: Complete API reference for all functions, enums, exceptions
+- **PUBLISHING.md**: Guide for publishing to PyPI
+- **CLAUDE.md**: Developer guide with architecture details, testing conventions, and code patterns
 
 ## Quick Reference: Common Imports
 
@@ -515,20 +515,18 @@ from polyforge.core import (
     ConstraintType,       # Enum of constraint types
 )
 
-# Strategy enums (10 enums)
+# Strategy enums (5 public enums)
 from polyforge.core import (
     OverlapStrategy,
     MergeStrategy,
     RepairStrategy,
     SimplifyAlgorithm,
     CollapseMode,
-    HoleStrategy,
-    PassageStrategy,
-    IntrusionStrategy,
-    IntersectionStrategy,
-    EdgeStrategy,
     coerce_enum,  # Helper to convert string → enum
 )
+
+# Internal clearance enums (NOT exported publicly, but available from core.types if needed)
+# from polyforge.core.types import HoleStrategy, PassageStrategy, IntrusionStrategy, IntersectionStrategy
 
 # Exceptions (8 exceptions)
 from polyforge.core import (
@@ -545,7 +543,42 @@ from polyforge.core import (
 
 ## Recent Major Changes (for context)
 
-### Architectural Refactoring (Latest - Major Simplification)
+### v0.1.0 Release Cleanup (January 2026 - Latest)
+**Prepared library for first proper release with API consistency and code cleanup:**
+
+**Changes Made:**
+
+1. **API Breaking Change**:
+   - Renamed `resolve_overlap_pair(strategy=...)` → `resolve_overlap_pair(overlap_strategy=...)`
+   - Ensures consistency with `split_overlap()`, `merge_close_polygons()`, `repair_geometry()` which all use domain-specific parameter names
+   - **Impact:** Breaking change for alpha users, but ensures clean API going forward
+
+2. **Export Cleanup**:
+   - Removed internal clearance enums (`HoleStrategy`, `PassageStrategy`, `IntrusionStrategy`, `IntersectionStrategy`) from `core/__init__.py` public exports
+   - These remain in `core/types.py` for internal use by `ops/clearance/` modules
+   - Removed private function imports from `clearance/__init__.py` (utilities now accessed directly from `ops/clearance/utils.py` when needed)
+   - **Impact:** Cleaner public API surface, reduced confusion about internal vs public APIs
+
+3. **Code Deduplication**:
+   - Consolidated `_safe_clearance()` function (was duplicated in 3 files)
+   - Canonical version now in `metrics.py`, imported by `repair/robust.py` and `clearance/fix_clearance.py`
+   - Returns `float` with 0.0 fallback for consistency
+   - **Impact:** Single source of truth, easier maintenance
+
+4. **Documentation Improvements**:
+   - Added comprehensive NumPy-style docstrings to all repair strategy functions
+   - Files updated: `repair/strategies/auto.py`, `buffer.py`, `simplify.py`, `reconstruct.py`, `strict.py`
+   - **Impact:** Better developer experience, clearer strategy differences
+
+5. **Test Coverage Expansion**:
+   - Created `tests/test_metrics.py` with 27 tests for metrics module
+   - Expanded `tests/test_pipeline.py` from 5 to 16 tests
+   - Total test count increased: 458 → 497 tests
+   - **Impact:** Better coverage of metrics and pipeline functionality
+
+**All 497 tests pass**
+
+### Architectural Refactoring (November 2025 - Major Simplification)
 **Major restructuring of the codebase to separate concerns:**
 
 **Changes Made:**
@@ -589,7 +622,7 @@ from polyforge.core import (
 - Clearer separation of concerns (API / orchestration / operations)
 - More testable pure functions in `ops/` layer
 - Lighter orchestration without transaction/stage overhead
-- **All 427 tests pass**
+- All tests passed (458 tests at that time)
 
 **Philosophy:**
 - **Functional core, object shell**: Pure operations internally, typed API externally
@@ -660,7 +693,7 @@ from polyforge.core import (
 
 ---
 
-**Document Version**: 2.0
-**Date**: 2025-11-11
-**Last Updated**: 2025-11-11 (Complete architectural refactoring update)
-**Author**: Updated to reflect ops/ layer, pipeline system, and current codebase structure
+**Document Version**: 2.1
+**Date**: 2026-01-08
+**Last Updated**: 2026-01-08 (v0.1.0 release cleanup)
+**Author**: Updated to reflect release cleanup, API consistency improvements, and expanded test coverage

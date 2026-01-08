@@ -15,11 +15,16 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 
-def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
+def _safe_clearance(geometry: BaseGeometry) -> float:
+    """Safely get the minimum clearance of a geometry.
+
+    Returns 0.0 if the clearance cannot be computed (e.g., invalid geometry).
+    """
     try:
-        return geometry.minimum_clearance
+        val = geometry.minimum_clearance
+        return float(val) if val is not None else 0.0
     except Exception:
-        return None
+        return 0.0
 
 
 def measure_geometry(
