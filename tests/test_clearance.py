@@ -469,6 +469,22 @@ class TestFixNarrowPassage:
         # Should improve toward target
         assert result.minimum_clearance >= poly.minimum_clearance
 
+    def test_widen_increases_clearance_arap(self):
+        """Test that widening improves clearance."""
+        # Simple narrow passage
+        coords = [
+            (0, 0), (1, 0), (0.9, 1), (1, 2),
+            (0, 2), (0.1, 1)
+        ]
+        poly = Polygon(coords)
+        target_clearance = 0.5
+
+        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy=PassageStrategy.ARAP )
+
+        assert result.is_valid
+        # Should improve toward target
+        assert result.minimum_clearance >= poly.minimum_clearance
+
     def test_split_strategy(self):
         """Test splitting polygon at narrow passage."""
         # Dumbbell shape
@@ -501,6 +517,18 @@ class TestFixNarrowPassage:
         # Should be essentially unchanged
         assert result.exterior.coords[:] == poly.exterior.coords[:]
 
+    def test_already_wide_enough_arap(self):
+        """Test that wide passages are unchanged."""
+        # Wide rectangle
+        coords = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+
+        result = fix_narrow_passage(poly, min_clearance=2.0, strategy=PassageStrategy.ARAP)
+
+        assert result.is_valid
+        # Should be essentially unchanged
+        assert result.exterior.coords[:] == poly.exterior.coords[:]
+
     def test_preserves_holes(self):
         """Test that holes are preserved when widening."""
         # Simple polygon with hole (not self-intersecting)
@@ -509,6 +537,19 @@ class TestFixNarrowPassage:
         poly = Polygon(exterior, holes=[hole])
 
         result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
+
+        assert result.is_valid
+        # Holes should be preserved
+        assert len(result.interiors) == 1
+
+    def test_preserves_holes_arap(self):
+        """Test that holes are preserved when widening."""
+        # Simple polygon with hole (not self-intersecting)
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
+        poly = Polygon(exterior, holes=[hole])
+
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.ARAP)
 
         assert result.is_valid
         # Holes should be preserved
@@ -572,6 +613,39 @@ class TestFixNarrowPassage:
 
         assert result.geom_type in ("MultiPolygon", "GeometryCollection")
         assert not result.is_empty
+
+    def test_arap_widens_notch_shaped_passage(self):
+        """ARAP strategy should widen notch/indentation-shaped narrow passages.
+
+        This tests a bug where ARAP returns the polygon unchanged for notch shapes.
+        The issue: erosion fills in the notch (stays single Polygon), so the algorithm
+        incorrectly assumes clearance is sufficient and returns early.
+
+        The notch is 0.1 units wide but min_clearance is 0.2, so widening is needed.
+        """
+        # Rectangle with narrow notch from the top
+        # The notch goes from (0.95, 0.5) to (1.05, 0.5) - width is 0.1
+        coords = [
+            (0, 0), (2, 0), (2, 1), (1.05, 1), (1.05, 0.5), (0.95, 0.5), (0.95, 1), (0, 1)
+        ]
+        poly = Polygon(coords)
+
+        original_clearance = poly.minimum_clearance
+        min_clearance = 0.2
+
+        # Verify the test setup is correct
+        assert original_clearance < min_clearance, (
+            f"Test setup error: original clearance {original_clearance} should be < {min_clearance}"
+        )
+
+        result = fix_narrow_passage(poly, min_clearance=min_clearance, strategy=PassageStrategy.ARAP)
+
+        assert result.is_valid
+        # The clearance should improve to at least the target (with small tolerance for floating-point)
+        assert result.minimum_clearance >= min_clearance * 0.99, (
+            f"ARAP should widen notch to meet min_clearance={min_clearance}, "
+            f"but clearance is {result.minimum_clearance} (was {original_clearance})"
+        )
 
 
 class TestFixNearSelfIntersection:

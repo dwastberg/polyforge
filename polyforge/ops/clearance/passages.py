@@ -20,6 +20,7 @@ from polyforge.core.types import (
     coerce_enum,
 )
 
+from .arap import widen_narrow_passage_offset_arap_lite
 
 @dataclass
 class SelfIntersectionContext:
@@ -511,6 +512,7 @@ def fix_narrow_passage(
         strategy: How to fix the passage:
             - PassageStrategy.WIDEN: Move vertices apart at narrow point (default)
             - PassageStrategy.SPLIT: Split into separate polygons at narrow point
+            - PassgaeStrategy.ARAP: Use ARAP-based offsetting to widen passage
 
     Returns:
         Fixed geometry (Polygon if widened, MultiPolygon if split)
@@ -531,8 +533,10 @@ def fix_narrow_passage(
 
     if strategy_enum == PassageStrategy.SPLIT:
         return _split_narrow_passage(geometry)
-    else:
+    elif strategy_enum == PassageStrategy.WIDEN:
         return _widen_narrow_passage(geometry, min_clearance)
+    elif strategy_enum == PassageStrategy.ARAP:
+        return widen_narrow_passage_offset_arap_lite(geometry, min_clearance) or geometry
 
 
 def fix_near_self_intersection(
