@@ -1,6 +1,6 @@
 import numpy as np
 import shapely
-from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse import lil_matrix, csc_matrix
 from scipy.sparse.linalg import factorized
 from shapely.geometry import Polygon, Point
 from shapely.ops import nearest_points
@@ -30,7 +30,7 @@ class ARAPLiteSolver:
     def _idx(self, i, d):
         return i * self.dim + d
 
-    def _build_matrix(self) -> csr_matrix:
+    def _build_matrix(self) -> csc_matrix:
         A = lil_matrix((self.size, self.size))
 
         # Edge rigidity terms
@@ -47,7 +47,8 @@ class ARAPLiteSolver:
             for d in range(self.dim):
                 A[self._idx(vi, d), self._idx(vi, d)] += self.weight
 
-        return A.tocsr()
+        # Return as CSC format - factorized() prefers this and avoids conversion warning
+        return A.tocsc()
 
     def solve_positions(
         self,
