@@ -647,6 +647,38 @@ class TestFixNarrowPassage:
             f"but clearance is {result.minimum_clearance} (was {original_clearance})"
         )
 
+    def test_widen_strategy_widens_notch_shaped_passage(self):
+        """WIDEN strategy should widen notch/indentation-shaped narrow passages.
+
+        Similar to the ARAP bug, the WIDEN strategy may also struggle with notch shapes
+        where the clearance line goes from a vertex on one side to an edge on another.
+
+        The notch is 0.1 units wide but min_clearance is 0.2, so widening is needed.
+        """
+        # Rectangle with narrow notch from the top
+        # The notch goes from (0.95, 0.5) to (1.05, 0.5) - width is 0.1
+        coords = [
+            (0, 0), (2, 0), (2, 1), (1.05, 1), (1.05, 0.5), (0.95, 0.5), (0.95, 1), (0, 1)
+        ]
+        poly = Polygon(coords)
+
+        original_clearance = poly.minimum_clearance
+        min_clearance = 0.2
+
+        # Verify the test setup is correct
+        assert original_clearance < min_clearance, (
+            f"Test setup error: original clearance {original_clearance} should be < {min_clearance}"
+        )
+
+        result = fix_narrow_passage(poly, min_clearance=min_clearance, strategy=PassageStrategy.WIDEN)
+
+        assert result.is_valid
+        # The clearance should improve to at least the target (with small tolerance for floating-point)
+        assert result.minimum_clearance >= min_clearance * 0.99, (
+            f"WIDEN should widen notch to meet min_clearance={min_clearance}, "
+            f"but clearance is {result.minimum_clearance} (was {original_clearance})"
+        )
+
 
 class TestFixNearSelfIntersection:
     """Tests for fix_near_self_intersection function."""

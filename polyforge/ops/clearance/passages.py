@@ -286,9 +286,9 @@ def _move_single_vertex_perpendicular(
     new_poly = _create_polygon_with_new_coords(new_coords, original_geometry, min_area)
 
     if new_poly is not None:
-        # Only return if clearance improved
+        # Accept if clearance improved OR stayed similar (bottleneck may have moved)
         new_clearance = new_poly.minimum_clearance
-        if new_clearance > current_clearance:
+        if new_clearance >= current_clearance * 0.99:  # Allow bottleneck to move
             return new_poly
 
     return None
@@ -398,9 +398,9 @@ def _move_two_vertices(
     new_poly = _create_polygon_with_new_coords(new_coords, original_geometry, min_area)
 
     if new_poly is not None:
-        # Only return if clearance improved
+        # Accept if clearance improved OR stayed similar (bottleneck may have moved)
         new_clearance = new_poly.minimum_clearance
-        if new_clearance > current_clearance:
+        if new_clearance >= current_clearance * 0.99:  # Allow bottleneck to move
             return new_poly
 
     return None
@@ -475,7 +475,7 @@ def _widen_narrow_passage(
                 result = new_poly
                 continue
             else:
-                return result
+                break  # Can't improve, exit loop but return best result
 
         # General case: move two vertices apart
         required_increase = min_clearance - current_clearance
@@ -491,7 +491,7 @@ def _widen_narrow_passage(
         if new_poly is not None:
             result = new_poly
         else:
-            return result
+            break  # Can't improve, exit loop but return best result
 
     return result
 

@@ -34,6 +34,6 @@ coords = [
         ]
 poly = Polygon(coords)
 print ("Original clearance", shapely.minimum_clearance(poly))
-result = polyforge.fix_narrow_passage(poly, min_clearance=0.2, strategy=PassageStrategy.ARAP)
+result = polyforge.fix_narrow_passage(poly, min_clearance=0.2, strategy=PassageStrategy.WIDEN)
 print ("Fixed clearance", shapely.minimum_clearance(result))
 plot_comparison(poly, result)
