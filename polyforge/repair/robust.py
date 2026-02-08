@@ -13,14 +13,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import math
 import warnings
 
-from shapely.errors import GEOSException
+from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from ..core.cleanup import CleanupConfig, cleanup_polygon
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
-from ..core.errors import FixWarning
+from ..core.errors import FixWarning, PolyforgeError
 from ..core.geometry_utils import safe_buffer_fix, validate_and_fix
 from ..core.types import OverlapStrategy, RepairStrategy
 from ..metrics import _safe_clearance, overlap_area_by_geometry, total_overlap_area
@@ -91,7 +91,7 @@ def robust_fix_batch(
 ) -> Tuple[List[BaseGeometry], List[Optional[FixWarning]], Optional[List[Dict[str, Any]]]]:
     """Apply :func:`robust_fix_geometry` to multiple geometries."""
     if not geometries:
-        return [], [], None if properties is None else []
+        return ([], [], None) if properties is None else ([], [], [])
 
     (
         working_geometries,
@@ -307,7 +307,7 @@ def _clearance_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
         return StepResult("clearance", geometry, False, "no target")
 
     current_clearance = _safe_clearance(geometry)
-    if current_clearance + 1e-9 >= target:
+    if current_clearance is not None and current_clearance + 1e-6 >= target:
         return StepResult("clearance", geometry, False, "meets target")
 
     improved = _apply_clearance_fix(geometry, target)
@@ -428,11 +428,11 @@ def _resolve_batch_overlaps(
             try:
                 cleaned = _cleanup_geometry(poly, constraints)
                 cleaned_resolved.append(cleaned if cleaned is not None else poly)
-            except Exception:
+            except (GEOSException, TopologicalError, ValueError, PolyforgeError):
                 cleaned_resolved.append(poly)
         resolved = cleaned_resolved
 
-    except Exception as exc:
+    except (GEOSException, TopologicalError, ValueError, PolyforgeError) as exc:
         if verbose:
             print(f"[Overlap] Resolution failed: {exc}")
         return geometries, statuses, notes
@@ -482,7 +482,7 @@ def _apply_min_clearance(geometry: BaseGeometry, min_clearance: Optional[float])
     if isinstance(geometry, Polygon):
         try:
             return fix_clearance(geometry, min_clearance)
-        except Exception:
+        except (GEOSException, TopologicalError, ValueError, PolyforgeError):
             return geometry
 
     if isinstance(geometry, MultiPolygon):
@@ -532,7 +532,7 @@ def _apply_initial_merge(
             group_originals = [raw_originals[idx] for idx in source_indices]
             try:
                 merged_original = unary_union(group_originals)
-            except Exception:
+            except (GEOSException, TopologicalError, ValueError):
                 # Fallback to prepared geometries if raw originals are problematic
                 merged_original = unary_union([geometries[idx] for idx in source_indices])
             new_originals.append(merged_original)
@@ -548,7 +548,7 @@ def _apply_initial_merge(
             new_properties = aggregated
 
         return merged, new_originals, new_properties
-    except Exception as exc:
+    except (GEOSException, TopologicalError, ValueError, PolyforgeError) as exc:
         if verbose:
             print(f"[Merge] Initial merge skipped: {exc}")
         return geometries, raw_originals, properties
@@ -646,7 +646,7 @@ def _smooth_low_clearance(
         return geometry
 
     clearance = _safe_clearance(geometry)
-    if clearance >= min_clearance:
+    if clearance is not None and clearance >= min_clearance:
         return geometry
 
     # Scale buffer distance to half the target clearance

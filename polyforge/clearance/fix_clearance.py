@@ -25,7 +25,33 @@ from polyforge.ops.clearance import (
 from polyforge.core.geometry_utils import to_single_polygon
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
 from polyforge.core.iterative_utils import iterative_improve
+from shapely.errors import GEOSException
 from polyforge.metrics import _safe_clearance
+
+# --- Clearance diagnosis thresholds ---
+# Turning angle (degrees) above which a vertex is considered a sharp reversal,
+# characteristic of spike-like protrusions.  135° means the path turns more
+# than 45° past a right-angle bend.
+_PROTRUSION_SHARP_ANGLE = 135.0
+
+# Turning angle threshold for detecting protrusions when vertices are very
+# close together (separation <= _CLOSE_VERTEX_SEPARATION).  A 90° turn
+# combined with close vertices typically indicates a narrow finger.
+_PROTRUSION_MODERATE_ANGLE = 90.0
+
+# Maximum vertex separation (ring-distance between the two clearance-line
+# endpoints) that qualifies as "close".  Used to distinguish protrusions and
+# near-self-intersections from parallel-edge issues.
+_CLOSE_VERTEX_SEPARATION = 3
+
+# Maximum turning angle for near-self-intersection detection.  When both
+# endpoints have low curvature (smooth turns) but are very close in ring
+# distance, the geometry likely doubles back on itself.
+_SELF_INTERSECTION_MAX_ANGLE = 90.0
+
+# Maximum angle (degrees) between edge directions at the two clearance-line
+# endpoints for them to be considered "parallel".
+_PARALLEL_EDGE_MAX_ANGLE = 30.0
 
 
 class ClearanceIssue(Enum):
@@ -346,10 +372,32 @@ def _has_close_hole(geometry: Polygon, min_clearance: float) -> bool:
     return False
 
 
+def _compute_edge_angle_similarity(
+    coords: np.ndarray, idx1: int, idx2: int
+) -> Optional[float]:
+    """Compute the angle (degrees) between edge directions at two vertex indices.
+
+    Returns the smallest angle between the two edge vectors, in [0, 180].
+    Returns ``None`` if the edge vectors are degenerate (zero-length).
+    """
+    n = len(coords) - 1  # closed ring: last == first
+    next1 = (idx1 + 1) % n
+    next2 = (idx2 + 1) % n
+    v1 = coords[next1] - coords[idx1]
+    v2 = coords[next2] - coords[idx2]
+    len1 = np.linalg.norm(v1)
+    len2 = np.linalg.norm(v2)
+    if len1 < 1e-12 or len2 < 1e-12:
+        return None
+    cos_angle = np.clip(np.dot(v1, v2) / (len1 * len2), -1.0, 1.0)
+    angle = np.degrees(np.arccos(abs(cos_angle)))  # abs -> [0, 90]
+    return float(angle)
+
+
 def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
-    except Exception:
+    except (GEOSException, ValueError):
         return None
 
     if clearance_line.is_empty:
@@ -368,12 +416,14 @@ def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
     n = len(exterior_coords) - 1
     separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
     ring_types = _classify_ring_types(geometry, pt1, pt2)
+    edge_angle_similarity = _compute_edge_angle_similarity(exterior_coords, idx1, idx2)
 
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
         vertex_count=n,
         ring_types=ring_types,
+        edge_angle_similarity=edge_angle_similarity,
     )
 
 
@@ -383,42 +433,84 @@ class ClearanceContext:
     separation: int
     vertex_count: int
     ring_types: Tuple[str, str]
+    edge_angle_similarity: Optional[float] = None
 
 
 def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    """Detect narrow spike-like protrusions.
+
+    Protrusions are characterised by at least one endpoint of the clearance
+    line sitting at a sharp turning angle (>135 degrees), indicating the
+    polygon path reverses direction sharply.  A secondary check catches
+    moderate turns (>90 degrees) when the two endpoints are very close along
+    the ring, which is typical of narrow fingers.
+    """
     if "hole" in context.ring_types:
         return None
     curvature1, curvature2 = context.curvature
-    sharp_angle_threshold = 135.0
-    if curvature1 > sharp_angle_threshold or curvature2 > sharp_angle_threshold:
+    if curvature1 > _PROTRUSION_SHARP_ANGLE or curvature2 > _PROTRUSION_SHARP_ANGLE:
         return ClearanceIssue.NARROW_PROTRUSION
 
-    if context.separation <= 3 and (curvature1 > 90 or curvature2 > 90):
+    if context.separation <= _CLOSE_VERTEX_SEPARATION and (
+        curvature1 > _PROTRUSION_MODERATE_ANGLE or curvature2 > _PROTRUSION_MODERATE_ANGLE
+    ):
         return ClearanceIssue.NARROW_PROTRUSION
     return None
 
 
 def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    """Detect near-self-intersection where the polygon path almost touches itself.
+
+    When both clearance-line endpoints are close in ring distance *and* both
+    have smooth turning angles (<=90 degrees), the geometry likely doubles
+    back on itself without forming a sharp spike.  This differs from a
+    protrusion, where at least one vertex has a sharp turn.
+    """
     if "hole" in context.ring_types:
         return None
-    if context.separation <= 3:
+    if context.separation <= _CLOSE_VERTEX_SEPARATION:
         curvature1, curvature2 = context.curvature
-        if curvature1 <= 90 and curvature2 <= 90:
+        if curvature1 <= _SELF_INTERSECTION_MAX_ANGLE and curvature2 <= _SELF_INTERSECTION_MAX_ANGLE:
             return ClearanceIssue.NEAR_SELF_INTERSECTION
     return None
 
 
 def _looks_like_parallel_edges(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    """Detect parallel close edges (narrow channels, U-shapes, peninsulas).
+
+    Parallel edges are characterised by:
+    - Both endpoints on the exterior (not holes)
+    - Endpoints far apart in ring distance (not a local feature)
+    - Similar edge directions at both endpoints (edges run roughly parallel)
+
+    When ``edge_angle_similarity`` is available, edges must be within
+    ``_PARALLEL_EDGE_MAX_ANGLE`` degrees of each other.  Otherwise, falls back
+    to a large ring-separation heuristic.
+    """
     if "hole" in context.ring_types:
         return None
     if context.vertex_count <= 0:
         return None
-    if context.separation >= context.vertex_count // 3:
+    if context.separation <= _CLOSE_VERTEX_SEPARATION:
+        return None
+
+    if context.edge_angle_similarity is not None:
+        if context.edge_angle_similarity < _PARALLEL_EDGE_MAX_ANGLE:
+            return ClearanceIssue.PARALLEL_CLOSE_EDGES
+    elif context.separation >= context.vertex_count // 3:
+        # Fallback when edge angles unavailable: use original separation heuristic
         return ClearanceIssue.PARALLEL_CLOSE_EDGES
     return None
 
 
 def _default_clearance_issue(_: ClearanceContext, __: float) -> ClearanceIssue:
+    """Fallback diagnosis when no specific pattern is detected.
+
+    Returns ``NARROW_PASSAGE`` as the most general clearance issue type.
+    The narrow-passage fix strategy (widen) is the safest default because
+    it works on a broad range of clearance problems without making
+    assumptions about the geometry's structure.
+    """
     return ClearanceIssue.NARROW_PASSAGE
 
 
@@ -436,7 +528,7 @@ def diagnose_clearance(
 
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
-    except Exception:
+    except (GEOSException, ValueError):
         clearance_line = None
 
     if meets_requirement:

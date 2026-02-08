@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
+from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import split as shapely_split, unary_union
@@ -285,7 +286,7 @@ def _split_equally(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
         new_poly1 = _safe_union(ctx.poly1_only, piece1)
         new_poly2 = _safe_union(ctx.poly2_only, piece2)
         return new_poly1, new_poly2
-    except Exception:
+    except (GEOSException, TopologicalError, ValueError):
         return _fallback_split(ctx)
 
 
@@ -360,7 +361,7 @@ def _fallback_split(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
 
         if new_poly1.is_valid and new_poly2.is_valid:
             return new_poly1, new_poly2
-    except Exception:
+    except (GEOSException, TopologicalError, ValueError):
         pass
 
     return ctx.poly1, ctx.poly2

@@ -297,9 +297,6 @@ class MergeConstraints:
     merge_strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER
     preserve_holes: bool = True
     insert_vertices: bool = False
-    validate_after_merge: bool = True
-    fix_violations: bool = True
-    rollback_on_failure: bool = True
 
 
 def _collect_holes(geometry: BaseGeometry) -> List:

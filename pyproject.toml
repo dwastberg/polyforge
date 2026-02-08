@@ -46,9 +46,22 @@ dev = [
     "pytest>=8.4.2",
     "matplotlib>=3.7.0",
     "fiona>=1.10.1",
+    "mypy>=1.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["polyforge*"]
 exclude = ["tests*", "examples*", "debug*"]
+
+[tool.setuptools.package-data]
+polyforge = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = ["tests/", "debug/"]
