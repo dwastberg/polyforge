@@ -191,6 +191,8 @@ def widen_narrow_passage_offset_arap_lite(
     # --- Extract initial coordinates (once) ---
     coords = np.asarray(current.exterior.coords[:-1])
 
+    _prev_v1, _prev_v2 = -1, -1
+    solver = None
     for iteration in range(max_iterations):
         # Check if we already meet the clearance requirement
         try:
@@ -258,13 +260,14 @@ def widen_narrow_passage_offset_arap_lite(
         v1 = nearest_vertex(b1)
         v2 = nearest_vertex(b2)
 
-        # --- Build solver ONCE ---
-        if iteration == 0:
+        # --- Build / rebuild solver when constraint vertices change ---
+        if iteration == 0 or (v1, v2) != (_prev_v1, _prev_v2):
             solver = ARAPLiteSolver(
                 coords,
                 constraint_indices=[v1, v2],
                 constraint_weight=1000.0,
             )
+        _prev_v1, _prev_v2 = v1, v2
 
         constraints = {
             v1: coords[v1] - move,
@@ -290,4 +293,4 @@ def widen_narrow_passage_offset_arap_lite(
         current = candidate
         coords = new_coords
 
-    return None
+    return current

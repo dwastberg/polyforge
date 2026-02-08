@@ -124,11 +124,13 @@ def fix_clearance(
         nonlocal best_valid
         if candidate.area < min_area_ratio * original_area:
             return None
-        if _safe_clearance(candidate) > _safe_clearance(best_valid):
+        cand_clearance = _safe_clearance(candidate) or 0.0
+        best_clearance = _safe_clearance(best_valid) or 0.0
+        if cand_clearance > best_clearance:
             best_valid = candidate
         return candidate
 
-    metric = lambda poly: _safe_clearance(poly)  # noqa: E731
+    metric = lambda poly: _safe_clearance(poly) or 0.0  # noqa: E731
     improved = iterative_improve(
         geometry,
         target_value=min_clearance,
@@ -142,7 +144,7 @@ def fix_clearance(
     if improved.area < min_area_ratio * original_area:
         improved = best_valid
 
-    final_clearance = _safe_clearance(improved)
+    final_clearance = _safe_clearance(improved) or 0.0
     final_area_ratio = improved.area / original_area if original_area > 0 else float("inf")
     final_diag = diagnose_clearance(improved, min_clearance)
     summary = ClearanceFixSummary(
@@ -214,7 +216,7 @@ def _strategy_narrow_protrusion(
 ) -> Optional[Polygon]:
     baseline = diagnosis.current_clearance
     first_pass = remove_narrow_protrusions(geometry, aspect_ratio_threshold=10.0)
-    if first_pass.is_valid and _safe_clearance(first_pass) > baseline:
+    if first_pass.is_valid and (_safe_clearance(first_pass) or 0.0) > baseline:
         return first_pass
     return fix_narrow_protrusion(geometry, min_clearance)
 

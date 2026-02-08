@@ -1,6 +1,6 @@
 """Core repair orchestration logic."""
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
@@ -95,22 +95,27 @@ def repair_geometry(
 def batch_repair_geometries(
     geometries: List[BaseGeometry],
     repair_strategy: RepairStrategy = RepairStrategy.AUTO,
-    on_error: str = 'skip',
+    on_error: str = 'keep',
     verbose: bool = False
-) -> Tuple[List[BaseGeometry], List[int]]:
+) -> Tuple[List[Optional[BaseGeometry]], List[int]]:
     """Repair multiple geometries in batch.
+
+    The returned list always has the same length as the input list, so
+    results can be mapped back to their original indices.
 
     Args:
         geometries: List of geometries to repair
         repair_strategy: Repair strategy (see repair_geometry)
         on_error: What to do on error:
-            - 'skip': Skip invalid geometries
-            - 'keep': Keep original invalid geometry
+            - 'keep': Keep original invalid geometry (default)
+            - 'skip': Replace failed geometry with None
             - 'raise': Raise exception
         verbose: Print progress information
 
     Returns:
-        Tuple of (repaired_geometries, failed_indices)
+        Tuple of (repaired_geometries, failed_indices).  The repaired list
+        always has the same length as *geometries*.  When *on_error='skip'*,
+        failed entries are set to ``None``.
 
     Examples:
         >>> from polyforge.core.types import RepairStrategy
@@ -121,8 +126,8 @@ def batch_repair_geometries(
         >>> # Using specific strategy
         >>> repaired, failed = batch_repair_geometries(geometries, RepairStrategy.BUFFER)
     """
-    repaired = []
-    failed_indices = []
+    repaired: List[Optional[BaseGeometry]] = []
+    failed_indices: List[int] = []
 
     for i, geom in enumerate(geometries):
         try:
@@ -138,6 +143,7 @@ def batch_repair_geometries(
             elif on_error == 'keep':
                 repaired.append(geom)
             else:  # skip
+                repaired.append(None)
                 failed_indices.append(i)
 
             if verbose:
