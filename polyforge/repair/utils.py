@@ -1,5 +1,3 @@
-"""Utility functions for geometry repair."""
-
 from typing import List, Tuple
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString

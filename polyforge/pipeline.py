@@ -25,8 +25,6 @@ class FixConfig:
 
 @dataclass
 class PipelineContext:
-    """Runtime context shared across pipeline steps."""
-
     original: BaseGeometry
     constraints: GeometryConstraints
     config: FixConfig
@@ -67,8 +65,7 @@ class PipelineContext:
 
 @dataclass
 class StepResult:
-    """Outcome of running a single pipeline step."""
-
+    """Result of a pipeline step."""
     name: str
     geometry: BaseGeometry
     changed: bool
@@ -93,9 +90,15 @@ def run_steps(
     max_passes: int = 10,
 ) -> Tuple[BaseGeometry, ConstraintStatus, List[StepResult]]:
     """Execute the supplied steps until constraints are satisfied or progress stalls.
+    
+    Args:
+        initial_geometry: Geometry to fix
+        steps: List of pipeline steps to execute
+        context: Pipeline context
+        max_passes: Maximum number of passes through the steps
 
-    Performance: Uses metric caching from PipelineContext to avoid redundant
-    clearance and other expensive calculations.
+    Returns:
+        Tuple of (final_geometry, final_status, history)
     """
     geometry = initial_geometry
     history: List[StepResult] = []

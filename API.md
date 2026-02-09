@@ -91,7 +91,7 @@ Internally these use `polyforge.pipeline.run_steps`, so you can assemble your ow
 - `GeometryConstraints` – Dataclass describing the repair targets: `min_clearance`, `max_overlap_area`, `min_area_ratio`, `max_area_ratio`, `must_be_valid`, `allow_multipolygon`, `max_holes`, `min_hole_area`, `max_hole_aspect_ratio`, `min_hole_width`. Call `constraints.check(geometry, original, overlap_area=None, metrics=None)` to obtain a `ConstraintStatus`.
 - `ConstraintStatus` – Holds `geometry`, `violations`, cached `metrics`, and `overlap_area`. Helper methods: `all_satisfied()`, `is_better_or_equal(other)`, `improved(other)`, `get_violations_by_type`, `worst_violation`.
 - `ConstraintViolation` – Records `constraint_type` (a `ConstraintType` enum: `VALIDITY`, `CLEARANCE`, `OVERLAP`, `AREA_PRESERVATION`, `HOLE_VALIDITY`), `severity`, message, and optional `actual_value`/`required_value`.
-- `MergeConstraints` – Enables merge-aware passes inside the robust pipeline. Fields: `enabled`, `margin`, `merge_strategy`, `preserve_holes`, `insert_vertices`, `validate_after_merge`, `fix_violations`, `rollback_on_failure`.
+- `MergeConstraints` – Enables merge-aware passes inside the robust pipeline. Fields: `enabled`, `margin`, `merge_strategy`, `preserve_holes`, `insert_vertices`.
 - `FixConfig`, `PipelineContext`, `PipelineStep`, `StepResult`, `config_from_constraints`, `run_steps` (`polyforge.pipeline`) – Building blocks for custom pipelines. `PipelineContext.get_metrics()` caches measurements, `run_steps(initial_geometry, steps, context, max_passes=10)` keeps looping until `context.constraints.check(...)` passes or no step makes progress.
 
 ## Metrics & Measurement (`polyforge.metrics`)

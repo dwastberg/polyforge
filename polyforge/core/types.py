@@ -120,6 +120,7 @@ class PassageStrategy(Enum):
     """
     WIDEN = 'widen'
     SPLIT = 'split'
+    ARAP = 'arap'
 
 
 class IntrusionStrategy(Enum):

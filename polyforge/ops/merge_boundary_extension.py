@@ -1,5 +1,3 @@
-"""Boundary extension merge strategy - extend parallel edges."""
-
 from typing import List, Optional, Tuple, Union
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point, box

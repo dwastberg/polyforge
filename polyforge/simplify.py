@@ -171,7 +171,7 @@ def remove_small_holes(
     geometry: Union[Polygon, MultiPolygon],
     min_area: float,
 ) -> BaseGeometry:
-    """Remove holes smaller than ``min_area`` via the shared cleanup utilities."""
+    """Remove holes smaller than ``min_area``"""
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
     return _remove_small_holes_impl(geometry, min_area)
@@ -182,7 +182,7 @@ def remove_narrow_holes(
     max_aspect_ratio: float = 50.0,
     min_width: Optional[float] = None,
 ) -> BaseGeometry:
-    """Remove narrow holes using the shared cleanup utilities."""
+    """Remove narrow holes based on aspect ratio and/or minimum width."""
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
     return _remove_narrow_holes_impl(
