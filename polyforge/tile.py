@@ -11,7 +11,7 @@ def tile_polygon(
     tile_size: Optional[Union[Tuple[float, float], float]] = None,
     axis_oriented: bool = False
 ) -> Union[Polygon, MultiPolygon]:
-    """Intersect a polygon with a grid defined by tile count or size.
+    """Split a polygon into tiles by intersecting it with a grid defined by tile count or size.
 
     Args:
         polygon: Geometry to tile.

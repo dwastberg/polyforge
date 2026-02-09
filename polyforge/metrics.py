@@ -10,21 +10,24 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional
 
+from shapely.errors import GEOSException
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 
-def _safe_clearance(geometry: BaseGeometry) -> float:
+def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
     """Safely get the minimum clearance of a geometry.
 
-    Returns 0.0 if the clearance cannot be computed (e.g., invalid geometry).
+    Returns None if the clearance cannot be computed (e.g., invalid geometry
+    or computation error).  A return of 0.0 means the geometry truly has
+    zero clearance.
     """
     try:
         val = geometry.minimum_clearance
-        return float(val) if val is not None else 0.0
-    except Exception:
-        return 0.0
+        return float(val) if val is not None else None
+    except (GEOSException, ValueError, AttributeError):
+        return None
 
 
 def measure_geometry(
@@ -86,7 +89,13 @@ def overlap_area_by_geometry(
     geometries: List[BaseGeometry],
     min_area_threshold: float = 1e-10,
 ) -> List[float]:
-    """Return the overlapping area attributed to each geometry in ``geometries``."""
+    """Return the overlapping area attributed to each geometry in ``geometries``.
+
+    Each pairwise overlap area is added to **both** participating geometries,
+    so the sum of the returned list may exceed the true total overlap area.
+    This is intentional: it measures how much overlap each geometry
+    *participates in*, not a partitioned share.
+    """
     if not geometries:
         return []
 
@@ -103,7 +112,7 @@ def overlap_area_by_geometry(
 
         try:
             candidates = tree.query(geom_i, predicate="intersects")
-        except Exception:
+        except (GEOSException, ValueError):
             continue
 
         for j in candidates:
@@ -120,7 +129,7 @@ def overlap_area_by_geometry(
 
             try:
                 overlap = geom_i.intersection(geom_j)
-            except Exception:
+            except (GEOSException, ValueError):
                 continue
 
             area = getattr(overlap, "area", 0.0)

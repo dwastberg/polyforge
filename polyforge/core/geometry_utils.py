@@ -89,21 +89,21 @@ def remove_holes(
 def validate_and_fix(
     geometry: BaseGeometry,
     min_area: float = 0.0,
-    return_largest_if_multi: bool = True
-) -> BaseGeometry:
+    return_largest: bool = True
+) -> Optional[BaseGeometry]:
     """Validate geometry and attempt to fix if invalid.
 
     Uses the buffer(0) trick to fix invalid geometries. If the result
-    is a MultiPolygon and return_largest_if_multi is True, returns only
-    the largest piece.
+    is a MultiPolygon and return_largest is True, returns only the largest piece.
 
     Args:
         geometry: Input geometry to validate/fix
         min_area: Minimum acceptable area (if > 0, checks area requirement)
-        return_largest_if_multi: If True, converts MultiPolygon to largest Polygon
+        return_largest: If True, converts MultiPolygon to largest Polygon
 
     Returns:
-        Valid geometry (fixed if necessary)
+        Valid geometry (fixed if necessary), or None if the geometry cannot
+        be fixed or does not meet the minimum area requirement.
 
     Examples:
         >>> invalid_poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])  # Bow-tie
@@ -122,7 +122,7 @@ def validate_and_fix(
         fixed = geometry.buffer(0)
 
         # Handle MultiPolygon result
-        if return_largest_if_multi and isinstance(fixed, MultiPolygon):
+        if return_largest and isinstance(fixed, MultiPolygon):
             fixed = max(fixed.geoms, key=lambda p: p.area)
 
         # Check validity and area

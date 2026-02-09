@@ -1,17 +1,10 @@
-"""Overlap resolution utilities.
-
-The previous package structure split these helpers between ``overlap/__init__.py``
-and ``overlap/engine.py``. Consolidating them into a single module keeps all of
-the overlap-specific logic in one place and eliminates the extra wrapper file
-(``split.py``) that simply forwarded to ``resolve_overlap_pair``.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
+from shapely.errors import GEOSException, TopologicalError
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import split as shapely_split, unary_union
@@ -285,7 +278,7 @@ def _split_equally(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
         new_poly1 = _safe_union(ctx.poly1_only, piece1)
         new_poly2 = _safe_union(ctx.poly2_only, piece2)
         return new_poly1, new_poly2
-    except Exception:
+    except (GEOSException, TopologicalError, ValueError):
         return _fallback_split(ctx)
 
 
@@ -338,20 +331,29 @@ def _assign_pieces_to_polygons(
 
 
 def _fallback_split(ctx: OverlapContext) -> Tuple[Polygon, Polygon]:
-    half_overlap_area = ctx.overlap.area / 2.0
-    buffer_dist = -np.sqrt(max(half_overlap_area, 0.0) / np.pi) * 0.5
-
+    """Last-resort overlap resolution: subtract the overlap from the polygon
+    that has the smaller non-overlapping remainder, so the larger polygon
+    keeps more of its original shape."""
     try:
-        new_poly1 = ctx.poly1.buffer(buffer_dist / 2.0)
-        new_poly2 = ctx.poly2.buffer(buffer_dist / 2.0)
-        if (
-            isinstance(new_poly1, Polygon)
-            and isinstance(new_poly2, Polygon)
-            and new_poly1.is_valid
-            and new_poly2.is_valid
-        ):
+        # Subtract overlap from each polygon and compare what remains
+        remainder1 = ctx.poly1.difference(ctx.overlap)
+        remainder2 = ctx.poly2.difference(ctx.overlap)
+
+        r1_area = getattr(remainder1, "area", 0.0)
+        r2_area = getattr(remainder2, "area", 0.0)
+
+        # Subtract overlap from the polygon with the smaller remainder
+        # (i.e., the one that "owns" less non-overlapping area)
+        if r1_area <= r2_area:
+            new_poly1 = _to_polygon(remainder1) if not remainder1.is_empty else Polygon()
+            new_poly2 = ctx.poly2
+        else:
+            new_poly1 = ctx.poly1
+            new_poly2 = _to_polygon(remainder2) if not remainder2.is_empty else Polygon()
+
+        if new_poly1.is_valid and new_poly2.is_valid:
             return new_poly1, new_poly2
-    except Exception:
+    except (GEOSException, TopologicalError, ValueError):
         pass
 
     return ctx.poly1, ctx.poly2

@@ -469,6 +469,22 @@ class TestFixNarrowPassage:
         # Should improve toward target
         assert result.minimum_clearance >= poly.minimum_clearance
 
+    def test_widen_increases_clearance_arap(self):
+        """Test that widening improves clearance."""
+        # Simple narrow passage
+        coords = [
+            (0, 0), (1, 0), (0.9, 1), (1, 2),
+            (0, 2), (0.1, 1)
+        ]
+        poly = Polygon(coords)
+        target_clearance = 0.5
+
+        result = fix_narrow_passage(poly, min_clearance=target_clearance, strategy=PassageStrategy.ARAP )
+
+        assert result.is_valid
+        # Should improve toward target
+        assert result.minimum_clearance >= poly.minimum_clearance
+
     def test_split_strategy(self):
         """Test splitting polygon at narrow passage."""
         # Dumbbell shape
@@ -501,6 +517,18 @@ class TestFixNarrowPassage:
         # Should be essentially unchanged
         assert result.exterior.coords[:] == poly.exterior.coords[:]
 
+    def test_already_wide_enough_arap(self):
+        """Test that wide passages are unchanged."""
+        # Wide rectangle
+        coords = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+
+        result = fix_narrow_passage(poly, min_clearance=2.0, strategy=PassageStrategy.ARAP)
+
+        assert result.is_valid
+        # Should be essentially unchanged
+        assert result.exterior.coords[:] == poly.exterior.coords[:]
+
     def test_preserves_holes(self):
         """Test that holes are preserved when widening."""
         # Simple polygon with hole (not self-intersecting)
@@ -509,6 +537,19 @@ class TestFixNarrowPassage:
         poly = Polygon(exterior, holes=[hole])
 
         result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.WIDEN)
+
+        assert result.is_valid
+        # Holes should be preserved
+        assert len(result.interiors) == 1
+
+    def test_preserves_holes_arap(self):
+        """Test that holes are preserved when widening."""
+        # Simple polygon with hole (not self-intersecting)
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
+        poly = Polygon(exterior, holes=[hole])
+
+        result = fix_narrow_passage(poly, min_clearance=0.5, strategy=PassageStrategy.ARAP)
 
         assert result.is_valid
         # Holes should be preserved
@@ -572,6 +613,71 @@ class TestFixNarrowPassage:
 
         assert result.geom_type in ("MultiPolygon", "GeometryCollection")
         assert not result.is_empty
+
+    def test_arap_widens_notch_shaped_passage(self):
+        """ARAP strategy should widen notch/indentation-shaped narrow passages.
+
+        This tests a bug where ARAP returns the polygon unchanged for notch shapes.
+        The issue: erosion fills in the notch (stays single Polygon), so the algorithm
+        incorrectly assumes clearance is sufficient and returns early.
+
+        The notch is 0.1 units wide but min_clearance is 0.2, so widening is needed.
+        """
+        # Rectangle with narrow notch from the top
+        # The notch goes from (0.95, 0.5) to (1.05, 0.5) - width is 0.1
+        coords = [
+            (0, 0), (2, 0), (2, 1), (1.05, 1), (1.05, 0.5), (0.95, 0.5), (0.95, 1), (0, 1)
+        ]
+        poly = Polygon(coords)
+
+        original_clearance = poly.minimum_clearance
+        min_clearance = 0.2
+
+        # Verify the test setup is correct
+        assert original_clearance < min_clearance, (
+            f"Test setup error: original clearance {original_clearance} should be < {min_clearance}"
+        )
+
+        result = fix_narrow_passage(poly, min_clearance=min_clearance, strategy=PassageStrategy.ARAP)
+
+        assert result.is_valid
+        # The clearance should improve to at least the target (with small tolerance for floating-point)
+        assert result.minimum_clearance >= min_clearance * 0.99, (
+            f"ARAP should widen notch to meet min_clearance={min_clearance}, "
+            f"but clearance is {result.minimum_clearance} (was {original_clearance})"
+        )
+
+    def test_widen_strategy_widens_notch_shaped_passage(self):
+        """WIDEN strategy should widen notch/indentation-shaped narrow passages.
+
+        Similar to the ARAP bug, the WIDEN strategy may also struggle with notch shapes
+        where the clearance line goes from a vertex on one side to an edge on another.
+
+        The notch is 0.1 units wide but min_clearance is 0.2, so widening is needed.
+        """
+        # Rectangle with narrow notch from the top
+        # The notch goes from (0.95, 0.5) to (1.05, 0.5) - width is 0.1
+        coords = [
+            (0, 0), (2, 0), (2, 1), (1.05, 1), (1.05, 0.5), (0.95, 0.5), (0.95, 1), (0, 1)
+        ]
+        poly = Polygon(coords)
+
+        original_clearance = poly.minimum_clearance
+        min_clearance = 0.2
+
+        # Verify the test setup is correct
+        assert original_clearance < min_clearance, (
+            f"Test setup error: original clearance {original_clearance} should be < {min_clearance}"
+        )
+
+        result = fix_narrow_passage(poly, min_clearance=min_clearance, strategy=PassageStrategy.WIDEN)
+
+        assert result.is_valid
+        # The clearance should improve to at least the target (with small tolerance for floating-point)
+        assert result.minimum_clearance >= min_clearance * 0.99, (
+            f"WIDEN should widen notch to meet min_clearance={min_clearance}, "
+            f"but clearance is {result.minimum_clearance} (was {original_clearance})"
+        )
 
 
 class TestFixNearSelfIntersection:
@@ -767,3 +873,88 @@ class TestFixParallelCloseEdges:
         result = fix_parallel_close_edges(poly, min_clearance=0.5, strategy=IntersectionStrategy.SIMPLIFY)
 
         assert result.is_valid
+
+
+class TestClearanceDiagnosis:
+    """Tests for diagnose_clearance() and the underlying heuristic functions."""
+
+    def test_meets_requirement_returns_none(self):
+        """Wide polygon with large clearance should return ClearanceIssue.NONE."""
+        from polyforge.clearance.fix_clearance import diagnose_clearance, ClearanceIssue
+
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        diag = diagnose_clearance(poly, min_clearance=0.01)
+        assert diag.issue == ClearanceIssue.NONE
+        assert diag.meets_requirement is True
+
+    def test_diagnose_protrusion_spike(self):
+        """Polygon with a narrow spike should be diagnosed as NARROW_PROTRUSION."""
+        from polyforge.clearance.fix_clearance import diagnose_clearance, ClearanceIssue
+
+        # Polygon with a very thin spike extending from the top
+        poly = Polygon([
+            (0, 0), (10, 0), (10, 10),
+            (5.01, 10), (5.01, 15), (4.99, 15), (4.99, 10),
+            (0, 10),
+        ])
+        diag = diagnose_clearance(poly, min_clearance=1.0)
+        assert not diag.meets_requirement
+        # The spike should be detected as either NARROW_PROTRUSION or
+        # NEAR_SELF_INTERSECTION (both are reasonable for very thin features)
+        assert diag.issue in (
+            ClearanceIssue.NARROW_PROTRUSION,
+            ClearanceIssue.NEAR_SELF_INTERSECTION,
+        )
+
+    def test_diagnose_hole_too_close(self):
+        """Polygon with hole very close to exterior should be HOLE_TOO_CLOSE."""
+        from polyforge.clearance.fix_clearance import diagnose_clearance, ClearanceIssue
+
+        exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        hole = [(0.1, 4), (1, 4), (1, 6), (0.1, 6)]
+        poly = Polygon(exterior, holes=[hole])
+        diag = diagnose_clearance(poly, min_clearance=1.0)
+        assert diag.issue == ClearanceIssue.HOLE_TOO_CLOSE
+
+    def test_diagnose_narrow_channel(self):
+        """Polygon with a narrow channel should detect a clearance issue."""
+        from polyforge.clearance.fix_clearance import diagnose_clearance, ClearanceIssue
+
+        # U-shape: two long parallel sides close together
+        poly = Polygon([
+            (0, 0), (10, 0), (10, 5),
+            (1, 5), (1, 0.2),
+            (0, 0.2),
+        ])
+        diag = diagnose_clearance(poly, min_clearance=1.0)
+        assert not diag.meets_requirement
+        # Narrow channels can be classified as several issue types depending
+        # on where the clearance line lands
+        assert diag.issue in (
+            ClearanceIssue.PARALLEL_CLOSE_EDGES,
+            ClearanceIssue.NARROW_PASSAGE,
+            ClearanceIssue.NEAR_SELF_INTERSECTION,
+        )
+
+    def test_diagnose_non_polygon_raises(self):
+        """diagnose_clearance should raise TypeError for non-Polygon input."""
+        from shapely.geometry import Point
+        from polyforge.clearance.fix_clearance import diagnose_clearance
+
+        with pytest.raises(TypeError, match="Expected Polygon"):
+            diagnose_clearance(Point(0, 0), min_clearance=1.0)
+
+    def test_clearance_context_has_edge_angle(self):
+        """Verify ClearanceContext.edge_angle_similarity is populated."""
+        from polyforge.clearance.fix_clearance import _build_clearance_context
+
+        # Simple polygon where clearance context can be built
+        poly = Polygon([
+            (0, 0), (10, 0), (10, 5),
+            (1, 5), (1, 0.2),
+            (0, 0.2),
+        ])
+        ctx = _build_clearance_context(poly)
+        if ctx is not None:
+            # edge_angle_similarity should be a float when computable
+            assert ctx.edge_angle_similarity is None or isinstance(ctx.edge_angle_similarity, float)

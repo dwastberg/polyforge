@@ -1,5 +1,3 @@
-"""Shared geometry cleanup utilities used across simplify and repair modules."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

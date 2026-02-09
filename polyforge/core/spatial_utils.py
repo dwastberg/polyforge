@@ -212,13 +212,11 @@ def build_adjacency_graph(
         else:
             candidate_indices = tree.query(poly_i, predicate='intersects')
 
-        # Check actual distance for each candidate
+        # dwithin already filters to exact distance <= margin
         for j in candidate_indices:
             if i != j and j not in adjacency[i]:
-                distance = polygons[i].distance(polygons[j])
-                if distance <= margin:
-                    adjacency[i].add(j)
-                    adjacency[j].add(i)
+                adjacency[i].add(j)
+                adjacency[j].add(i)
 
     return adjacency
 
@@ -299,24 +297,21 @@ def build_segment_index(
     for poly_idx, poly in enumerate(polygons):
         coords = list(poly.exterior.coords)
         for edge_idx in range(len(coords) - 1):
-            seg = LineString([coords[edge_idx], coords[edge_idx + 1]])
-            seg_len = seg.length
+            p0 = coords[edge_idx]
+            p1 = coords[edge_idx + 1]
+            seg_len = np.hypot(p1[0] - p0[0], p1[1] - p0[1])
             if seg_len <= segment_length + 1e-9:
-                segments.append(seg)
+                segments.append(LineString([p0, p1]))
                 owners.append((poly_idx, edge_idx))
                 continue
 
             splits = max(1, int(np.ceil(seg_len / segment_length)))
             for j in range(splits):
-                start_t = j / splits
-                end_t = (j + 1) / splits
-                subseg = LineString(
-                    [
-                        seg.interpolate(start_t, normalized=True).coords[0],
-                        seg.interpolate(end_t, normalized=True).coords[0],
-                    ]
-                )
-                segments.append(subseg)
+                t0 = j / splits
+                t1 = (j + 1) / splits
+                sp0 = (p0[0] + t0 * (p1[0] - p0[0]), p0[1] + t0 * (p1[1] - p0[1]))
+                sp1 = (p0[0] + t1 * (p1[0] - p0[0]), p0[1] + t1 * (p1[1] - p0[1]))
+                segments.append(LineString([sp0, sp1]))
                 owners.append((poly_idx, edge_idx))
 
     tree = STRtree(segments) if segments else STRtree([])

@@ -14,6 +14,11 @@ from ..metrics import measure_geometry
 from .types import MergeStrategy
 from .geometry_utils import hole_shape_metrics
 
+# Tolerance for floating-point comparison in constraint checks.
+# Shapely geometric operations typically have precision ~1e-8, so
+# 1e-6 provides a reasonable buffer above numerical noise.
+_CONSTRAINT_TOLERANCE = 1e-6
+
 
 class ConstraintType(Enum):
     VALIDITY = auto()
@@ -95,6 +100,26 @@ class GeometryConstraints:
     max_hole_aspect_ratio: Optional[float] = None
     min_hole_width: Optional[float] = None
 
+    def __post_init__(self) -> None:
+        if self.min_clearance is not None and self.min_clearance < 0:
+            raise ValueError(f"min_clearance must be >= 0, got {self.min_clearance}")
+        if self.max_overlap_area < 0:
+            raise ValueError(f"max_overlap_area must be >= 0, got {self.max_overlap_area}")
+        if self.min_area_ratio < 0:
+            raise ValueError(f"min_area_ratio must be >= 0, got {self.min_area_ratio}")
+        if self.max_area_ratio < self.min_area_ratio:
+            raise ValueError(
+                f"max_area_ratio ({self.max_area_ratio}) must be >= min_area_ratio ({self.min_area_ratio})"
+            )
+        if self.max_holes is not None and self.max_holes < 0:
+            raise ValueError(f"max_holes must be >= 0, got {self.max_holes}")
+        if self.min_hole_area is not None and self.min_hole_area < 0:
+            raise ValueError(f"min_hole_area must be >= 0, got {self.min_hole_area}")
+        if self.max_hole_aspect_ratio is not None and self.max_hole_aspect_ratio <= 0:
+            raise ValueError(f"max_hole_aspect_ratio must be > 0, got {self.max_hole_aspect_ratio}")
+        if self.min_hole_width is not None and self.min_hole_width < 0:
+            raise ValueError(f"min_hole_width must be >= 0, got {self.min_hole_width}")
+
     def check(
         self,
         geometry: BaseGeometry,
@@ -150,7 +175,7 @@ class GeometryConstraints:
             )
 
         clearance = metrics.get("clearance")
-        if self.min_clearance and (clearance is None or clearance + 1e-9 < self.min_clearance):
+        if self.min_clearance and (clearance is None or clearance + _CONSTRAINT_TOLERANCE < self.min_clearance):
             violations.append(
                 ConstraintViolation(
                     constraint_type=ConstraintType.CLEARANCE,
@@ -188,7 +213,7 @@ class GeometryConstraints:
         if (
             self.max_overlap_area is not None
             and not math.isinf(self.max_overlap_area)
-            and overlap_value > self.max_overlap_area + 1e-9
+            and overlap_value > self.max_overlap_area + _CONSTRAINT_TOLERANCE
         ):
             violations.append(
                 ConstraintViolation(
@@ -224,7 +249,7 @@ class GeometryConstraints:
         if self.min_hole_area:
             for hole in holes:
                 area = Polygon(hole).area
-                if area + 1e-9 < self.min_hole_area:
+                if area + _CONSTRAINT_TOLERANCE < self.min_hole_area:
                     violations.append(
                         ConstraintViolation(
                             constraint_type=ConstraintType.HOLE_VALIDITY,
@@ -253,7 +278,7 @@ class GeometryConstraints:
                         )
                     )
 
-                if self.min_hole_width and width + 1e-9 < self.min_hole_width:
+                if self.min_hole_width and width + _CONSTRAINT_TOLERANCE < self.min_hole_width:
                     violations.append(
                         ConstraintViolation(
                             constraint_type=ConstraintType.HOLE_VALIDITY,
@@ -272,9 +297,6 @@ class MergeConstraints:
     merge_strategy: MergeStrategy = MergeStrategy.SELECTIVE_BUFFER
     preserve_holes: bool = True
     insert_vertices: bool = False
-    validate_after_merge: bool = True
-    fix_violations: bool = True
-    rollback_on_failure: bool = True
 
 
 def _collect_holes(geometry: BaseGeometry) -> List:
