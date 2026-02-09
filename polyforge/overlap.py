@@ -1,11 +1,3 @@
-"""Overlap resolution utilities.
-
-The previous package structure split these helpers between ``overlap/__init__.py``
-and ``overlap/engine.py``. Consolidating them into a single module keeps all of
-the overlap-specific logic in one place and eliminates the extra wrapper file
-(``split.py``) that simply forwarded to ``resolve_overlap_pair``.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

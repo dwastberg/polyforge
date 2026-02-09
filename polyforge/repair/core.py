@@ -1,5 +1,3 @@
-"""Core repair orchestration logic."""
-
 from typing import List, Optional, Tuple
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity

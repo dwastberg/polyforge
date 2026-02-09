@@ -1,12 +1,3 @@
-"""
-Robust constraint-aware geometry fixing orchestrated via the lightweight pipeline.
-
-This module translates the legacy stage/transaction system into a much simpler
-loop: a handful of deterministic steps run in order, each step keeps its result
-only if it improves the current constraint status, and the pipeline exits once
-the constraints are satisfied or progress stalls.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
