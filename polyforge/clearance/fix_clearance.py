@@ -16,6 +16,7 @@ from polyforge.ops.clearance import (
     fix_hole_too_close,
     fix_narrow_protrusion,
     remove_narrow_protrusions,
+    fill_narrow_wedge,
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
@@ -61,6 +62,7 @@ class ClearanceIssue(Enum):
     NONE = "none"
     HOLE_TOO_CLOSE = "hole_too_close"
     NARROW_PROTRUSION = "narrow_protrusion"
+    NARROW_WEDGE = "narrow_wedge"
     NARROW_PASSAGE = "narrow_passage"
     NEAR_SELF_INTERSECTION = "near_self_intersection"
     PARALLEL_CLOSE_EDGES = "parallel_close_edges"
@@ -234,6 +236,7 @@ RECOMMENDED_FIXES: Dict[ClearanceIssue, str] = {
     ClearanceIssue.NONE: "none",
     ClearanceIssue.HOLE_TOO_CLOSE: "fix_hole_too_close",
     ClearanceIssue.NARROW_PROTRUSION: "remove_narrow_protrusions",
+    ClearanceIssue.NARROW_WEDGE: "fill_narrow_wedge",
     ClearanceIssue.NARROW_PASSAGE: "fix_narrow_passage",
     ClearanceIssue.NEAR_SELF_INTERSECTION: "fix_near_self_intersection",
     ClearanceIssue.PARALLEL_CLOSE_EDGES: "fix_parallel_close_edges",
@@ -332,6 +335,20 @@ def _strategy_narrow_protrusion(
     return fix_narrow_protrusion(geometry, min_clearance)
 
 
+@_register_strategy(ClearanceIssue.NARROW_WEDGE)
+def _strategy_narrow_wedge(
+    geometry: Polygon,
+    min_clearance: float,
+    diagnosis: ClearanceDiagnosis,
+) -> Optional[Polygon]:
+    """Strategy for narrow wedge intrusions: trace and bridge the opening."""
+    result = fill_narrow_wedge(geometry, min_clearance)
+    if result is not None:
+        return result
+    # Fall back to regular protrusion handling
+    return _strategy_narrow_protrusion(geometry, min_clearance, diagnosis)
+
+
 @_register_strategy(ClearanceIssue.NARROW_PASSAGE)
 def _strategy_narrow_passage(
     geometry: Polygon,
@@ -403,7 +420,7 @@ def _diagnose_clearance_issue(
     if _has_close_hole(geometry, min_clearance):
         return ClearanceIssue.HOLE_TOO_CLOSE
 
-    context = _build_clearance_context(geometry)
+    context = _build_clearance_context(geometry, min_clearance)
     if context is None:
         return ClearanceIssue.UNKNOWN
 
@@ -411,6 +428,7 @@ def _diagnose_clearance_issue(
         return ClearanceIssue.HOLE_TOO_CLOSE
 
     for heuristic in (
+        _looks_like_narrow_wedge,
         _looks_like_protrusion,
         _looks_like_near_self_intersection,
         _looks_like_parallel_edges,
@@ -503,7 +521,7 @@ def _get_ring_coords_for_point(
     return best_coords
 
 
-def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
+def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> Optional["ClearanceContext"]:
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
     except (GEOSException, ValueError):
@@ -542,12 +560,19 @@ def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
         separation = max(n, 10)
         edge_angle_similarity = None
 
+    narrow_extent = 0
+    if ring_types[0] == ring_types[1] == "exterior" and min_clearance > 0:
+        narrow_extent = _compute_narrow_extent(
+            exterior_coords, idx1, idx2, separation, min_clearance
+        )
+
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
         vertex_count=n,
         ring_types=ring_types,
         edge_angle_similarity=edge_angle_similarity,
+        narrow_extent=narrow_extent,
     )
 
 
@@ -558,6 +583,76 @@ class ClearanceContext:
     vertex_count: int
     ring_types: Tuple[str, str]
     edge_angle_similarity: Optional[float] = None
+    narrow_extent: int = 0
+
+
+# Minimum number of narrow vertex pairs beyond the clearance endpoints
+# for a feature to be classified as a wedge rather than a simple spike.
+_NARROW_WEDGE_MIN_EXTENT = 2
+
+
+def _compute_narrow_extent(
+    coords: np.ndarray,
+    idx1: int,
+    idx2: int,
+    separation: int,
+    min_clearance: float,
+) -> int:
+    """Count vertex pairs that are narrow when walking outward from the clearance bottleneck.
+
+    Starting from the two endpoints of the minimum_clearance_line, walks
+    outward along the ring in opposite directions (away from the short path
+    between the endpoints). Counts consecutive vertex-pair steps where the
+    distance between the walking indices remains below min_clearance.
+    """
+    n = len(coords) - 1  # closed ring
+    if n < 4:
+        return 0
+
+    # Determine walk directions: away from the short path (toward the opening)
+    fwd = (idx2 - idx1) % n
+    if fwd == separation:
+        dir1 = -1  # idx1 walks backward
+        dir2 = +1  # idx2 walks forward
+    else:
+        dir1 = +1
+        dir2 = -1
+
+    max_steps = n // 2
+    extent = 0
+
+    for step in range(1, max_steps + 1):
+        walk1 = (idx1 + dir1 * step) % n
+        walk2 = (idx2 + dir2 * step) % n
+        if walk1 == walk2:
+            break
+        dist = float(np.linalg.norm(coords[walk1][:2] - coords[walk2][:2]))
+        if dist >= min_clearance:
+            break
+        extent += 1
+
+    return extent
+
+
+def _looks_like_narrow_wedge(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+    """Detect narrow wedge intrusions (V-notches, tapered peninsulas).
+
+    A narrow wedge is a protrusion-like feature where the narrowness extends
+    well beyond the tip vertex.  Unlike a simple spike (1-2 narrow vertices),
+    a wedge has a body of 2+ vertex pairs that are all narrower than
+    min_clearance.  Detecting this allows removing the entire wedge in one
+    operation instead of iteratively fixing vertex by vertex.
+    """
+    if "hole" in context.ring_types:
+        return None
+    if context.separation > _CLOSE_VERTEX_SEPARATION:
+        return None
+    # Must have at least moderate curvature at tip
+    if max(context.curvature) < _PROTRUSION_MODERATE_ANGLE:
+        return None
+    if context.narrow_extent >= _NARROW_WEDGE_MIN_EXTENT:
+        return ClearanceIssue.NARROW_WEDGE
+    return None
 
 
 def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:

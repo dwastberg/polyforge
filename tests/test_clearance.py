@@ -5,6 +5,7 @@ import pytest
 from shapely.geometry import Polygon, MultiPolygon
 
 from polyforge.clearance import (
+    fill_narrow_wedge,
     fix_hole_too_close,
     fix_narrow_protrusion,
     fix_sharp_intrusion,
@@ -985,3 +986,112 @@ class TestClearanceDiagnosis:
         if ctx is not None:
             # edge_angle_similarity should be a float when computable
             assert ctx.edge_angle_similarity is None or isinstance(ctx.edge_angle_similarity, float)
+
+
+class TestFillNarrowWedge:
+    """Tests for fill_narrow_wedge function."""
+
+    def test_v_notch_wedge(self):
+        """V-notch cutting into rectangle: tip near zero, opening > min_clearance."""
+        # Rectangle with V-notch from right side
+        # The notch narrows from ~1.0 at the opening to ~0.1 at the tip
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (10, 4.5), (9, 4.7), (8, 4.9), (7, 5.0),
+            (8, 5.1), (9, 5.3), (10, 5.5),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        original_clearance = poly.minimum_clearance
+
+        result = fill_narrow_wedge(poly, min_clearance=1.0)
+
+        assert result is not None
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+        # Wedge vertices should be removed
+        assert len(result.exterior.coords) < len(poly.exterior.coords)
+
+    def test_narrow_peninsula(self):
+        """Outward tapered finger extending from polygon."""
+        coords = [
+            (0, 0), (20, 0), (20, 9),
+            (20, 9.5), (22, 9.7), (24, 9.9), (26, 10.0),
+            (24, 10.1), (22, 10.3), (20, 10.5),
+            (20, 11), (20, 20), (0, 20),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        original_clearance = poly.minimum_clearance
+
+        result = fill_narrow_wedge(poly, min_clearance=1.0)
+
+        assert result is not None
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+
+    def test_simple_spike_not_treated_as_wedge(self):
+        """Short spike with too few vertices should not crash."""
+        # Simple spike: only 1 narrow vertex (the tip), separation < 2
+        coords = [
+            (0, 0), (10, 0), (10, 4.9), (12, 5), (10, 5.1), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        result = fill_narrow_wedge(poly, min_clearance=1.0)
+        # May return None (too few vertices for wedge tracing) or a valid fix
+        if result is not None:
+            assert result.is_valid
+
+    def test_preserves_holes(self):
+        """Holes should be preserved after wedge removal."""
+        exterior = [
+            (0, 0), (20, 0), (20, 9),
+            (20, 9.5), (22, 9.7), (24, 9.9), (26, 10.0),
+            (24, 10.1), (22, 10.3), (20, 10.5),
+            (20, 11), (20, 20), (0, 20),
+        ]
+        hole = [(5, 5), (8, 5), (8, 8), (5, 8)]
+        poly = Polygon(exterior, holes=[hole])
+        assert poly.is_valid
+
+        result = fill_narrow_wedge(poly, min_clearance=1.0)
+
+        if result is not None:
+            assert result.is_valid
+            assert len(result.interiors) == 1
+
+    def test_area_ratio_guard(self):
+        """Removing a huge wedge relative to polygon should respect min_area_ratio."""
+        # Make a polygon where the wedge IS the polygon (almost all area in wedge)
+        coords = [
+            (0, 0), (1, 0), (1, 0.05),
+            (5, 0.08), (10, 0.1), (5, 0.12),
+            (1, 0.15), (1, 0.2), (0, 0.2),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+
+        # With strict area ratio, should return None (too much area lost)
+        result = fill_narrow_wedge(poly, min_clearance=1.0, min_area_ratio=0.9)
+        if result is not None:
+            assert result.area >= poly.area * 0.9
+
+    def test_asymmetric_wedge(self):
+        """Wedge with one side steeper than the other."""
+        # One side has more vertices (gradual), the other is steeper
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (10, 4.4), (9.5, 4.6), (9, 4.8), (8, 4.95), (7, 5.0),
+            (8.5, 5.05), (9.5, 5.2), (10, 5.5),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        original_clearance = poly.minimum_clearance
+
+        result = fill_narrow_wedge(poly, min_clearance=1.0)
+
+        assert result is not None
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance

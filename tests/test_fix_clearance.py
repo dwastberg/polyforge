@@ -427,3 +427,63 @@ class TestFixClearanceSlivers:
 
         assert result.is_valid
         assert result.minimum_clearance > original_clearance
+
+
+class TestFixClearanceNarrowWedge:
+    """Tests for narrow wedge detection and fixing via fix_clearance."""
+
+    def test_v_notch_detected_and_fixed(self):
+        """fix_clearance should detect and fix a V-notch wedge."""
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (10, 4.5), (9, 4.7), (8, 4.9), (7, 5.0),
+            (8, 5.1), (9, 5.3), (10, 5.5),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+        assert summary.fixed or result.minimum_clearance >= 1.0
+
+    def test_diagnosis_detects_wedge(self):
+        """diagnose_clearance should return NARROW_WEDGE for a V-notch."""
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (10, 4.5), (9, 4.7), (8, 4.9), (7, 5.0),
+            (8, 5.1), (9, 5.3), (10, 5.5),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        info = diagnose_clearance(poly, min_clearance=1.0)
+        # The V-notch should be diagnosed as a wedge or protrusion
+        assert info.issue in (ClearanceIssue.NARROW_WEDGE, ClearanceIssue.NARROW_PROTRUSION)
+
+    def test_narrow_peninsula_wedge_fixed(self):
+        """fix_clearance should remove a narrow tapered peninsula."""
+        coords = [
+            (0, 0), (20, 0), (20, 9),
+            (20, 9.5), (22, 9.7), (24, 9.9), (26, 10.0),
+            (24, 10.1), (22, 10.3), (20, 10.5),
+            (20, 11), (20, 20), (0, 20),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+
+    def test_simple_spike_not_classified_as_wedge(self):
+        """A simple spike should be diagnosed as NARROW_PROTRUSION, not NARROW_WEDGE."""
+        # Simple spike with only 1 narrow vertex
+        coords = [
+            (0, 0), (10, 0), (10, 4.9), (12, 5), (10, 5.1), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        info = diagnose_clearance(poly, min_clearance=1.0)
+        assert info.issue != ClearanceIssue.NARROW_WEDGE

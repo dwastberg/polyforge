@@ -1,7 +1,7 @@
 """Low-level clearance helpers used by the high-level API."""
 
 from .holes import fix_hole_too_close
-from .protrusions import fix_narrow_protrusion, fix_sharp_intrusion
+from .protrusions import fix_narrow_protrusion, fix_sharp_intrusion, fill_narrow_wedge
 from .remove_protrusions import remove_narrow_protrusions
 from .passages import (
     fix_narrow_passage,
@@ -23,6 +23,7 @@ __all__ = [
     "fix_hole_too_close",
     "fix_narrow_protrusion",
     "fix_sharp_intrusion",
+    "fill_narrow_wedge",
     "remove_narrow_protrusions",
     "fix_narrow_passage",
     "fix_near_self_intersection",
