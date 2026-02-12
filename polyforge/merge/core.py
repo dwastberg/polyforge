@@ -4,6 +4,7 @@ from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.strtree import STRtree
 from shapely.ops import unary_union
+from shapely.errors import GEOSException, TopologicalError
 
 from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
@@ -241,7 +242,7 @@ def _map_components_to_inputs(
                 intersection = comp.intersection(poly)
                 if getattr(intersection, "area", 0.0) > area_eps or comp.touches(poly):
                     contributors.append(idx)
-            except Exception:
+            except (GEOSException, TopologicalError, ValueError):
                 continue
 
         mapping.append(contributors)

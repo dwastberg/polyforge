@@ -3,7 +3,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
 from ..core.types import RepairStrategy
-from ..core.errors import RepairError
+
 from .strategies.auto import auto_fix_geometry
 from .strategies.buffer import fix_with_buffer
 from .strategies.simplify import fix_with_simplify
@@ -135,7 +135,7 @@ def batch_repair_geometries(
             repaired_geom = repair_geometry(geom, repair_strategy=repair_strategy, verbose=False)
             repaired.append(repaired_geom)
 
-        except (RepairError, Exception) as e:
+        except Exception as e:
             if on_error == 'raise':
                 raise
             elif on_error == 'keep':

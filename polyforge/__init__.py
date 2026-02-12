@@ -4,7 +4,7 @@ This library provides utilities for processing, simplifying, and manipulating
 polygon geometries using Shapely.
 """
 
-__version__ = "0.1.0a1"
+__version__ = "0.1.0a2"
 
 # Simplification functions
 from .simplify import (
@@ -20,6 +20,10 @@ from .simplify import (
 # Clearance fixing functions
 from .clearance import (
     fix_clearance,
+    diagnose_clearance,
+    ClearanceIssue,
+    ClearanceDiagnosis,
+    ClearanceFixSummary,
     fix_hole_too_close,
     fix_narrow_protrusion,
     remove_narrow_protrusions,
@@ -39,7 +43,7 @@ from .overlap import (
 )
 
 # Merge functions
-from .merge import merge_close_polygons
+from .merge import merge_close_polygons, find_close_polygon_groups
 
 # Topology functions
 from .topology import align_boundaries
@@ -99,6 +103,10 @@ __all__ = [
 
     # Clearance fixing
     'fix_clearance',
+    'diagnose_clearance',
+    'ClearanceIssue',
+    'ClearanceDiagnosis',
+    'ClearanceFixSummary',
     'fix_hole_too_close',
     'fix_narrow_protrusion',
     'remove_narrow_protrusions',
@@ -116,6 +124,7 @@ __all__ = [
 
     # Merge
     'merge_close_polygons',
+    'find_close_polygon_groups',
 
     # Topology
     'align_boundaries',
