@@ -874,6 +874,33 @@ class TestFixParallelCloseEdges:
 
         assert result.is_valid
 
+    def test_erosion_dilation_on_narrow_appendage(self):
+        """fix_parallel_close_edges should use erosion-dilation for narrow appendages."""
+        # Large polygon with a narrow peninsula — peninsula area is small
+        base = Polygon([(0, 0), (50, 0), (50, 50), (0, 50)])
+        sliver = Polygon([(50, 24.9), (70, 24.9), (70, 25.1), (50, 25.1)])
+        poly = base.union(sliver)
+
+        if not isinstance(poly, Polygon):
+            return
+        original_clearance = poly.minimum_clearance
+
+        result = fix_parallel_close_edges(poly, min_clearance=1.0)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+
+    def test_large_polygon_with_narrow_appendage(self):
+        """Erosion-dilation should handle polygons where narrow feature is small relative to total."""
+        base = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+        sliver = Polygon([(100, 49.9), (150, 49.9), (150, 50.1), (100, 50.1)])
+        combined = base.union(sliver)
+
+        if isinstance(combined, Polygon):
+            result = fix_parallel_close_edges(combined, min_clearance=1.0)
+            assert result.is_valid
+            assert result.minimum_clearance > combined.minimum_clearance
+
 
 class TestClearanceDiagnosis:
     """Tests for diagnose_clearance() and the underlying heuristic functions."""

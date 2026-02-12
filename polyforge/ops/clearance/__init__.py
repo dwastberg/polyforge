@@ -7,6 +7,7 @@ from .passages import (
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
+    _erode_dilate_fix,
 )
 from .utils import (
     _find_nearest_vertex_index,
@@ -26,6 +27,7 @@ __all__ = [
     "fix_narrow_passage",
     "fix_near_self_intersection",
     "fix_parallel_close_edges",
+    "_erode_dilate_fix",
     "_find_nearest_vertex_index",
     "_find_nearest_edge_index",
     "_point_to_segment_distance",

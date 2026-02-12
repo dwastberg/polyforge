@@ -256,9 +256,9 @@ class TestDiagnosisAccuracy:
     """Tests for accuracy of issue diagnosis."""
 
     def test_diagnosis_matches_fix(self):
-        """Test that diagnosed issue matches the fix applied."""
+        """Test that diagnosis correctly identifies issues and fix resolves them."""
         test_cases = [
-            # (polygon, min_clearance, expected_issue)
+            # (polygon, min_clearance, expected_diagnosis)
             (
                 Polygon([(0, 0), (10, 0), (10, 4.9), (12, 5), (10, 5.1), (10, 10), (0, 10)]),
                 1.0,
@@ -273,10 +273,13 @@ class TestDiagnosisAccuracy:
 
         for poly, target, expected_issue in test_cases:
             info = diagnose_clearance(poly, min_clearance=target)
-            _, summary = fix_clearance(poly, min_clearance=target, return_diagnosis=True)
+            result, summary = fix_clearance(poly, min_clearance=target, return_diagnosis=True)
 
+            # Diagnosis should identify the correct issue type
             assert info.issue == expected_issue
-            assert summary.issue == expected_issue or summary.history[-1] == expected_issue
+            # The fix should succeed (may use region-first or point-based approach)
+            assert summary.fixed
+            assert result.is_valid
 
     def test_diagnosis_detects_hole_to_hole_clearance(self):
         """Ensure clearance between holes is treated as hole-driven, not protrusion/passage."""
@@ -319,3 +322,108 @@ class TestResultValidity:
 
         # Should still be a Polygon (though MultiPolygon is also acceptable)
         assert result.geom_type in ['Polygon', 'MultiPolygon']
+
+
+class TestFixClearanceSlivers:
+    """Tests for extended narrow region (sliver) handling via region-first approach."""
+
+    def test_narrow_peninsula(self):
+        """fix_clearance should handle narrow peninsulas via erosion-dilation."""
+        # Square with a narrow peninsula extending from the right side
+        coords = [
+            (0, 0), (20, 0), (20, 9.85),
+            (40, 9.85), (40, 10.15), (20, 10.15),
+            (20, 20), (0, 20),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+        assert original_clearance < 1.0
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.is_valid
+        assert result.minimum_clearance >= 0.9  # Within 90% of target
+        assert summary.fixed
+        # Region-first approach should solve this quickly
+        assert summary.iterations <= 3
+
+    def test_narrow_notch(self):
+        """fix_clearance should handle narrow notches cut into a large polygon."""
+        # Large square with a narrow notch cut in from one side
+        # Notch is 2 units wide, polygon is 50x50 — narrow feature is a small fraction
+        coords = [
+            (0, 0), (50, 0), (50, 24),
+            (10, 24), (10, 26), (50, 26),
+            (50, 50), (0, 50),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+        assert original_clearance < 5.0
+
+        result = fix_clearance(poly, min_clearance=5.0)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+
+    def test_long_narrow_channel(self):
+        """fix_clearance should handle long narrow channels between two areas."""
+        coords = [
+            (0, 0), (50, 0), (50, 10),
+            (30, 10), (30, 10.2), (50, 10.2),
+            (50, 20), (0, 20), (0, 10.2),
+            (20, 10.2), (20, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+        assert original_clearance < 1.0
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance
+
+    def test_area_preservation_with_sliver_fix(self):
+        """Erosion-dilation should respect min_area_ratio."""
+        # Large square with a narrow appendage (appendage is small relative to total)
+        base = Polygon([(0, 0), (100, 0), (100, 100), (0, 100)])
+        sliver = Polygon([(100, 49.9), (120, 49.9), (120, 50.1), (100, 50.1)])
+        combined = base.union(sliver)
+        if not isinstance(combined, Polygon):
+            return  # skip if union didn't produce a single polygon
+
+        original_area = combined.area
+
+        result = fix_clearance(combined, min_clearance=1.0, min_area_ratio=0.9)
+
+        assert result.is_valid
+        assert result.area >= 0.9 * original_area
+
+    def test_region_first_does_not_inflate_polygon(self):
+        """fix_clearance should not produce a polygon larger than the original."""
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        original_area = poly.area
+
+        # Target clearance larger than polygon can naturally satisfy
+        result = fix_clearance(poly, min_clearance=100.0)
+
+        assert result.is_valid
+        # Should not grow the polygon excessively
+        assert result.area <= original_area * 1.2
+
+    def test_multiple_slivers(self):
+        """fix_clearance should handle polygons with multiple narrow features."""
+        # Polygon with two narrow peninsulas
+        coords = [
+            (0, 0), (20, 0),
+            (20, 4.9), (25, 4.9), (25, 5.1), (20, 5.1),  # First peninsula
+            (20, 14.9), (25, 14.9), (25, 15.1), (20, 15.1),  # Second peninsula
+            (20, 20), (0, 20),
+        ]
+        poly = Polygon(coords)
+        original_clearance = poly.minimum_clearance
+        assert original_clearance < 1.0
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        assert result.is_valid
+        assert result.minimum_clearance > original_clearance

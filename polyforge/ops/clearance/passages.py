@@ -587,10 +587,42 @@ def fix_parallel_close_edges(
     strategy: Union[IntersectionStrategy, str] = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
     """Fix parallel edges that run too close to each other.
+
+    Parallel close edges form extended narrow regions (slivers, peninsulas,
+    U-shapes) where the boundary runs back nearly alongside itself. Unlike
+    point-like near-self-intersections, these require a morphological
+    (erosion-dilation) approach that handles the entire region at once.
+
+    Tries erosion-dilation first, then falls back to simplification.
+
+    Args:
+        geometry: Input polygon
+        min_clearance: Target minimum clearance
+        strategy: Fallback strategy hint (default: SIMPLIFY)
+
+    Returns:
+        Fixed polygon with improved clearance
     """
-    # Parallel close edges are essentially a type of near-self-intersection
-    # We can reuse the same fixing logic
-    return fix_near_self_intersection(geometry, min_clearance, strategy)
+    strategy_enum = coerce_enum(strategy, IntersectionStrategy)
+    current_clearance = geometry.minimum_clearance
+    if current_clearance >= min_clearance:
+        return geometry
+
+    # Primary approach: erosion-dilation handles extended narrow regions
+    eroded_result = _erode_dilate_fix(geometry, min_clearance, min_area_ratio=0.85)
+    if eroded_result is not None:
+        try:
+            new_clearance = eroded_result.minimum_clearance
+            if new_clearance >= min_clearance:
+                return eroded_result
+            # Accept if significantly improved even if not fully fixed
+            if new_clearance > current_clearance * 1.5:
+                return eroded_result
+        except Exception:
+            pass
+
+    # Fallback: simplification-based approach
+    return fix_near_self_intersection(geometry, min_clearance, strategy_enum)
 
 
 def _find_self_intersection_vertices(geometry: Polygon) -> Optional[SelfIntersectionContext]:
@@ -757,8 +789,67 @@ def _is_valid_simplification_candidate(
     return True
 
 
+def _erode_dilate_fix(
+    geometry: Polygon,
+    min_clearance: float,
+    min_area_ratio: float = 0.9,
+) -> Optional[Polygon]:
+    """Remove features narrower than min_clearance using erosion-dilation.
+
+    Buffers the polygon inward by min_clearance/2, then outward by the same
+    amount. This naturally collapses any feature narrower than min_clearance
+    (slivers, narrow peninsulas, tight U-shapes) regardless of their length
+    or vertex count.
+
+    Args:
+        geometry: Input polygon
+        min_clearance: Target minimum clearance
+        min_area_ratio: Minimum acceptable area ratio vs original (default 0.9)
+
+    Returns:
+        Fixed polygon or None if the operation fails or loses too much area
+    """
+    original_area = geometry.area
+    if original_area <= 0:
+        return None
+
+    buffer_dist = min_clearance * 0.5
+
+    try:
+        eroded = geometry.buffer(-buffer_dist, join_style=2)
+    except Exception:
+        return None
+
+    if eroded is None or eroded.is_empty:
+        return None
+
+    try:
+        dilated = eroded.buffer(buffer_dist, join_style=2)
+    except Exception:
+        return None
+
+    if dilated is None or dilated.is_empty:
+        return None
+
+    # Extract single polygon if MultiPolygon
+    if isinstance(dilated, MultiPolygon):
+        candidates = sorted(dilated.geoms, key=lambda p: p.area, reverse=True)
+        dilated = candidates[0] if candidates else None
+        if dilated is None:
+            return None
+
+    if not isinstance(dilated, Polygon) or not dilated.is_valid or dilated.is_empty:
+        return None
+
+    if dilated.area < min_area_ratio * original_area:
+        return None
+
+    return dilated
+
+
 __all__ = [
     'fix_narrow_passage',
     'fix_near_self_intersection',
     'fix_parallel_close_edges',
+    '_erode_dilate_fix',
 ]

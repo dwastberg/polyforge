@@ -21,6 +21,7 @@ from polyforge.ops.clearance import (
     fix_parallel_close_edges,
     _find_nearest_vertex_index,
     _calculate_curvature_at_vertex,
+    _erode_dilate_fix,
 )
 from polyforge.core.geometry_utils import to_single_polygon
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
@@ -137,6 +138,30 @@ def fix_clearance(
         return (geometry, summary) if return_diagnosis else geometry
 
     issue_history: List[ClearanceIssue] = []
+
+    # --- Phase 1: Region fix (erosion-dilation) ---
+    # Handles slivers, narrow peninsulas, and extended narrow features in O(1).
+    region_candidate = _erode_dilate_fix(geometry, min_clearance, min_area_ratio)
+    if region_candidate is not None:
+        region_clearance = _safe_clearance(region_candidate) or 0.0
+        if region_clearance >= min_clearance:
+            issue_history.append(ClearanceIssue.PARALLEL_CLOSE_EDGES)
+            final_area_ratio = region_candidate.area / original_area if original_area > 0 else float("inf")
+            summary = ClearanceFixSummary(
+                initial_clearance=initial_clearance,
+                final_clearance=region_clearance,
+                area_ratio=final_area_ratio,
+                iterations=1,
+                issue=ClearanceIssue.NONE,
+                fixed=True,
+                valid=region_candidate.is_valid,
+                history=issue_history,
+            )
+            return (region_candidate, summary) if return_diagnosis else region_candidate
+
+    # --- Phase 2: Point-based fixes (diagnosis-driven iteration) ---
+    # For cases where erosion-dilation is too aggressive (would lose too much area)
+    # or doesn't fully solve the problem (e.g., holes, single protrusions).
     best_valid = geometry
 
     def improve(poly: Polygon, target: float) -> Optional[Polygon]:
@@ -149,6 +174,10 @@ def fix_clearance(
             return None
         nonlocal best_valid
         if candidate.area < min_area_ratio * original_area:
+            return None
+        # Reject candidates that grow the polygon excessively
+        max_area = original_area / min_area_ratio
+        if candidate.area > max_area:
             return None
         cand_clearance = _safe_clearance(candidate) or 0.0
         best_clearance = _safe_clearance(best_valid) or 0.0
@@ -169,6 +198,18 @@ def fix_clearance(
         improved = best_valid
     if improved.area < min_area_ratio * original_area:
         improved = best_valid
+
+    # --- Phase 3: Cleanup pass (erosion-dilation on improved geometry) ---
+    # Point fixes may have partially resolved slivers, making erosion viable
+    # where it wasn't in Phase 1.
+    cleanup_clearance = _safe_clearance(improved) or 0.0
+    if cleanup_clearance < min_clearance and improved.is_valid and not improved.is_empty:
+        cleanup_candidate = _erode_dilate_fix(improved, min_clearance, min_area_ratio)
+        if cleanup_candidate is not None and cleanup_candidate.is_valid:
+            cleanup_result_clearance = _safe_clearance(cleanup_candidate) or 0.0
+            if cleanup_result_clearance > cleanup_clearance:
+                improved = cleanup_candidate
+                issue_history.append(ClearanceIssue.PARALLEL_CLOSE_EDGES)
 
     final_clearance = _safe_clearance(improved) or 0.0
     final_area_ratio = improved.area / original_area if original_area > 0 else float("inf")
@@ -211,9 +252,53 @@ def _apply_clearance_strategy(
     min_clearance: float,
     diagnosis: ClearanceDiagnosis,
 ) -> Optional[Polygon]:
-    handler = _strategy(diagnosis.issue)
-    candidate = handler(geometry, min_clearance, diagnosis)
-    return _normalize_polygon(candidate)
+    """Apply the diagnosed strategy, falling back to alternatives on failure."""
+    current_clearance = diagnosis.current_clearance
+    strategies = _build_fallback_chain(diagnosis.issue)
+
+    for strategy_func in strategies:
+        candidate = strategy_func(geometry, min_clearance, diagnosis)
+        normalized = _normalize_polygon(candidate)
+        if normalized is None:
+            continue
+        try:
+            new_clearance = normalized.minimum_clearance
+            if new_clearance > current_clearance:
+                return normalized
+        except (GEOSException, ValueError):
+            continue
+
+    return None
+
+
+def _build_fallback_chain(issue: ClearanceIssue) -> List[StrategyFunc]:
+    """Return an ordered list of strategy functions to try.
+
+    The diagnosed strategy is tried first. If it fails, erosion-dilation
+    is tried as a universal fallback. Finally, generic passage widening
+    is tried as last resort.
+    """
+    primary = _strategy(issue)
+    chain = [primary]
+
+    # Erosion-dilation as universal fallback (not useful for hole issues)
+    if issue != ClearanceIssue.HOLE_TOO_CLOSE:
+        chain.append(_strategy_erode_dilate)
+
+    # Generic passage widening as last resort
+    if issue not in (ClearanceIssue.NARROW_PASSAGE, ClearanceIssue.UNKNOWN):
+        chain.append(_strategy_default)
+
+    return chain
+
+
+def _strategy_erode_dilate(
+    geometry: Polygon,
+    min_clearance: float,
+    _: ClearanceDiagnosis,
+) -> Optional[Polygon]:
+    """Morphological approach: erode then dilate to remove narrow features."""
+    return _erode_dilate_fix(geometry, min_clearance, min_area_ratio=0.85)
 
 
 def _register_strategy(issue: ClearanceIssue):
@@ -241,7 +326,7 @@ def _strategy_narrow_protrusion(
     diagnosis: ClearanceDiagnosis,
 ) -> Optional[Polygon]:
     baseline = diagnosis.current_clearance
-    first_pass = remove_narrow_protrusions(geometry, aspect_ratio_threshold=10.0)
+    first_pass = remove_narrow_protrusions(geometry, aspect_ratio_threshold=6.0)
     if first_pass.is_valid and (_safe_clearance(first_pass) or 0.0) > baseline:
         return first_pass
     return fix_narrow_protrusion(geometry, min_clearance)
@@ -394,6 +479,30 @@ def _compute_edge_angle_similarity(
     return float(angle)
 
 
+def _get_ring_coords_for_point(
+    geometry: Polygon,
+    point: np.ndarray,
+    ring_type: str,
+) -> np.ndarray:
+    """Return the coordinate array for the ring containing the given point."""
+    if ring_type == "exterior":
+        return np.array(geometry.exterior.coords)
+
+    # Find the closest hole
+    p = Point(point)
+    best_dist = float("inf")
+    best_coords = np.array(geometry.exterior.coords)  # fallback
+
+    for hole in geometry.interiors:
+        ring = LinearRing(hole.coords)
+        d = p.distance(ring)
+        if d < best_dist:
+            best_dist = d
+            best_coords = np.array(hole.coords)
+
+    return best_coords
+
+
 def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
@@ -408,15 +517,30 @@ def _build_clearance_context(geometry: Polygon) -> Optional["ClearanceContext"]:
         return None
 
     pt1, pt2 = coords_2d[:2]
-    exterior_coords = np.array(geometry.exterior.coords)
-    idx1 = _find_nearest_vertex_index(exterior_coords, pt1)
-    idx2 = _find_nearest_vertex_index(exterior_coords, pt2)
-    curvature1 = _calculate_curvature_at_vertex(exterior_coords, idx1)
-    curvature2 = _calculate_curvature_at_vertex(exterior_coords, idx2)
-    n = len(exterior_coords) - 1
-    separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
     ring_types = _classify_ring_types(geometry, pt1, pt2)
-    edge_angle_similarity = _compute_edge_angle_similarity(exterior_coords, idx1, idx2)
+
+    # Map endpoints to the correct ring for curvature analysis
+    ring1_coords = _get_ring_coords_for_point(geometry, pt1, ring_types[0])
+    ring2_coords = _get_ring_coords_for_point(geometry, pt2, ring_types[1])
+
+    idx1 = _find_nearest_vertex_index(ring1_coords, pt1)
+    idx2 = _find_nearest_vertex_index(ring2_coords, pt2)
+
+    curvature1 = _calculate_curvature_at_vertex(ring1_coords, idx1)
+    curvature2 = _calculate_curvature_at_vertex(ring2_coords, idx2)
+
+    # Separation and edge angle only meaningful when both on the same ring
+    exterior_coords = np.array(geometry.exterior.coords)
+    n = len(exterior_coords) - 1
+
+    if ring_types[0] == ring_types[1] == "exterior":
+        separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
+        edge_angle_similarity = _compute_edge_angle_similarity(exterior_coords, idx1, idx2)
+    else:
+        # Points on different rings: use large separation to avoid
+        # misclassifying as protrusion or near-self-intersection
+        separation = max(n, 10)
+        edge_angle_similarity = None
 
     return ClearanceContext(
         curvature=(curvature1, curvature2),
