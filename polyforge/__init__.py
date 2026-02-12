@@ -15,6 +15,7 @@ from .simplify import (
     deduplicate_vertices,
     remove_small_holes,
     remove_narrow_holes,
+    remove_slivers,
 )
 
 # Clearance fixing functions
@@ -101,6 +102,7 @@ __all__ = [
     'deduplicate_vertices',
     'remove_small_holes',
     'remove_narrow_holes',
+    'remove_slivers',
 
     # Clearance fixing
     'fix_clearance',

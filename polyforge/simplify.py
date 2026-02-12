@@ -20,6 +20,8 @@ from polyforge.ops.cleanup_ops import (
     remove_small_holes as _remove_small_holes_impl,
     remove_narrow_holes as _remove_narrow_holes_impl,
 )
+from polyforge.ops.clearance.protrusions import fill_narrow_wedge as _fill_narrow_wedge
+from polyforge.ops.clearance.passages import _erode_dilate_fix
 from polyforge.ops.simplify_ops import (
     simplify_rdp_coords,
     simplify_vw_coords,
@@ -192,6 +194,79 @@ def remove_narrow_holes(
     )
 
 
+def remove_slivers(
+    geometry: Union[Polygon, MultiPolygon],
+    min_width: float,
+    max_iterations: int = 10,
+    min_area_ratio: float = 0.5,
+) -> BaseGeometry:
+    """Remove thin sliver intrusions from a polygon.
+
+    Args:
+        geometry: Input Polygon or MultiPolygon.
+        min_width: Slivers narrower than this are removed.
+        max_iterations: Maximum trace-based passes (default 10).
+        min_area_ratio: Reject result if area drops below this fraction
+            of the original (default 0.5).
+
+    Returns:
+        Geometry with slivers removed.
+
+    Examples:
+        >>> # Rectangle with a narrow slot cut into it
+        >>> coords = [(0, 0), (10, 0), (10, 4), (5, 4), (5, 4.2),
+        ...           (10, 4.2), (10, 10), (0, 10)]
+        >>> poly = Polygon(coords)
+        >>> fixed = remove_slivers(poly, min_width=1.0)
+        >>> fixed.minimum_clearance >= 1.0
+        True
+    """
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
+
+    if isinstance(geometry, MultiPolygon):
+        parts = [remove_slivers(p, min_width, max_iterations, min_area_ratio)
+                 for p in geometry.geoms]
+        return MultiPolygon([p for p in parts if not p.is_empty])
+
+    try:
+        if geometry.minimum_clearance >= min_width:
+            return geometry
+    except Exception:
+        return geometry
+
+    original_area = geometry.area
+    current = geometry
+
+    # Phase 1: iterative trace-based removal
+    for _ in range(max_iterations):
+        try:
+            if current.minimum_clearance >= min_width:
+                break
+        except Exception:
+            break
+
+        candidate = _fill_narrow_wedge(current, min_width, min_area_ratio)
+        if candidate is None:
+            break
+        current = candidate
+
+    # Phase 2: erosion-dilation fallback
+    try:
+        if current.minimum_clearance < min_width:
+            fallback = _erode_dilate_fix(current, min_width, min_area_ratio)
+            if fallback is not None:
+                current = fallback
+    except Exception:
+        pass
+
+    # Final area guard against original
+    if original_area > 0 and current.area < min_area_ratio * original_area:
+        return geometry
+
+    return current
+
+
 __all__ = [
     'collapse_short_edges',
     'deduplicate_vertices',
@@ -200,4 +275,5 @@ __all__ = [
     'simplify_vwp',
     'remove_small_holes',
     'remove_narrow_holes',
+    'remove_slivers',
 ]

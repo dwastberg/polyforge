@@ -8,7 +8,8 @@ from polyforge.simplify import (
     simplify_rdp,
     simplify_vw,
     simplify_vwp,
-    remove_small_holes
+    remove_small_holes,
+    remove_slivers,
 )
 from polyforge.core.types import CollapseMode
 
@@ -496,5 +497,105 @@ class TestRemoveSmallHoles:
 
         # Tiny hole should be removed
         assert len(result.interiors) == 0
+
+
+class TestRemoveSlivers:
+    """Tests for remove_slivers function."""
+
+    def test_rectangular_slot(self):
+        """Test removing a parallel-sided rectangular slot cut into a rectangle."""
+        # Rectangle with a narrow slot cut from the right side
+        coords = [
+            (0, 0), (10, 0), (10, 4.9),
+            (3, 4.9), (3, 5.1),
+            (10, 5.1), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        assert poly.minimum_clearance < 1.0
+
+        result = remove_slivers(poly, min_width=1.0)
+
+        assert result.is_valid
+        assert not result.is_empty
+        assert result.minimum_clearance >= 1.0
+
+    def test_tapered_sliver(self):
+        """Test removing a tapered (wedge-like) sliver."""
+        # Rectangle with a V-shaped notch
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (3, 4.9), (3, 5.1),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        assert poly.minimum_clearance < 1.0
+
+        result = remove_slivers(poly, min_width=1.0)
+
+        assert result.is_valid
+        assert not result.is_empty
+        assert result.minimum_clearance >= 1.0
+
+    def test_clean_polygon_unchanged(self):
+        """Test that a polygon without slivers is returned unchanged."""
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        assert poly.minimum_clearance >= 1.0
+
+        result = remove_slivers(poly, min_width=1.0)
+
+        assert result.equals(poly)
+
+    def test_area_ratio_guard(self):
+        """Test that excessive area loss is prevented."""
+        # Very thin polygon — erosion-dilation would collapse it
+        coords = [(0, 0), (20, 0), (20, 0.3), (0, 0.3)]
+        poly = Polygon(coords)
+
+        result = remove_slivers(poly, min_width=1.0, min_area_ratio=0.5)
+
+        # Should return original since fixing would lose too much area
+        assert result.area >= poly.area * 0.5
+
+    def test_multipolygon_input(self):
+        """Test that MultiPolygon input is handled."""
+        # One polygon with a sliver, one clean
+        sliver_poly = Polygon([
+            (0, 0), (10, 0), (10, 4.9),
+            (3, 4.9), (3, 5.1),
+            (10, 5.1), (10, 10), (0, 10),
+        ])
+        clean_poly = Polygon([(20, 0), (30, 0), (30, 10), (20, 10)])
+
+        multi = MultiPolygon([sliver_poly, clean_poly])
+        result = remove_slivers(multi, min_width=1.0)
+
+        assert isinstance(result, MultiPolygon)
+        assert len(result.geoms) == 2
+        for geom in result.geoms:
+            assert geom.is_valid
+
+    def test_wide_slot_preserved(self):
+        """Test that a slot wider than min_width is not removed."""
+        # Rectangle with a wide slot (width=2.0)
+        coords = [
+            (0, 0), (10, 0), (10, 4),
+            (3, 4), (3, 6),
+            (10, 6), (10, 10), (0, 10),
+        ]
+        poly = Polygon(coords)
+        assert poly.minimum_clearance >= 1.0
+
+        result = remove_slivers(poly, min_width=1.0)
+
+        # Should be unchanged — slot is wider than threshold
+        assert result.equals(poly)
+
+    def test_invalid_type_raises(self):
+        """Test that non-polygon input raises TypeError."""
+        line = LineString([(0, 0), (1, 1)])
+        with pytest.raises(TypeError, match="Input geometry must be a Polygon or MultiPolygon"):
+            remove_slivers(line, min_width=1.0)
 
 
