@@ -7,7 +7,10 @@ sharp indentations that create low minimum clearance.
 import numpy as np
 from typing import Optional, Tuple, Union
 from shapely.geometry import Polygon, Point
+from shapely.geometry.polygon import orient
 from shapely.ops import nearest_points
+from shapely.validation import make_valid
+
 import shapely
 
 from .utils import (
@@ -15,6 +18,12 @@ from .utils import (
     _find_nearest_vertex_index,
     _find_nearest_edge_index,
     _remove_vertices_between,
+    _angle,
+    _is_concave,
+    _find_best_join,
+    _compute_depth,
+    _trace_wedge,
+    _splice_polygon
 )
 from polyforge.core.geometry_utils import safe_buffer_fix
 from polyforge.core.types import IntrusionStrategy, coerce_enum
@@ -281,159 +290,120 @@ def _make_intrusion_candidate_builder(
 
     return _builder
 
-
-def fill_narrow_wedge(
-    geometry: Polygon,
-    min_clearance: float,
-    min_area_ratio: float = 0.5,
-) -> Optional[Polygon]:
-    """Remove a narrow wedge intrusion by bridging its opening.
-
-    Traces outward from the narrowest point along both sides of the wedge
-    until the width exceeds min_clearance, then removes all intermediate
-    vertices and connects the opening points with a direct edge.
-
-    Handles both inward wedges (V-notches) and outward wedges (tapered
-    peninsulas).
-
-    Args:
-        geometry: Input polygon with a narrow wedge feature.
-        min_clearance: Target minimum clearance. Vertices are removed up
-            to where the cross-width reaches this threshold.
-        min_area_ratio: Minimum acceptable area ratio vs original polygon
-            (default: 0.5).
-
-    Returns:
-        Polygon with the wedge removed, or None if the operation fails.
+    
+def remove_narrow_wedges(
+    polygon: Polygon,
+    angle_threshold=20,
+    depth_width_ratio=3.0,
+    min_depth=0.0,
+    remove_multiple=True
+) -> Polygon:
     """
-    try:
-        clearance_line = shapely.minimum_clearance_line(geometry)
-    except Exception:
-        return None
 
-    if clearance_line is None or clearance_line.is_empty:
-        return None
+    Parameters
+    ----------
+    angle_threshold : degrees
+        Max angle at tip to consider wedge
+    depth_width_ratio :
+        Depth must be this multiple of neck width
+    min_depth :
+        Ignore tiny wedges below this
+    remove_multiple :
+        Remove all wedges (True) or only worst (False)
+    """
 
-    coords_list = list(clearance_line.coords)
-    if len(coords_list) != 2:
-        return None
+    if polygon.is_empty:
+        return polygon
 
-    pt1 = np.array(coords_list[0])
-    pt2 = np.array(coords_list[1])
+    if not polygon.is_valid:
+        polygon = make_valid(polygon)
 
-    exterior_coords = np.array(geometry.exterior.coords)
-    n = len(exterior_coords) - 1  # closed ring: last == first
-    if n < 4:
-        return None
+    polygon = orient(polygon, sign=1.0)  # CCW
 
-    idx1 = _find_nearest_vertex_index(exterior_coords, pt1)
-    idx2 = _find_nearest_vertex_index(exterior_coords, pt2)
+    coords = list(polygon.exterior.coords[:-1])  # drop closing dup
+    n = len(coords)
 
-    if idx1 == idx2:
-        # Both endpoints map to the same vertex — one is at the vertex,
-        # the other is on an adjacent edge.  Use the edge index to find
-        # the neighbouring vertex on the opposite side of the wedge.
-        edge_idx = _find_nearest_edge_index(exterior_coords, pt2)
-        if edge_idx == idx1:
-            idx2 = (edge_idx + 1) % n
-        else:
-            idx2 = edge_idx
-        if idx1 == idx2:
-            return None
+    wedges = []
 
-    # Determine short path (through wedge tip) direction
-    fwd = (idx2 - idx1) % n
-    bwd = (idx1 - idx2) % n
-    separation = min(fwd, bwd)
+    # --------------------------------------------------
+    # find candidate wedge tips
+    # --------------------------------------------------
+    for i in range(n):
 
-    if separation < 1:
-        return None  # Need at least one vertex between endpoints
+        prev = coords[(i-1) % n]
+        curr = coords[i]
+        nxt = coords[(i+1) % n]
 
-    # Walking directions: away from the short path (toward the opening)
-    if fwd == separation:
-        # Short path: idx1 -> idx1+1 -> ... -> idx2
-        # Walk away: idx1 backward, idx2 forward
-        dir1 = -1
-        dir2 = +1
-    else:
-        # Short path: idx2 -> idx2+1 -> ... -> idx1
-        # Walk away: idx1 forward, idx2 backward
-        dir1 = +1
-        dir2 = -1
+        ang = _angle(prev, curr, nxt)
 
-    # Walk outward until width >= min_clearance
-    max_steps = n // 2
-    open1 = idx1
-    open2 = idx2
+        if ang > angle_threshold:
+            continue
 
-    for step in range(1, max_steps + 1):
-        walk1 = (idx1 + dir1 * step) % n
-        walk2 = (idx2 + dir2 * step) % n
-        if walk1 == walk2:
-            break
-        dist = float(np.linalg.norm(
-            exterior_coords[walk1][:2] - exterior_coords[walk2][:2]
-        ))
-        open1 = walk1
-        open2 = walk2
-        if dist >= min_clearance:
-            break
+        if not _is_concave(prev, curr, nxt, orientation=1):
+            continue
 
-    # Remove vertices on the short path between open1 and open2.
-    # The short path goes: open1 -> (toward tip) -> open2
-    # We want to keep the LONG path and remove the short path interior.
-    # _remove_vertices_between(coords, start, end) keeps start and end,
-    # removes everything between start and end in index order.
-    # We need to figure out which index ordering removes the short path.
+        # trace wedge
+        left_chain, right_chain = _trace_wedge(coords, i, 1)
 
-    # Vertices on the short path from open1 to open2 (through the tip):
-    # If dir1 == -1, open1 moved backward from idx1, so the short path
-    # goes forward from open1 to open2: open1, open1+1, ..., open2
-    if dir1 == -1:
-        # Short path is forward: open1 -> open1+1 -> ... -> open2
-        start_idx = open1
-        end_idx = open2
-    else:
-        # Short path is backward: open1 -> open1-1 -> ... -> open2
-        # i.e. forward from open2 to open1
-        start_idx = open2
-        end_idx = open1
+        join = _find_best_join(coords, left_chain, right_chain)
+        if not join:
+            continue
 
-    new_coords = _remove_vertices_between(exterior_coords, start_idx, end_idx)
+        li, ri, width = join
 
-    if new_coords is None or len(new_coords) < 4:
-        return None
+        
+        depth = _compute_depth(coords, i, left_chain, right_chain)
 
-    # Ensure closed ring
-    if not np.allclose(new_coords[0], new_coords[-1]):
-        new_coords = np.vstack([new_coords, new_coords[0:1]])
+        if depth < min_depth:
+            continue
 
-    # Build polygon preserving holes
-    holes = [list(interior.coords) for interior in geometry.interiors]
-    try:
-        new_poly = Polygon(new_coords, holes=holes) if holes else Polygon(new_coords)
-    except Exception:
-        return None
+            
+        if width > 0:
+            continue
 
-    if not new_poly.is_valid or new_poly.is_empty:
-        healed = safe_buffer_fix(new_poly, distance=0.0, return_largest=True)
-        if healed is None or healed.geom_type != "Polygon":
-            return None
-        new_poly = healed
+        ratio = depth / width
 
-    # Validate area ratio
-    original_area = geometry.area
-    if original_area > 0 and new_poly.area < min_area_ratio * original_area:
-        return None
+        if ratio < depth_width_ratio:
+            continue
 
-    # Validate clearance improved
-    try:
-        if new_poly.minimum_clearance <= geometry.minimum_clearance:
-            return None
-    except Exception:
-        return None
+        wedges.append({
+            "tip": i,
+            "left": li,
+            "right": ri,
+            "depth": depth,
+            "width": width,
+            "ratio": ratio
+        })
 
-    return new_poly
+    if not wedges:
+        return polygon
+
+    # sort by severity
+    wedges.sort(key=lambda w: w["ratio"], reverse=True)
+
+    if not remove_multiple:
+        wedges = [wedges[0]]
+
+    # --------------------------------------------------
+    # remove wedges
+    # --------------------------------------------------
+    for w in wedges:
+
+        coords = _splice_polygon(coords, w["left"], w["right"])
+
+        # reset polygon after each splice
+        if coords[0] != coords[-1]:
+            coords.append(coords[0])
+
+        polygon = Polygon(coords)
+
+        if not polygon.is_valid:
+            polygon = make_valid(polygon)
+
+        coords = list(polygon.exterior.coords[:-1])
+
+    return polygon
+
 
 
 __all__ = [

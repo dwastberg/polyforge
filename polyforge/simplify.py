@@ -20,8 +20,7 @@ from polyforge.ops.cleanup_ops import (
     remove_small_holes as _remove_small_holes_impl,
     remove_narrow_holes as _remove_narrow_holes_impl,
 )
-from polyforge.ops.clearance.protrusions import fill_narrow_wedge as _fill_narrow_wedge
-from polyforge.ops.clearance.passages import _erode_dilate_fix
+from polyforge.ops.clearance.protrusions import remove_narrow_wedges as _fill_narrow_wedge
 from polyforge.ops.simplify_ops import (
     simplify_rdp_coords,
     simplify_vw_coords,
@@ -246,17 +245,20 @@ def remove_slivers(
         except Exception:
             break
 
-        candidate = _fill_narrow_wedge(current, min_width, min_area_ratio)
+        candidate = _fill_narrow_wedge(current, angle_threshold=100, min_depth=min_width)
         if candidate is None:
             break
         current = candidate
 
-    # Phase 2: erosion-dilation fallback
+    # Phase 2: morphological closing fallback (dilate-erode fills concave intrusions)
     try:
         if current.minimum_clearance < min_width:
-            fallback = _erode_dilate_fix(current, min_width, min_area_ratio)
-            if fallback is not None:
-                current = fallback
+            buffer_dist = min_width * 0.5
+            dilated = current.buffer(buffer_dist, join_style=2)
+            closed = dilated.buffer(-buffer_dist, join_style=2)
+            if (isinstance(closed, Polygon) and closed.is_valid and not closed.is_empty
+                    and closed.minimum_clearance > current.minimum_clearance):
+                current = closed
     except Exception:
         pass
 

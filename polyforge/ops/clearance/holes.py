@@ -1,14 +1,46 @@
-"""Functions for fixing holes too close to polygon exterior.
+"""Functions for fixing holes that cause low clearance.
 
-This module provides functions to handle holes (interior rings) that are
-positioned too close to the exterior boundary, causing low minimum clearance.
+This module provides functions to handle holes (interior rings) that cause
+low minimum clearance, either by being too close to the exterior boundary
+or by having near-self-intersections within the hole ring itself.
 """
 
+import math
 import numpy as np
 from typing import Optional, Union
 from shapely.geometry import Polygon, LinearRing, Point
+from shapely.errors import GEOSException
 import shapely.ops
 from polyforge.core.types import HoleStrategy, coerce_enum
+
+# Self-clearance that is below this fraction of sqrt(hole_area) indicates
+# a near-self-intersection rather than just a small hole.
+_SELF_CLEARANCE_RATIO = 0.1
+
+
+def _has_self_clearance_issue(hole_ring: LinearRing, min_clearance: float) -> bool:
+    """Check whether a hole ring has a near-self-intersection.
+
+    A near-self-intersection is when the ring almost touches itself,
+    creating a gap much smaller than the hole's overall size.  Normal
+    small holes (e.g. a 1x1 square with self-clearance 1.0) are NOT
+    flagged; only holes where self-clearance is disproportionately
+    small relative to sqrt(area) are considered problematic.
+    """
+    try:
+        self_clearance = float(hole_ring.minimum_clearance)
+    except (GEOSException, ValueError):
+        return False
+
+    if self_clearance >= min_clearance:
+        return False
+
+    # Only flag when self-clearance is disproportionately small
+    # compared to the hole's overall size
+    hole_area = Polygon(hole_ring).area
+    if hole_area <= 0:
+        return False
+    return self_clearance < math.sqrt(hole_area) * _SELF_CLEARANCE_RATIO
 
 
 def fix_hole_too_close(
@@ -16,15 +48,20 @@ def fix_hole_too_close(
     min_clearance: float,
     strategy: Union[HoleStrategy, str] = HoleStrategy.REMOVE,
 ) -> Polygon:
-    """Fix holes that are too close to the polygon exterior.
+    """Fix holes that cause low clearance.
+
+    Detects two types of hole clearance issues:
+    1. Holes too close to the exterior boundary
+    2. Holes with near-self-intersections (low self-clearance within the ring)
 
     Args:
         geometry: Input polygon (possibly with holes)
         min_clearance: Target minimum clearance
-        strategy: How to handle close holes:
-            - 'remove': Remove holes that are too close (default)
+        strategy: How to handle problematic holes:
+            - 'remove': Remove holes that cause issues (default)
             - 'shrink': Make holes smaller via negative buffer
-            - 'move': Move holes away from exterior (experimental)
+            - 'move': Move holes away from exterior (experimental,
+              only applies to hole-to-exterior issues)
 
     Returns:
         Polygon with holes fixed
@@ -47,36 +84,51 @@ def fix_hole_too_close(
 
     for hole in geometry.interiors:
         hole_poly = Polygon(hole)
+        hole_ring = LinearRing(hole.coords)
 
-        # Calculate minimum distance from hole to exterior
+        # Check 1: hole-to-exterior distance
         distance = _calculate_hole_to_exterior_distance(hole_poly, exterior)
+        too_close_to_exterior = distance < min_clearance
 
-        if distance >= min_clearance:
-            # Hole is fine, keep it
+        # Check 2: hole near-self-intersection (disproportionately low
+        # self-clearance relative to hole size)
+        self_intersection = _has_self_clearance_issue(hole_ring, min_clearance)
+
+        if not too_close_to_exterior and not self_intersection:
             good_holes.append(hole.coords)
-        else:
-            # Hole is too close
-            if strategy_enum == HoleStrategy.REMOVE:
-                # Don't add to good_holes (removed)
-                continue
+            continue
 
-            elif strategy_enum == HoleStrategy.SHRINK:
-                # Shrink hole by buffering inward
+        # Hole needs fixing
+        if strategy_enum == HoleStrategy.REMOVE:
+            continue  # Don't add to good_holes (removed)
+
+        elif strategy_enum == HoleStrategy.SHRINK:
+            if too_close_to_exterior:
                 shrink_amount = min_clearance - distance
-                shrunk_hole = hole_poly.buffer(-shrink_amount)
+            else:
+                # Self-clearance issue: buffer inward by half the deficit
+                # (both sides of the pinch move inward)
+                try:
+                    self_cl = float(hole_ring.minimum_clearance)
+                except (GEOSException, ValueError):
+                    self_cl = 0.0
+                shrink_amount = (min_clearance - self_cl) / 2
 
-                if shrunk_hole.is_valid and not shrunk_hole.is_empty:
-                    if shrunk_hole.geom_type == 'Polygon':
-                        good_holes.append(shrunk_hole.exterior.coords)
-                # else: hole shrunk to nothing, effectively removed
+            shrunk_hole = hole_poly.buffer(-shrink_amount)
 
-            elif strategy_enum == HoleStrategy.MOVE:
-                # Move hole away from exterior
+            if shrunk_hole.is_valid and not shrunk_hole.is_empty:
+                if shrunk_hole.geom_type == 'Polygon':
+                    good_holes.append(shrunk_hole.exterior.coords)
+            # else: hole shrunk to nothing, effectively removed
+
+        elif strategy_enum == HoleStrategy.MOVE:
+            if too_close_to_exterior:
                 moved_hole = _move_hole_away_from_exterior(
                     hole_poly, exterior, min_clearance
                 )
                 if moved_hole is not None:
                     good_holes.append(moved_hole.exterior.coords)
+            # else: moving doesn't help with self-clearance, hole is removed
 
     return Polygon(exterior.coords, holes=good_holes)
 

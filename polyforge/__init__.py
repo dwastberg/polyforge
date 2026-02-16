@@ -29,8 +29,7 @@ from .clearance import (
     fix_narrow_protrusion,
     remove_narrow_protrusions,
     fix_sharp_intrusion,
-    fill_narrow_wedge,
-    fix_narrow_passage,
+
     fix_near_self_intersection,
     fix_parallel_close_edges,
 )
@@ -114,7 +113,6 @@ __all__ = [
     'fix_narrow_protrusion',
     'remove_narrow_protrusions',
     'fix_sharp_intrusion',
-    'fill_narrow_wedge',
     'fix_narrow_passage',
     'fix_near_self_intersection',
     'fix_parallel_close_edges',

@@ -16,12 +16,13 @@ from polyforge.ops.clearance import (
     fix_hole_too_close,
     fix_narrow_protrusion,
     remove_narrow_protrusions,
-    fill_narrow_wedge,
+    remove_narrow_wedges,
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
     _find_nearest_vertex_index,
     _calculate_curvature_at_vertex,
+    _compute_wedge_tip_angle,
     _erode_dilate_fix,
 )
 from polyforge.core.geometry_utils import to_single_polygon
@@ -54,6 +55,16 @@ _SELF_INTERSECTION_MAX_ANGLE = 90.0
 # Maximum angle (degrees) between edge directions at the two clearance-line
 # endpoints for them to be considered "parallel".
 _PARALLEL_EDGE_MAX_ANGLE = 30.0
+
+# Maximum tip angle (degrees) for angle-based wedge detection.  Features with
+# a tip angle below this threshold are classified as acute wedges, even when
+# the opening width already exceeds min_clearance.
+_ACUTE_TIP_ANGLE = 20.0
+
+# Floating-point tolerance for clearance comparisons.  Shapely's
+# minimum_clearance can return values like 0.9999999999999982 for what is
+# geometrically 1.0.
+_CLEARANCE_TOLERANCE = 1e-9
 
 
 class ClearanceIssue(Enum):
@@ -342,7 +353,7 @@ def _strategy_narrow_wedge(
     diagnosis: ClearanceDiagnosis,
 ) -> Optional[Polygon]:
     """Strategy for narrow wedge intrusions: trace and bridge the opening."""
-    result = fill_narrow_wedge(geometry, min_clearance)
+    result = remove_narrow_wedges(geometry, angle_threshold=_ACUTE_TIP_ANGLE)
     if result is not None:
         return result
     # Fall back to regular protrusion handling
@@ -566,6 +577,12 @@ def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> O
             exterior_coords, idx1, idx2, separation, min_clearance
         )
 
+    tip_angle = None
+    if ring_types[0] == ring_types[1] == "exterior" and separation >= 2:
+        tip_angle = _compute_wedge_tip_angle(
+            exterior_coords, idx1, idx2, separation
+        )
+
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
@@ -573,6 +590,7 @@ def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> O
         ring_types=ring_types,
         edge_angle_similarity=edge_angle_similarity,
         narrow_extent=narrow_extent,
+        tip_angle=tip_angle,
     )
 
 
@@ -584,6 +602,7 @@ class ClearanceContext:
     ring_types: Tuple[str, str]
     edge_angle_similarity: Optional[float] = None
     narrow_extent: int = 0
+    tip_angle: Optional[float] = None
 
 
 # Minimum number of narrow vertex pairs beyond the clearance endpoints
@@ -642,16 +661,27 @@ def _looks_like_narrow_wedge(context: ClearanceContext, _: float) -> Optional[Cl
     a wedge has a body of 2+ vertex pairs that are all narrower than
     min_clearance.  Detecting this allows removing the entire wedge in one
     operation instead of iteratively fixing vertex by vertex.
+
+    Two detection paths:
+    1. Width-based: close separation + moderate curvature + extended narrowness.
+    2. Angle-based: acute tip angle, even when the opening is wider than
+       min_clearance.  Catches long, gradually tapered features.
     """
     if "hole" in context.ring_types:
         return None
-    if context.separation > _CLOSE_VERTEX_SEPARATION:
-        return None
-    # Must have at least moderate curvature at tip
-    if max(context.curvature) < _PROTRUSION_MODERATE_ANGLE:
-        return None
-    if context.narrow_extent >= _NARROW_WEDGE_MIN_EXTENT:
+
+    # Path 1: Width-based detection (original)
+    if (context.separation <= _CLOSE_VERTEX_SEPARATION
+            and max(context.curvature) >= _PROTRUSION_MODERATE_ANGLE
+            and context.narrow_extent >= _NARROW_WEDGE_MIN_EXTENT):
         return ClearanceIssue.NARROW_WEDGE
+
+    # Path 2: Angle-based detection for long wedges with acute tips
+    if (context.tip_angle is not None
+            and context.tip_angle < _ACUTE_TIP_ANGLE
+            and context.separation >= 2):
+        return ClearanceIssue.NARROW_WEDGE
+
     return None
 
 
@@ -742,7 +772,7 @@ def diagnose_clearance(
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
 
     current_clearance = geometry.minimum_clearance
-    meets_requirement = current_clearance >= min_clearance
+    meets_requirement = current_clearance >= min_clearance - _CLEARANCE_TOLERANCE
     ratio = current_clearance / min_clearance if min_clearance > 0 else float("inf")
 
     try:

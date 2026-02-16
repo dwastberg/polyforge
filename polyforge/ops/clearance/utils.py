@@ -6,6 +6,7 @@ This module provides geometric utility functions used by clearance fix functions
 import numpy as np
 from typing import List, Union
 from shapely.geometry import Point
+import math
 
 
 def _find_nearest_vertex_index(coords: np.ndarray, point: Union[Point, tuple, np.ndarray]) -> int:
@@ -69,6 +70,148 @@ def _find_nearest_edge_index(coords: np.ndarray, point: np.ndarray) -> int:
         distances[degenerate] = np.linalg.norm(point_2d - segment_starts[degenerate], axis=1)
 
     return int(np.argmin(distances))
+
+def _angle(p_prev, p, p_next):
+    """Interior angle at vertex p in degrees"""
+    v1 = np.array(p_prev) - np.array(p)
+    v2 = np.array(p_next) - np.array(p)
+
+    n1 = np.linalg.norm(v1)
+    n2 = np.linalg.norm(v2)
+
+    if n1 == 0 or n2 == 0:
+        return 180.0
+
+    v1 /= n1
+    v2 /= n2
+
+    dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
+    ang = math.degrees(math.acos(dot))
+    return ang
+
+def _cross(o, a, b):
+    """2D cross product"""
+    return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+
+
+def _is_concave(prev, curr, nxt, orientation=1):
+    """
+    Determine if vertex is concave.
+    orientation = 1 for CCW polygon
+    """
+    cross = _cross(prev, curr, nxt)
+    return cross * orientation < 0
+
+
+def _dist(a, b):
+    return math.hypot(a[0]-b[0], a[1]-b[1])
+
+
+# ------------------------------------------------------------
+# wedge tracing
+# ------------------------------------------------------------
+
+def _trace_wedge(coords, tip_idx, orientation, max_steps=200):
+    """
+    Trace both sides of wedge starting at tip.
+    Returns indices of left/right chains.
+    """
+
+    n = len(coords)
+
+    left = []
+    right = []
+
+    i = tip_idx
+    j = tip_idx
+
+    for _ in range(max_steps):
+
+        i = (i - 1) % n
+        j = (j + 1) % n
+
+        left.append(i)
+        right.append(j)
+
+        # stop if they meet
+        if i == j:
+            break
+
+    return left, right
+
+
+def _find_best_join(coords, left_chain, right_chain):
+    """
+    Find closest pair between chains → neck location.
+
+    Both chains trace from the tip all the way around the polygon, so every
+    vertex except the tip appears in both.  We must skip pairs where the
+    remaining body (the arc from li to ri NOT going through the tip) is too
+    short to form a valid polygon — otherwise we always pick li == ri with
+    distance 0.
+
+    For left_chain position *a* and right_chain position *b* the wedge
+    path through the tip has ``a + b + 2`` edges, so the body path has
+    ``n - (a + b + 2)`` edges.  We require the body to have at least 2
+    edges (3 vertices → a triangle).
+    """
+
+    n = len(coords)
+    best = None
+    best_dist = float("inf")
+
+    for a, li in enumerate(left_chain):
+        for b, ri in enumerate(right_chain):
+            remaining_edges = n - (a + b + 2)
+            if remaining_edges < 2:
+                continue
+            d = _dist(coords[li], coords[ri])
+            if d < best_dist:
+                best_dist = d
+                best = (li, ri, d)
+
+    if best is None:
+        return None
+
+    return best  # left_idx, right_idx, width
+
+
+def _compute_depth(coords, tip_idx, left_chain, right_chain):
+    """Depth = max distance from tip to midpoint of neck"""
+    tip = coords[tip_idx]
+
+    max_d = 0
+    for li in left_chain:
+        max_d = max(max_d, _dist(tip, coords[li]))
+    for ri in right_chain:
+        max_d = max(max_d, _dist(tip, coords[ri]))
+
+    return max_d
+
+
+# ------------------------------------------------------------
+# splice polygon
+# ------------------------------------------------------------
+
+def _splice_polygon(coords, left_idx, right_idx):
+    """
+    Remove wedge region between left_idx and right_idx.
+    Keeps shortest boundary path.
+    """
+
+    n = len(coords)
+
+    if left_idx < right_idx:
+        new = coords[:left_idx+1] + coords[right_idx:]
+    else:
+        # wrap case
+        new = coords[right_idx:left_idx+1]
+
+    # ensure closed
+    if new[0] != new[-1]:
+        new.append(new[0])
+
+    return new
 
 
 def _point_to_segment_distance(
@@ -219,6 +362,84 @@ def _calculate_curvature_at_vertex(coords: np.ndarray, idx: int) -> float:
     angle = np.arccos(dot)
 
     return float(np.degrees(angle))
+
+
+def _compute_wedge_tip_angle(
+    coords: np.ndarray,
+    idx1: int,
+    idx2: int,
+    separation: int,
+) -> float:
+    """Compute the angle at the tip of a wedge feature (in degrees).
+
+    Finds the vertex on the short path between idx1 and idx2 that is
+    farthest from the baseline (the line through idx1 and idx2), then
+    computes the angle formed at that vertex by vectors to idx1 and idx2.
+
+    Args:
+        coords: Exterior ring coordinates (closed ring, last == first).
+        idx1: First clearance endpoint vertex index.
+        idx2: Second clearance endpoint vertex index.
+        separation: Shortest ring distance between idx1 and idx2.
+
+    Returns:
+        Tip angle in degrees.  Small values (< 20°) indicate very acute
+        wedges.  Returns 180.0 when no meaningful tip can be identified
+        (e.g. separation < 2 or degenerate geometry).
+    """
+    n = len(coords) - 1  # closed ring
+
+    if separation < 2:
+        return 180.0
+
+    # Determine short-path direction
+    fwd = (idx2 - idx1) % n
+    if fwd == separation:
+        step_dir = +1
+    else:
+        step_dir = -1
+
+    # Collect interior vertices on the short path (excluding endpoints)
+    short_path_indices = [(idx1 + step_dir * s) % n for s in range(1, separation)]
+
+    if not short_path_indices:
+        return 180.0
+
+    coords_2d = coords[:, :2] if coords.shape[1] > 2 else coords
+    p1 = coords_2d[idx1]
+    p2 = coords_2d[idx2]
+    baseline = p2 - p1
+    baseline_len = float(np.linalg.norm(baseline))
+
+    if baseline_len < 1e-12:
+        # Degenerate baseline — endpoints coincide
+        tip_idx = short_path_indices[0]
+    else:
+        baseline_unit = baseline / baseline_len
+        max_dist = -1.0
+        tip_idx = short_path_indices[0]
+        for vi in short_path_indices:
+            v = coords_2d[vi] - p1
+            perp = abs(float(v[0] * baseline_unit[1] - v[1] * baseline_unit[0]))
+            if perp > max_dist:
+                max_dist = perp
+                tip_idx = vi
+
+        if max_dist < 1e-12:
+            # All short-path vertices are collinear with the baseline
+            return 180.0
+
+    tip = coords_2d[tip_idx]
+    va = p1 - tip
+    vb = p2 - tip
+    la = float(np.linalg.norm(va))
+    lb = float(np.linalg.norm(vb))
+
+    if la < 1e-12 or lb < 1e-12:
+        return 180.0
+
+    cos_angle = float(np.clip(np.dot(va, vb) / (la * lb), -1.0, 1.0))
+    return float(np.degrees(np.arccos(cos_angle)))
 
 
 def _remove_vertices_between(
