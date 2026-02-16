@@ -1,4 +1,3 @@
-from typing import List, Optional, Tuple
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
@@ -16,7 +15,7 @@ def repair_geometry(
     repair_strategy: RepairStrategy = RepairStrategy.AUTO,
     buffer_distance: float = 0.0,
     tolerance: float = 1e-10,
-    verbose: bool = False
+    verbose: bool = False,
 ) -> BaseGeometry:
     """Repair invalid geometries using various strategies.
 
@@ -91,11 +90,11 @@ def repair_geometry(
 
 
 def batch_repair_geometries(
-    geometries: List[BaseGeometry],
+    geometries: list[BaseGeometry],
     repair_strategy: RepairStrategy = RepairStrategy.AUTO,
-    on_error: str = 'keep',
-    verbose: bool = False
-) -> Tuple[List[Optional[BaseGeometry]], List[int]]:
+    on_error: str = "keep",
+    verbose: bool = False,
+) -> tuple[list[BaseGeometry | None], list[int]]:
     """Repair multiple geometries in batch.
 
     The returned list always has the same length as the input list, so
@@ -124,21 +123,23 @@ def batch_repair_geometries(
         >>> # Using specific strategy
         >>> repaired, failed = batch_repair_geometries(geometries, RepairStrategy.BUFFER)
     """
-    repaired: List[Optional[BaseGeometry]] = []
-    failed_indices: List[int] = []
+    repaired: list[BaseGeometry | None] = []
+    failed_indices: list[int] = []
 
     for i, geom in enumerate(geometries):
         try:
             if verbose and i % 100 == 0:
                 print(f"Processing geometry {i}/{len(geometries)}...")
 
-            repaired_geom = repair_geometry(geom, repair_strategy=repair_strategy, verbose=False)
+            repaired_geom = repair_geometry(
+                geom, repair_strategy=repair_strategy, verbose=False
+            )
             repaired.append(repaired_geom)
 
         except Exception as e:
-            if on_error == 'raise':
+            if on_error == "raise":
                 raise
-            elif on_error == 'keep':
+            elif on_error == "keep":
                 repaired.append(geom)
             else:  # skip
                 repaired.append(None)
@@ -150,4 +151,4 @@ def batch_repair_geometries(
     return repaired, failed_indices
 
 
-__all__ = ['repair_geometry', 'batch_repair_geometries']
+__all__ = ["repair_geometry", "batch_repair_geometries"]

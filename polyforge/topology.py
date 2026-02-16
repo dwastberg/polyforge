@@ -4,16 +4,13 @@ This module provides functions for ensuring topological consistency between
 polygons, such as conforming boundaries and vertex alignment.
 """
 
-from typing import Tuple, List, Dict
 import numpy as np
 from shapely.geometry import Polygon, LinearRing
 
 
 def align_boundaries(
-    poly1: Polygon,
-    poly2: Polygon,
-    distance_tolerance: float = 1e-10
-) -> Tuple[Polygon, Polygon]:
+    poly1: Polygon, poly2: Polygon, distance_tolerance: float = 1e-10
+) -> tuple[Polygon, Polygon]:
     """Align two touching polygons to have conforming boundaries.
 
     When two polygons share a boundary, this function ensures that any vertex
@@ -35,29 +32,29 @@ def align_boundaries(
 
     # Insert vertices into polygon exteriors
     new_poly1_exterior = _insert_vertices_into_ring(
-        poly1.exterior,
-        vertices_for_poly1.get('exterior', []),
-        distance_tolerance
+        poly1.exterior, vertices_for_poly1.get("exterior", []), distance_tolerance
     )
     new_poly2_exterior = _insert_vertices_into_ring(
-        poly2.exterior,
-        vertices_for_poly2.get('exterior', []),
-        distance_tolerance
+        poly2.exterior, vertices_for_poly2.get("exterior", []), distance_tolerance
     )
 
     # Handle holes if present
     new_poly1_holes = []
     if poly1.interiors:
         for hole_idx, hole in enumerate(poly1.interiors):
-            hole_vertices = vertices_for_poly1.get(f'hole_{hole_idx}', [])
-            new_hole = _insert_vertices_into_ring(hole, hole_vertices, distance_tolerance)
+            hole_vertices = vertices_for_poly1.get(f"hole_{hole_idx}", [])
+            new_hole = _insert_vertices_into_ring(
+                hole, hole_vertices, distance_tolerance
+            )
             new_poly1_holes.append(new_hole)
 
     new_poly2_holes = []
     if poly2.interiors:
         for hole_idx, hole in enumerate(poly2.interiors):
-            hole_vertices = vertices_for_poly2.get(f'hole_{hole_idx}', [])
-            new_hole = _insert_vertices_into_ring(hole, hole_vertices, distance_tolerance)
+            hole_vertices = vertices_for_poly2.get(f"hole_{hole_idx}", [])
+            new_hole = _insert_vertices_into_ring(
+                hole, hole_vertices, distance_tolerance
+            )
             new_poly2_holes.append(new_hole)
 
     # Create new polygons
@@ -68,10 +65,8 @@ def align_boundaries(
 
 
 def _find_vertices_on_edges(
-    source_poly: Polygon,
-    target_poly: Polygon,
-    tolerance: float
-) -> Dict[str, List[Tuple[float, float]]]:
+    source_poly: Polygon, target_poly: Polygon, tolerance: float
+) -> dict[str, list[tuple[float, float]]]:
     """Find vertices from source_poly that lie on edges of target_poly.
 
     Args:
@@ -96,7 +91,7 @@ def _find_vertices_on_edges(
             vertices_for_exterior.append(tuple(source_pt))
 
     if vertices_for_exterior:
-        result['exterior'] = vertices_for_exterior
+        result["exterior"] = vertices_for_exterior
 
     # Check source vertices against target holes
     if target_poly.interiors:
@@ -109,7 +104,7 @@ def _find_vertices_on_edges(
                     vertices_for_hole.append(tuple(source_pt))
 
             if vertices_for_hole:
-                result[f'hole_{hole_idx}'] = vertices_for_hole
+                result[f"hole_{hole_idx}"] = vertices_for_hole
 
     # Also check source holes against target exterior and holes
     if source_poly.interiors:
@@ -119,10 +114,10 @@ def _find_vertices_on_edges(
             # Against target exterior
             for source_pt in source_hole_coords:
                 if _point_on_any_edge(source_pt, target_exterior_coords, tolerance):
-                    if 'exterior' not in result:
-                        result['exterior'] = []
-                    if tuple(source_pt) not in result['exterior']:
-                        result['exterior'].append(tuple(source_pt))
+                    if "exterior" not in result:
+                        result["exterior"] = []
+                    if tuple(source_pt) not in result["exterior"]:
+                        result["exterior"].append(tuple(source_pt))
 
             # Against target holes
             if target_poly.interiors:
@@ -130,7 +125,7 @@ def _find_vertices_on_edges(
                     target_hole_coords = np.array(target_hole.coords)
                     for source_pt in source_hole_coords:
                         if _point_on_any_edge(source_pt, target_hole_coords, tolerance):
-                            key = f'hole_{hole_idx}'
+                            key = f"hole_{hole_idx}"
                             if key not in result:
                                 result[key] = []
                             if tuple(source_pt) not in result[key]:
@@ -140,9 +135,7 @@ def _find_vertices_on_edges(
 
 
 def _point_on_any_edge(
-    point: np.ndarray,
-    ring_coords: np.ndarray,
-    tolerance: float
+    point: np.ndarray, ring_coords: np.ndarray, tolerance: float
 ) -> bool:
     """Check if a point lies on any edge of a ring (excluding vertices).
 
@@ -158,7 +151,11 @@ def _point_on_any_edge(
 
     for i in range(len(ring_coords) - 1):
         edge_start = ring_coords[i][:2] if len(ring_coords[i]) > 2 else ring_coords[i]
-        edge_end = ring_coords[i + 1][:2] if len(ring_coords[i + 1]) > 2 else ring_coords[i + 1]
+        edge_end = (
+            ring_coords[i + 1][:2]
+            if len(ring_coords[i + 1]) > 2
+            else ring_coords[i + 1]
+        )
 
         # Skip if point is already a vertex (within tolerance)
         if np.linalg.norm(point_2d - edge_start) < tolerance:
@@ -174,10 +171,7 @@ def _point_on_any_edge(
 
 
 def _point_on_segment(
-    point: np.ndarray,
-    seg_start: np.ndarray,
-    seg_end: np.ndarray,
-    tolerance: float
+    point: np.ndarray, seg_start: np.ndarray, seg_end: np.ndarray, tolerance: float
 ) -> bool:
     """Check if a point lies on a line segment (excluding endpoints).
 
@@ -217,10 +211,8 @@ def _point_on_segment(
 
 
 def _insert_vertices_into_ring(
-    ring: LinearRing,
-    vertices_to_insert: List[Tuple[float, float]],
-    tolerance: float
-) -> List[Tuple[float, ...]]:
+    ring: LinearRing, vertices_to_insert: list[tuple[float, float]], tolerance: float
+) -> list[tuple[float, ...]]:
     """Insert vertices into a ring while maintaining edge topology.
 
     Args:
@@ -270,5 +262,5 @@ def _insert_vertices_into_ring(
 
 
 __all__ = [
-    'align_boundaries',
+    "align_boundaries",
 ]

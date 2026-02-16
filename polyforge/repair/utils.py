@@ -1,17 +1,13 @@
-from typing import List, Tuple
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString
 from shapely.geometry.base import BaseGeometry
 
 
-def clean_coordinates(
-    geometry: BaseGeometry,
-    tolerance: float
-) -> BaseGeometry:
+def clean_coordinates(geometry: BaseGeometry, tolerance: float) -> BaseGeometry:
     """Clean coordinate sequences: remove duplicates, close rings."""
     geom_type = geometry.geom_type
 
-    if geom_type == 'Polygon':
+    if geom_type == "Polygon":
         # Clean exterior
         exterior_coords = np.array(geometry.exterior.coords)
         clean_exterior = remove_duplicate_coords(exterior_coords, tolerance)
@@ -28,12 +24,12 @@ def clean_coordinates(
 
         return Polygon(clean_exterior, holes=clean_holes)
 
-    elif geom_type == 'LineString':
+    elif geom_type == "LineString":
         coords = np.array(geometry.coords)
         clean_coords = remove_duplicate_coords(coords, tolerance)
         return LineString(clean_coords)
 
-    elif geom_type == 'MultiPolygon':
+    elif geom_type == "MultiPolygon":
         clean_polys = []
         for poly in geometry.geoms:
             try:
@@ -72,17 +68,17 @@ def ensure_closed_ring(coords: np.ndarray) -> np.ndarray:
     return coords
 
 
-def extract_all_coords(geometry: BaseGeometry) -> List[Tuple[float, ...]]:
+def extract_all_coords(geometry: BaseGeometry) -> list[tuple[float, ...]]:
     """Extract all coordinates from any geometry."""
     coords = []
 
-    if hasattr(geometry, 'coords'):
+    if hasattr(geometry, "coords"):
         coords.extend(list(geometry.coords))
-    elif hasattr(geometry, 'exterior'):
+    elif hasattr(geometry, "exterior"):
         coords.extend(list(geometry.exterior.coords))
         for interior in geometry.interiors:
             coords.extend(list(interior.coords))
-    elif hasattr(geometry, 'geoms'):
+    elif hasattr(geometry, "geoms"):
         for geom in geometry.geoms:
             coords.extend(extract_all_coords(geom))
 
@@ -90,8 +86,8 @@ def extract_all_coords(geometry: BaseGeometry) -> List[Tuple[float, ...]]:
 
 
 __all__ = [
-    'clean_coordinates',
-    'remove_duplicate_coords',
-    'ensure_closed_ring',
-    'extract_all_coords',
+    "clean_coordinates",
+    "remove_duplicate_coords",
+    "ensure_closed_ring",
+    "extract_all_coords",
 ]

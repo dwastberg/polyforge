@@ -1,11 +1,6 @@
-"""Functions for fixing narrow passages and close edges.
-
-This module provides functions to handle narrow passages (hourglass shapes),
-near self-intersections, and parallel edges that run too close together.
-"""
+from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 
 from shapely.geometry import Polygon, MultiPolygon, LinearRing
 import numpy as np
@@ -22,6 +17,7 @@ from polyforge.core.types import (
 
 from .arap import widen_narrow_passage_offset_arap_lite
 
+
 @dataclass
 class SelfIntersectionContext:
     clearance: float
@@ -33,27 +29,9 @@ class SelfIntersectionContext:
 
 def _validate_holes_after_buffer(
     buffered_exterior: LinearRing,
-    original_holes: List[LinearRing],
-    min_clearance: float
-) -> List[List]:
-    """Validate that holes are still valid after exterior has been buffered.
-
-    When the exterior is buffered outward, original holes might:
-    - Be too close to the new exterior (violating min_clearance)
-    - Be partially or completely outside the new exterior
-    - Create an invalid polygon
-
-    Args:
-        buffered_exterior: The new exterior ring after buffering
-        original_holes: Original interior rings from input geometry
-        min_clearance: Minimum required clearance
-
-    Returns:
-        List of hole coordinate lists that are still valid
-
-    Note:
-        Used by fix_near_self_intersection() when using buffer strategy.
-    """
+    original_holes: list[LinearRing],
+    min_clearance: float,
+) -> list[list]:
     if not original_holes:
         return []
 
@@ -81,9 +59,7 @@ def _validate_holes_after_buffer(
 
 
 def _is_point_near_vertex(
-    point: np.ndarray,
-    coords: np.ndarray,
-    threshold: float
+    point: np.ndarray, coords: np.ndarray, threshold: float
 ) -> tuple[bool, int]:
     """Check if a point is close to any existing vertex.
 
@@ -100,7 +76,7 @@ def _is_point_near_vertex(
         If is_near_vertex is True, vertex_index is the nearby vertex
         If is_near_vertex is False, vertex_index is the nearest vertex
     """
-    min_dist = float('inf')
+    min_dist = float("inf")
     nearest_idx = -1
 
     for i in range(len(coords) - 1):  # Exclude closing vertex
@@ -117,23 +93,8 @@ def _calculate_edge_perpendicular(
     vertex_pos: np.ndarray,
     prev_vertex: np.ndarray,
     next_vertex: np.ndarray,
-    away_from_point: np.ndarray
+    away_from_point: np.ndarray,
 ) -> np.ndarray:
-    """Calculate perpendicular direction from an edge, pointing away from a point.
-
-    When a clearance line endpoint falls on an edge (not at a vertex),
-    we need to move the nearest vertex on that edge perpendicular to the edge,
-    pushing the entire edge away from the opposite clearance point.
-
-    Args:
-        vertex_pos: Position of vertex to move (on the edge)
-        prev_vertex: Previous vertex defining the edge
-        next_vertex: Next vertex defining the edge
-        away_from_point: Point to move away from (opposite clearance endpoint)
-
-    Returns:
-        Normalized perpendicular direction vector (2D)
-    """
     # Calculate edge direction
     edge_vec = next_vertex[:2] - prev_vertex[:2]
     edge_length = np.linalg.norm(edge_vec)
@@ -163,9 +124,7 @@ def _calculate_edge_perpendicular(
         return perp2
 
 
-def _split_narrow_passage(
-    geometry: Polygon
-) -> Union[Polygon, MultiPolygon]:
+def _split_narrow_passage(geometry: Polygon) -> Polygon | MultiPolygon:
     """Split a polygon at its narrowest passage.
 
     Args:
@@ -179,6 +138,7 @@ def _split_narrow_passage(
     if not clearance_line.is_empty:
         # Extend the line slightly to ensure it cuts through
         from shapely.affinity import scale
+
         extended_line = scale(clearance_line, xfact=1.5, yfact=1.5)
 
         try:
@@ -193,22 +153,14 @@ def _split_narrow_passage(
 
 
 def _create_polygon_with_new_coords(
-    new_coords: np.ndarray,
-    original_geometry: Polygon,
-    min_area: float
-) -> Union[Polygon, None]:
-    """Create and validate a polygon from modified coordinates.
-
-    Args:
-        new_coords: Modified coordinate array
-        original_geometry: Original polygon (for preserving holes)
-        min_area: Minimum acceptable area
-
-    Returns:
-        Valid polygon or None if validation fails
-    """
+    new_coords: np.ndarray, original_geometry: Polygon, min_area: float
+) -> Polygon | None:
     try:
-        holes = [list(interior.coords) for interior in original_geometry.interiors] if original_geometry.interiors else None
+        holes = (
+            [list(interior.coords) for interior in original_geometry.interiors]
+            if original_geometry.interiors
+            else None
+        )
         new_poly = Polygon(new_coords, holes=holes) if holes else Polygon(new_coords)
     except Exception:
         return None
@@ -220,7 +172,7 @@ def _create_polygon_with_new_coords(
         new_poly = healed
 
     if (
-        new_poly.geom_type != 'Polygon'
+        new_poly.geom_type != "Polygon"
         or not new_poly.is_valid
         or new_poly.is_empty
         or new_poly.area <= min_area
@@ -236,34 +188,16 @@ def _move_single_vertex_perpendicular(
     pt2: np.ndarray,
     movement_distance: float,
     original_geometry: Polygon,
-    current_clearance: float
-) -> Union[Polygon, None]:
-    """Move a single vertex perpendicular to its adjacent edge.
-
-    Used when both clearance points map to the same vertex
-    (clearance from vertex to adjacent edge).
-
-    Args:
-        coords: Polygon coordinate array
-        vertex_idx: Index of vertex to move
-        pt2: Point on adjacent edge (to move away from)
-        movement_distance: How far to move the vertex
-        original_geometry: Original polygon for validation
-        current_clearance: Current minimum clearance
-
-    Returns:
-        New polygon or None if unsuccessful
-    """
+    current_clearance: float,
+) -> Polygon | None:
+    """Move a single vertex perpendicular to its adjacent edges."""
     n = len(coords) - 1  # Exclude closing vertex
     prev_idx = (vertex_idx - 1) % n
     next_idx = (vertex_idx + 1) % n
 
     # Calculate perpendicular direction away from pt2
     direction = _calculate_edge_perpendicular(
-        coords[vertex_idx],
-        coords[prev_idx],
-        coords[next_idx],
-        pt2
+        coords[vertex_idx], coords[prev_idx], coords[next_idx], pt2
     )
 
     # Move vertex in calculated direction
@@ -273,7 +207,9 @@ def _move_single_vertex_perpendicular(
 
     # Update vertex (preserve Z if 3D)
     if coords.shape[1] > 2:
-        new_coords[vertex_idx] = np.array([new_position[0], new_position[1], coords[vertex_idx][2]])
+        new_coords[vertex_idx] = np.array(
+            [new_position[0], new_position[1], coords[vertex_idx][2]]
+        )
     else:
         new_coords[vertex_idx] = new_position
 
@@ -299,20 +235,8 @@ def _determine_movement_direction(
     clearance_direction: np.ndarray,
     coords: np.ndarray,
     vertex_idx: int,
-    opposite_clearance_pt: np.ndarray
+    opposite_clearance_pt: np.ndarray,
 ) -> np.ndarray:
-    """Determine direction to move a vertex for passage widening.
-
-    Args:
-        is_at_vertex: Whether clearance point is at the vertex
-        clearance_direction: Normalized clearance line direction
-        coords: Polygon coordinate array
-        vertex_idx: Index of vertex to move
-        opposite_clearance_pt: Opposite endpoint of clearance line
-
-    Returns:
-        Normalized movement direction vector
-    """
     if is_at_vertex:
         # Point is at vertex - move along clearance line
         return clearance_direction[:2]
@@ -325,7 +249,7 @@ def _determine_movement_direction(
             coords[vertex_idx],
             coords[prev_idx],
             coords[next_idx],
-            opposite_clearance_pt
+            opposite_clearance_pt,
         )
 
 
@@ -340,26 +264,9 @@ def _move_two_vertices(
     clearance_direction: np.ndarray,
     movement_distance: float,
     original_geometry: Polygon,
-    current_clearance: float
-) -> Union[Polygon, None]:
-    """Move two vertices apart to widen a narrow passage.
-
-    Args:
-        coords: Polygon coordinate array
-        vertex_idx_1: Index of first vertex
-        vertex_idx_2: Index of second vertex
-        is_near_1: Whether pt1 is at vertex_idx_1 (vs on edge)
-        is_near_2: Whether pt2 is at vertex_idx_2 (vs on edge)
-        pt1: First clearance point
-        pt2: Second clearance point
-        clearance_direction: Normalized direction from pt1 to pt2
-        movement_distance: How far to move each vertex
-        original_geometry: Original polygon for validation
-        current_clearance: Current minimum clearance
-
-    Returns:
-        New polygon or None if unsuccessful
-    """
+    current_clearance: float,
+) -> Polygon | None:
+    """Move two vertices apart to widen a narrow passage."""
     # Determine movement direction for each vertex
     direction_1 = _determine_movement_direction(
         is_near_1, -clearance_direction, coords, vertex_idx_1, pt2
@@ -376,7 +283,9 @@ def _move_two_vertices(
     new_position_1 = vertex_1 + direction_1 * movement_distance
 
     if coords.shape[1] > 2:
-        new_coords[vertex_idx_1] = np.array([new_position_1[0], new_position_1[1], coords[vertex_idx_1][2]])
+        new_coords[vertex_idx_1] = np.array(
+            [new_position_1[0], new_position_1[1], coords[vertex_idx_1][2]]
+        )
     else:
         new_coords[vertex_idx_1] = new_position_1
 
@@ -385,7 +294,9 @@ def _move_two_vertices(
     new_position_2 = vertex_2 + direction_2 * movement_distance
 
     if coords.shape[1] > 2:
-        new_coords[vertex_idx_2] = np.array([new_position_2[0], new_position_2[1], coords[vertex_idx_2][2]])
+        new_coords[vertex_idx_2] = np.array(
+            [new_position_2[0], new_position_2[1], coords[vertex_idx_2][2]]
+        )
     else:
         new_coords[vertex_idx_2] = new_position_2
 
@@ -407,9 +318,7 @@ def _move_two_vertices(
 
 
 def _widen_narrow_passage(
-    geometry: Polygon,
-    min_clearance: float,
-    max_iterations: int = 10
+    geometry: Polygon, min_clearance: float, max_iterations: int = 10
 ) -> Polygon:
     """Widen a narrow passage by iteratively moving vertices apart.
 
@@ -467,8 +376,12 @@ def _widen_narrow_passage(
             movement_distance = required_increase * 1.1
 
             new_poly = _move_single_vertex_perpendicular(
-                coords, vertex_idx_2, pt2, movement_distance,
-                geometry, current_clearance
+                coords,
+                vertex_idx_2,
+                pt2,
+                movement_distance,
+                geometry,
+                current_clearance,
             )
 
             if new_poly is not None:
@@ -482,10 +395,17 @@ def _widen_narrow_passage(
         movement_distance = required_increase * 0.55  # 55% = half + buffer
 
         new_poly = _move_two_vertices(
-            coords, vertex_idx_1, vertex_idx_2,
-            is_near_1, is_near_2, pt1, pt2,
-            clearance_direction, movement_distance,
-            geometry, current_clearance
+            coords,
+            vertex_idx_1,
+            vertex_idx_2,
+            is_near_1,
+            is_near_2,
+            pt1,
+            pt2,
+            clearance_direction,
+            movement_distance,
+            geometry,
+            current_clearance,
         )
 
         if new_poly is not None:
@@ -499,14 +419,11 @@ def _widen_narrow_passage(
 def fix_narrow_passage(
     geometry: Polygon,
     min_clearance: float,
-    strategy: Union[PassageStrategy, str] = PassageStrategy.WIDEN,
-) -> Union[Polygon, MultiPolygon]:
+    strategy: PassageStrategy | str = PassageStrategy.WIDEN,
+) -> Polygon | MultiPolygon:
     """Fix narrow passages (hourglass/neck shapes) that cause low clearance.
 
-    Narrow passages occur when a polygon has a thin section connecting two
-    larger areas, creating an hourglass or dumbbell shape.
-
-    Args:
+      Args:
         geometry: Input polygon
         min_clearance: Target minimum clearance
         strategy: How to fix the passage:
@@ -516,18 +433,6 @@ def fix_narrow_passage(
 
     Returns:
         Fixed geometry (Polygon if widened, MultiPolygon if split)
-
-    Note:
-        The WIDEN strategy uses minimum_clearance_line to identify the
-        narrow point and moves the nearest vertices apart. This preserves
-        the overall polygon shape better than buffering.
-
-        The algorithm handles multiple clearance configurations:
-        - Vertex-to-vertex: moves both vertices along clearance line
-        - Vertex-to-edge: moves vertex along clearance line, edge vertex perpendicular
-        - Same vertex (vertex to adjacent edge): moves vertex perpendicular to edge
-
-        Uses 5% of min_clearance as threshold to detect edge vs vertex cases.
     """
     strategy_enum = coerce_enum(strategy, PassageStrategy)
 
@@ -536,37 +441,17 @@ def fix_narrow_passage(
     elif strategy_enum == PassageStrategy.WIDEN:
         return _widen_narrow_passage(geometry, min_clearance)
     elif strategy_enum == PassageStrategy.ARAP:
-        return widen_narrow_passage_offset_arap_lite(geometry, min_clearance) or geometry
+        return (
+            widen_narrow_passage_offset_arap_lite(geometry, min_clearance) or geometry
+        )
 
 
 def fix_near_self_intersection(
     geometry: Polygon,
     min_clearance: float,
-    strategy: Union[IntersectionStrategy, str] = IntersectionStrategy.SIMPLIFY,
+    strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
     """Fix near self-intersections where edges come very close.
-
-    Near self-intersections occur when edges or vertices come very close
-    to each other without actually touching, creating low clearance values.
-
-    Args:
-        geometry: Input polygon
-        min_clearance: Target minimum clearance
-        strategy: How to fix the issue:
-            - 'simplify': Remove vertices causing near-intersections (default)
-            - 'buffer': Use small buffer to smooth edges apart
-            - 'smooth': Apply smoothing to separate close edges
-
-    Returns:
-        Fixed polygon with improved clearance
-
-    Examples:
-        >>> # Polygon with edges that come very close
-        >>> coords = [(0, 0), (5, 0), (5, 5), (2, 2.1), (2, 1.9), (0, 5)]
-        >>> poly = Polygon(coords)
-        >>> fixed = fix_near_self_intersection(poly, min_clearance=0.5)
-        >>> fixed.is_valid
-        True
     """
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     context = _find_self_intersection_vertices(geometry)
@@ -576,7 +461,9 @@ def fix_near_self_intersection(
         return geometry
 
     if strategy_enum == IntersectionStrategy.BUFFER:
-        return _fix_near_self_intersection_buffer(geometry, min_clearance, context, current_clearance)
+        return _fix_near_self_intersection_buffer(
+            geometry, min_clearance, context, current_clearance
+        )
 
     return _fix_near_self_intersection_simplify(geometry, min_clearance, strategy_enum)
 
@@ -584,24 +471,9 @@ def fix_near_self_intersection(
 def fix_parallel_close_edges(
     geometry: Polygon,
     min_clearance: float,
-    strategy: Union[IntersectionStrategy, str] = IntersectionStrategy.SIMPLIFY,
+    strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
     """Fix parallel edges that run too close to each other.
-
-    Parallel close edges form extended narrow regions (slivers, peninsulas,
-    U-shapes) where the boundary runs back nearly alongside itself. Unlike
-    point-like near-self-intersections, these require a morphological
-    (erosion-dilation) approach that handles the entire region at once.
-
-    Tries erosion-dilation first, then falls back to simplification.
-
-    Args:
-        geometry: Input polygon
-        min_clearance: Target minimum clearance
-        strategy: Fallback strategy hint (default: SIMPLIFY)
-
-    Returns:
-        Fixed polygon with improved clearance
     """
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     current_clearance = geometry.minimum_clearance
@@ -625,7 +497,9 @@ def fix_parallel_close_edges(
     return fix_near_self_intersection(geometry, min_clearance, strategy_enum)
 
 
-def _find_self_intersection_vertices(geometry: Polygon) -> Optional[SelfIntersectionContext]:
+def _find_self_intersection_vertices(
+    geometry: Polygon,
+) -> Optional[SelfIntersectionContext]:
     """Return information about the closest approach between two edges."""
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
@@ -703,7 +577,11 @@ def _fix_near_self_intersection_simplify(
     max_iterations: int = 5,
 ) -> Polygon:
     """Use progressive simplification or smoothing to separate edges."""
-    base_epsilon = (min_clearance / 3) if strategy == IntersectionStrategy.SMOOTH else (min_clearance / 2)
+    base_epsilon = (
+        (min_clearance / 3)
+        if strategy == IntersectionStrategy.SMOOTH
+        else (min_clearance / 2)
+    )
     return _run_simplification_loop(
         geometry,
         min_clearance=min_clearance,
@@ -751,7 +629,7 @@ def _run_simplification_loop(
         if current_clearance >= min_clearance:
             break
 
-        epsilon = base_epsilon * (1.5 ** iteration)
+        epsilon = base_epsilon * (1.5**iteration)
         if current.length > 0:
             epsilon = min(epsilon, current.length / 12)
 
@@ -795,19 +673,6 @@ def _erode_dilate_fix(
     min_area_ratio: float = 0.9,
 ) -> Optional[Polygon]:
     """Remove features narrower than min_clearance using erosion-dilation.
-
-    Buffers the polygon inward by min_clearance/2, then outward by the same
-    amount. This naturally collapses any feature narrower than min_clearance
-    (slivers, narrow peninsulas, tight U-shapes) regardless of their length
-    or vertex count.
-
-    Args:
-        geometry: Input polygon
-        min_clearance: Target minimum clearance
-        min_area_ratio: Minimum acceptable area ratio vs original (default 0.9)
-
-    Returns:
-        Fixed polygon or None if the operation fails or loses too much area
     """
     original_area = geometry.area
     if original_area <= 0:
@@ -848,8 +713,8 @@ def _erode_dilate_fix(
 
 
 __all__ = [
-    'fix_narrow_passage',
-    'fix_near_self_intersection',
-    'fix_parallel_close_edges',
-    '_erode_dilate_fix',
+    "fix_narrow_passage",
+    "fix_near_self_intersection",
+    "fix_parallel_close_edges",
+    "_erode_dilate_fix",
 ]

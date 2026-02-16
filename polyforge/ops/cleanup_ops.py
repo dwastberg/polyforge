@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
-from ..core.geometry_utils import hole_shape_metrics
+from ..core.geometry_utils import hole_shape_metrics, remove_holes
 
 
 @dataclass
@@ -14,17 +11,19 @@ class CleanupConfig:
     """Describes which cleanup operations should run."""
 
     min_zero_area: float = 1e-10
-    hole_area_threshold: Optional[float] = None
-    hole_aspect_ratio: Optional[float] = None
-    hole_min_width: Optional[float] = None
+    hole_area_threshold: float | None = None
+    hole_aspect_ratio: float | None = None
+    hole_min_width: float | None = None
     preserve_holes: bool = True
 
 
 def remove_small_holes(
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     min_area: float,
-) -> Union[Polygon, MultiPolygon]:
+) -> Polygon | MultiPolygon:
     """Remove holes whose area is below the threshold."""
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
     if isinstance(geometry, Polygon):
         return _strip_holes_from_polygon(geometry, min_area)
     if isinstance(geometry, MultiPolygon):
@@ -35,11 +34,13 @@ def remove_small_holes(
 
 
 def remove_narrow_holes(
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     max_aspect_ratio: float = 50.0,
-    min_width: Optional[float] = None,
-) -> Union[Polygon, MultiPolygon]:
+    min_width: float | None = None,
+) -> Polygon | MultiPolygon:
     """Remove holes that exceed aspect-ratio or width constraints."""
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
     if isinstance(geometry, Polygon):
         return _filter_holes_by_shape(geometry, max_aspect_ratio, min_width)
     if isinstance(geometry, MultiPolygon):
@@ -53,11 +54,11 @@ def remove_narrow_holes(
 
 
 def cleanup_polygon(
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     config: CleanupConfig,
-) -> Union[Polygon, MultiPolygon]:
+) -> Polygon | MultiPolygon:
     """Apply the requested cleanup operations to the geometry."""
-    result: Union[Polygon, MultiPolygon] = geometry
+    result: Polygon | MultiPolygon = geometry
     result = remove_small_holes(result, min_area=config.min_zero_area)
 
     if config.hole_area_threshold and config.hole_area_threshold > 0:
@@ -73,7 +74,7 @@ def cleanup_polygon(
         )
 
     if not config.preserve_holes:
-        result = _strip_all_holes(result)
+        result = remove_holes(result, preserve_holes=False)
 
     return result
 
@@ -81,18 +82,14 @@ def cleanup_polygon(
 def _strip_holes_from_polygon(polygon: Polygon, min_area: float) -> Polygon:
     if min_area <= 0:
         return polygon
-    valid_holes = [
-        hole
-        for hole in polygon.interiors
-        if Polygon(hole).area >= min_area
-    ]
+    valid_holes = [hole for hole in polygon.interiors if Polygon(hole).area >= min_area]
     return Polygon(polygon.exterior, holes=[list(h.coords) for h in valid_holes])
 
 
 def _filter_holes_by_shape(
     polygon: Polygon,
     max_aspect_ratio: float,
-    min_width: Optional[float],
+    min_width: float | None,
 ) -> Polygon:
     holes = []
     for interior in polygon.interiors:
@@ -107,16 +104,6 @@ def _filter_holes_by_shape(
             continue
         holes.append(list(interior.coords))
     return Polygon(polygon.exterior, holes=holes)
-
-
-def _strip_all_holes(
-    geometry: Union[Polygon, MultiPolygon]
-) -> Union[Polygon, MultiPolygon]:
-    if isinstance(geometry, Polygon):
-        return Polygon(geometry.exterior)
-    if isinstance(geometry, MultiPolygon):
-        return MultiPolygon([Polygon(poly.exterior) for poly in geometry.geoms])
-    return geometry
 
 
 __all__ = [

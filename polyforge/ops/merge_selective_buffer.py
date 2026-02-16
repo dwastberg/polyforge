@@ -1,6 +1,5 @@
 """Selective buffer merge strategy - buffer only near gaps."""
 
-from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon, LineString
 from shapely.ops import unary_union
 
@@ -9,11 +8,11 @@ from polyforge.ops.merge_ops import find_close_boundary_pairs
 
 
 def merge_selective_buffer(
-    group_polygons: List[Polygon],
+    group_polygons: list[Polygon],
     margin: float,
     preserve_holes: bool,
-    simplify: bool = True
-) -> Union[Polygon, MultiPolygon]:
+    simplify: bool = True,
+) -> Polygon | MultiPolygon:
     """Merge by buffering only boundaries that are close to each other.
 
     Better shape preservation than simple buffer.
@@ -41,7 +40,7 @@ def merge_selective_buffer(
             result,
             preserve_holes=preserve_holes,
             simplify=simplify,
-            simplify_threshold=margin / 2
+            simplify_threshold=margin / 2,
         )
 
     # Create minimal bridge zones between close segments
@@ -52,7 +51,8 @@ def merge_selective_buffer(
     min_distance = min(dist for _, _, dist in close_segments)
     tolerance = min(margin * 0.2, 0.5)  # Only use segments very close to minimum
     close_segments_filtered = [
-        (seg1, seg2, dist) for seg1, seg2, dist in close_segments
+        (seg1, seg2, dist)
+        for seg1, seg2, dist in close_segments
         if dist <= min_distance + tolerance
     ]
 
@@ -79,8 +79,8 @@ def merge_selective_buffer(
         result,
         preserve_holes=preserve_holes,
         simplify=simplify,
-        simplify_threshold=margin / 2
+        simplify_threshold=margin / 2,
     )
 
 
-__all__ = ['merge_selective_buffer']
+__all__ = ["merge_selective_buffer"]

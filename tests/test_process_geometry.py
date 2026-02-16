@@ -1,8 +1,14 @@
 import numpy as np
 import pytest
 from shapely.geometry import (
-    Polygon, MultiPolygon, LinearRing, MultiLineString, LineString,
-    Point, MultiPoint, GeometryCollection
+    Polygon,
+    MultiPolygon,
+    LinearRing,
+    MultiLineString,
+    LineString,
+    Point,
+    MultiPoint,
+    GeometryCollection,
 )
 
 from polyforge.process import process_geometry
@@ -78,8 +84,7 @@ class TestProcessGeometryLineString:
         assert isinstance(result, LineString)
         expected_coords = [(0, 0), (2, 0), (2, 2), (0, 2)]
         np.testing.assert_array_almost_equal(
-            np.array(result.coords),
-            np.array(expected_coords)
+            np.array(result.coords), np.array(expected_coords)
         )
 
     def test_linestring_translate(self):
@@ -90,8 +95,7 @@ class TestProcessGeometryLineString:
         assert isinstance(result, LineString)
         expected_coords = [(10, 5), (11, 6), (12, 5)]
         np.testing.assert_array_almost_equal(
-            np.array(result.coords),
-            np.array(expected_coords)
+            np.array(result.coords), np.array(expected_coords)
         )
 
     def test_linestring_3d(self):
@@ -103,8 +107,7 @@ class TestProcessGeometryLineString:
         # XY scaled, Z preserved
         expected_coords = [(0, 0, 0), (3, 3, 1), (6, 6, 2)]
         np.testing.assert_array_almost_equal(
-            np.array(result.coords),
-            np.array(expected_coords)
+            np.array(result.coords), np.array(expected_coords)
         )
 
     def test_linestring_two_points(self):
@@ -115,8 +118,7 @@ class TestProcessGeometryLineString:
         assert isinstance(result, LineString)
         expected_coords = [(0, 0), (2.5, 2.5)]
         np.testing.assert_array_almost_equal(
-            np.array(result.coords),
-            np.array(expected_coords)
+            np.array(result.coords), np.array(expected_coords)
         )
 
 
@@ -168,8 +170,7 @@ class TestProcessGeometryPolygon:
         assert isinstance(result, Polygon)
         expected_coords = [(0, 0), (8, 0), (8, 8), (0, 8), (0, 0)]
         np.testing.assert_array_almost_equal(
-            np.array(result.exterior.coords),
-            np.array(expected_coords)
+            np.array(result.exterior.coords), np.array(expected_coords)
         )
 
     def test_polygon_no_holes_translate(self):
@@ -197,15 +198,13 @@ class TestProcessGeometryPolygon:
         # Check exterior
         expected_exterior = [(0, 0), (20, 0), (20, 20), (0, 20), (0, 0)]
         np.testing.assert_array_almost_equal(
-            np.array(result.exterior.coords),
-            np.array(expected_exterior)
+            np.array(result.exterior.coords), np.array(expected_exterior)
         )
 
         # Check holes
         expected_hole1 = [(4, 4), (8, 4), (8, 8), (4, 8), (4, 4)]
         np.testing.assert_array_almost_equal(
-            np.array(result.interiors[0].coords),
-            np.array(expected_hole1)
+            np.array(result.interiors[0].coords), np.array(expected_hole1)
         )
 
     def test_polygon_with_holes_translate(self):
@@ -252,12 +251,10 @@ class TestProcessGeometryMultiLineString:
         assert len(result.geoms) == 2
 
         np.testing.assert_array_almost_equal(
-            np.array(result.geoms[0].coords),
-            np.array([(0, 0), (2, 2)])
+            np.array(result.geoms[0].coords), np.array([(0, 0), (2, 2)])
         )
         np.testing.assert_array_almost_equal(
-            np.array(result.geoms[1].coords),
-            np.array([(4, 4), (6, 6)])
+            np.array(result.geoms[1].coords), np.array([(4, 4), (6, 6)])
         )
 
     def test_multilinestring_translate(self):
@@ -301,8 +298,7 @@ class TestProcessGeometryMultiPolygon:
 
         expected_coords1 = [(0, 0), (4, 0), (4, 4), (0, 4), (0, 0)]
         np.testing.assert_array_almost_equal(
-            np.array(result.geoms[0].exterior.coords),
-            np.array(expected_coords1)
+            np.array(result.geoms[0].exterior.coords), np.array(expected_coords1)
         )
 
     def test_multipolygon_with_holes(self):
@@ -378,10 +374,9 @@ class TestProcessGeometryCollection:
         line = LineString([(0, 0), (1, 1)])
         inner_collection = GeometryCollection([point, line])
 
-        outer_collection = GeometryCollection([
-            inner_collection,
-            Polygon([(2, 2), (3, 2), (3, 3), (2, 3)])
-        ])
+        outer_collection = GeometryCollection(
+            [inner_collection, Polygon([(2, 2), (3, 2), (3, 3), (2, 3)])]
+        )
 
         result = process_geometry(outer_collection, scale_vertices, scale_factor=3.0)
 
@@ -416,6 +411,7 @@ class TestProcessGeometryEdgeCases:
 
     def test_process_function_with_args(self):
         """Test passing positional arguments to process function."""
+
         def add_values(vertices, add_x, add_y):
             return vertices + np.array([add_x, add_y])
 
@@ -427,6 +423,7 @@ class TestProcessGeometryEdgeCases:
 
     def test_process_function_with_kwargs(self):
         """Test passing keyword arguments to process function."""
+
         def multiply_and_add(vertices, multiplier=1.0, offset=0.0):
             return vertices * multiplier + offset
 
@@ -439,6 +436,7 @@ class TestProcessGeometryEdgeCases:
 
     def test_process_function_mixed_args_kwargs(self):
         """Test passing both args and kwargs to process function."""
+
         def complex_transform(vertices, scale, dx=0.0, dy=0.0):
             return vertices * scale + np.array([dx, dy])
 
@@ -466,8 +464,7 @@ class TestProcessGeometryEdgeCases:
 
         assert isinstance(result, Polygon)
         np.testing.assert_array_almost_equal(
-            np.array(polygon.exterior.coords),
-            np.array(result.exterior.coords)
+            np.array(polygon.exterior.coords), np.array(result.exterior.coords)
         )
 
     def test_negative_scaling(self):
@@ -477,8 +474,7 @@ class TestProcessGeometryEdgeCases:
 
         expected_coords = [(-1, -1), (-2, -2), (-3, -1)]
         np.testing.assert_array_almost_equal(
-            np.array(result.coords),
-            np.array(expected_coords)
+            np.array(result.coords), np.array(expected_coords)
         )
 
     def test_zero_scaling(self):
@@ -643,9 +639,9 @@ class TestProcessGeometryZComponents:
         assert len(result.geoms) == 3
 
         # Check each line preserved its Z
-        for i, (original_z, geom) in enumerate([(5, result.geoms[0]),
-                                                  (10, result.geoms[1]),
-                                                  (15, result.geoms[2])]):
+        for i, (original_z, geom) in enumerate(
+            [(5, result.geoms[0]), (10, result.geoms[1]), (15, result.geoms[2])]
+        ):
             coords = np.array(geom.coords)
             assert geom.has_z
             assert np.all(coords[:, 2] == pytest.approx(original_z))

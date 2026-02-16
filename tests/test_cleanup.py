@@ -3,7 +3,12 @@
 import pytest
 from shapely.geometry import Polygon, MultiPolygon
 
-from polyforge.core.cleanup import CleanupConfig, cleanup_polygon, remove_small_holes, remove_narrow_holes
+from polyforge.ops.cleanup_ops import (
+    CleanupConfig,
+    cleanup_polygon,
+    remove_small_holes,
+    remove_narrow_holes,
+)
 
 
 class TestCleanupConfig:
@@ -187,9 +192,14 @@ class TestRemoveNarrowHoles:
         poly = Polygon(
             [(0, 0), (20, 0), (20, 20), (0, 20)],
             holes=[
-                [(1, 1), (3, 1), (3, 3), (1, 3)],        # square, width=2, keep
-                [(5, 1), (9, 1), (9, 1.3), (5, 1.3)],    # narrow, width=0.3, remove
-                [(11, 1), (13, 1), (13, 1.5), (11, 1.5)], # moderate aspect, narrow, depends
+                [(1, 1), (3, 1), (3, 3), (1, 3)],  # square, width=2, keep
+                [(5, 1), (9, 1), (9, 1.3), (5, 1.3)],  # narrow, width=0.3, remove
+                [
+                    (11, 1),
+                    (13, 1),
+                    (13, 1.5),
+                    (11, 1.5),
+                ],  # moderate aspect, narrow, depends
             ],
         )
         # Only remove very narrow holes
@@ -259,7 +269,7 @@ class TestCleanupPolygon:
             [(0, 0), (10, 0), (10, 10), (0, 10)],
             holes=[
                 [(1, 1), (5, 1), (5, 1.2), (1, 1.2)],  # narrow
-                [(6, 6), (8, 6), (8, 8), (6, 8)],       # square
+                [(6, 6), (8, 6), (8, 8), (6, 8)],  # square
             ],
         )
         cfg = CleanupConfig(hole_aspect_ratio=5.0)
@@ -272,7 +282,7 @@ class TestCleanupPolygon:
             [(0, 0), (10, 0), (10, 10), (0, 10)],
             holes=[
                 [(1, 1), (3, 1), (3, 1.3), (1, 1.3)],  # width ~0.3
-                [(5, 5), (7, 5), (7, 7), (5, 7)],       # width = 2
+                [(5, 5), (7, 5), (7, 7), (5, 7)],  # width = 2
             ],
         )
         cfg = CleanupConfig(hole_min_width=0.5)
@@ -294,9 +304,9 @@ class TestCleanupPolygon:
         poly = Polygon(
             [(0, 0), (20, 0), (20, 20), (0, 20)],
             holes=[
-                [(1, 1), (1.5, 1), (1.5, 1.5), (1, 1.5)],     # tiny area
-                [(3, 3), (7, 3), (7, 3.2), (3, 3.2)],         # narrow
-                [(10, 10), (14, 10), (14, 14), (10, 14)],     # good hole, keep
+                [(1, 1), (1.5, 1), (1.5, 1.5), (1, 1.5)],  # tiny area
+                [(3, 3), (7, 3), (7, 3.2), (3, 3.2)],  # narrow
+                [(10, 10), (14, 10), (14, 14), (10, 14)],  # good hole, keep
             ],
         )
         cfg = CleanupConfig(
@@ -341,7 +351,9 @@ class TestCleanupHelpers:
     """Ensure helper functions remain functional (original tests)."""
 
     def test_remove_small_holes_multipolygon(self):
-        poly = Polygon([(0, 0), (6, 0), (6, 6), (0, 6)], holes=[[(1, 1), (2, 1), (2, 2), (1, 2)]])
+        poly = Polygon(
+            [(0, 0), (6, 0), (6, 6), (0, 6)], holes=[[(1, 1), (2, 1), (2, 2), (1, 2)]]
+        )
         combined = MultiPolygon([poly, Polygon([(10, 0), (12, 0), (12, 2), (10, 2)])])
         result = remove_small_holes(combined, min_area=3.0)
         assert isinstance(result, MultiPolygon)

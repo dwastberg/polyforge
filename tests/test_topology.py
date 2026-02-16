@@ -233,7 +233,9 @@ class TestVertexOrdering:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
         # Three vertices at 2, 5, 8 along right edge
-        poly2 = Polygon([(10, 0), (15, 0), (15, 10), (10, 8), (10, 5), (10, 2), (10, 10)])
+        poly2 = Polygon(
+            [(10, 0), (15, 0), (15, 10), (10, 8), (10, 5), (10, 2), (10, 10)]
+        )
 
         result1, result2 = align_boundaries(poly1, poly2)
 
@@ -296,17 +298,14 @@ class TestResultValidity:
             # Simple squares
             (
                 Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
-                Polygon([(2, 0), (2, 1), (2, 2), (4, 2), (4, 0)])
+                Polygon([(2, 0), (2, 1), (2, 2), (4, 2), (4, 0)]),
             ),
             # Triangles
-            (
-                Polygon([(0, 0), (4, 0), (2, 4)]),
-                Polygon([(2, 0), (6, 0), (4, 4)])
-            ),
+            (Polygon([(0, 0), (4, 0), (2, 4)]), Polygon([(2, 0), (6, 0), (4, 4)])),
             # L-shaped and rectangle
             (
                 Polygon([(0, 0), (3, 0), (3, 2), (1, 2), (1, 3), (0, 3)]),
-                Polygon([(3, 0), (3, 2), (3, 3), (5, 3), (5, 0)])
+                Polygon([(3, 0), (3, 2), (3, 3), (5, 3), (5, 0)]),
             ),
         ]
 

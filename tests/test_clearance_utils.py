@@ -14,7 +14,7 @@ from polyforge.ops.clearance.utils import (
     _point_to_segment_distance,
     _get_vertex_neighborhood,
     _calculate_curvature_at_vertex,
-    _remove_vertices_between
+    _remove_vertices_between,
 )
 
 
@@ -232,4 +232,3 @@ class TestRemoveVerticesBetween:
 
         expected = np.array([(0, 0), (1, 0), (2, 0), (3, 0), (0, 0)])
         np.testing.assert_array_almost_equal(new_coords, expected)
-

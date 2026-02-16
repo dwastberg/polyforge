@@ -3,12 +3,12 @@
 import pytest
 import numpy as np
 from shapely.geometry import Polygon
-from polyforge import split_overlap
+from polyforge import resolve_overlap_pair
 from polyforge.core.types import OverlapStrategy
 
 
 class TestSplitOverlap:
-    """Test suite for split_overlap function."""
+    """Test suite for resolve_overlap_pair function."""
 
     def test_simple_overlapping_squares(self):
         """Test splitting two overlapping squares."""
@@ -16,17 +16,21 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Check that they touch but don't overlap
         assert result1.intersects(result2), "Polygons should touch"
         overlap_area = result1.intersection(result2).area
-        assert overlap_area < 1e-6, f"Polygons should not overlap, got area {overlap_area}"
+        assert overlap_area < 1e-6, (
+            f"Polygons should not overlap, got area {overlap_area}"
+        )
 
         # Check that total area is conserved (approximately)
         original_total = poly1.area + poly2.area - poly1.intersection(poly2).area
         result_total = result1.area + result2.area
-        assert abs(original_total - result_total) < 0.5, "Total area should be approximately conserved"
+        assert abs(original_total - result_total) < 0.5, (
+            "Total area should be approximately conserved"
+        )
 
         # Check that both polygons are valid
         assert result1.is_valid, "Result 1 should be valid"
@@ -37,7 +41,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
         poly2 = Polygon([(3, 0), (5, 0), (5, 2), (3, 2)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Should return originals
         assert result1.equals(poly1), "Non-overlapping poly1 should be unchanged"
@@ -48,7 +52,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
         poly2 = Polygon([(2, 0), (4, 0), (4, 2), (2, 2)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Should return originals (or very similar)
         assert abs(result1.area - poly1.area) < 0.01
@@ -59,7 +63,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(2, 2), (5, 2), (5, 5), (2, 5)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Container should be carved; contained polygon preserved
         assert result2.equals(poly2), "Contained polygon should be preserved"
@@ -72,7 +76,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (4, 0), (4, 2), (0, 2)])
         poly2 = Polygon([(3, 1), (7, 1), (7, 3), (3, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Check validity
         assert result1.is_valid
@@ -93,7 +97,7 @@ class TestSplitOverlap:
         # Create a rectangle that overlaps with the L
         poly2 = Polygon([(1, 1), (4, 1), (4, 4), (1, 4)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Check validity
         assert result1.is_valid
@@ -113,7 +117,7 @@ class TestSplitOverlap:
         original_overlap = poly1.intersection(poly2)
         original_overlap_area = original_overlap.area
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Calculate how much each polygon gained/lost
         poly1_change = result1.area - poly1.area
@@ -127,15 +131,16 @@ class TestSplitOverlap:
 
         # The sum of changes should be approximately -overlap_area
         total_change = poly1_change + poly2_change
-        assert abs(total_change + original_overlap_area) < 1.0, \
+        assert abs(total_change + original_overlap_area) < 1.0, (
             f"Total change {total_change} should approximately equal -{original_overlap_area}"
+        )
 
     def test_triangular_overlap(self):
         """Test with triangular polygons."""
         poly1 = Polygon([(0, 0), (4, 0), (2, 3)])
         poly2 = Polygon([(2, 0), (6, 0), (4, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -149,7 +154,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (0.5, 0), (0.5, 0.5), (0, 0.5)])
         poly2 = Polygon([(0.3, 0), (0.8, 0), (0.8, 0.5), (0.3, 0.5)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -164,7 +169,7 @@ class TestSplitOverlap:
         # Regular polygon that overlaps
         poly2 = Polygon([(3, 0), (8, 0), (8, 5), (3, 5)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -178,7 +183,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
         poly2 = Polygon([(0.1, 0.1), (5.1, 0.1), (5.1, 5.1), (0.1, 5.1)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -192,7 +197,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(0, 2), (3, 2), (3, 5), (0, 5)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -206,7 +211,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)])
         poly2 = Polygon([(2, 2), (6, 2), (6, 6), (2, 6)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -220,7 +225,7 @@ class TestSplitOverlap:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
-        result = split_overlap(poly1, poly2)
+        result = resolve_overlap_pair(poly1, poly2)
 
         assert isinstance(result, tuple), "Result should be a tuple"
         assert len(result) == 2, "Result should have 2 elements"
@@ -237,7 +242,7 @@ class TestOverlapStrategies:
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
         # Default should be 'split'
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Check minimal overlap
         overlap = result1.intersection(result2)
@@ -252,7 +257,9 @@ class TestOverlapStrategies:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT
+        )
 
         # Check minimal overlap
         overlap = result1.intersection(result2)
@@ -264,7 +271,9 @@ class TestOverlapStrategies:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST
+        )
 
         # Check no overlap
         overlap = result1.intersection(result2)
@@ -278,11 +287,13 @@ class TestOverlapStrategies:
         """Test 'largest' strategy with different-sized polygons."""
         # Large polygon and small polygon
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])  # Area = 100
-        poly2 = Polygon([(8, 0), (12, 0), (12, 4), (8, 4)])    # Area = 16
+        poly2 = Polygon([(8, 0), (12, 0), (12, 4), (8, 4)])  # Area = 16
 
         original_overlap = poly1.intersection(poly2).area
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST
+        )
 
         # Check no overlap
         overlap = result1.intersection(result2)
@@ -299,7 +310,9 @@ class TestOverlapStrategies:
         poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
         poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST
+        )
 
         # Check no overlap
         overlap = result1.intersection(result2)
@@ -313,9 +326,11 @@ class TestOverlapStrategies:
         """Test 'smallest' strategy with different-sized polygons."""
         # Large polygon and small polygon
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])  # Area = 100
-        poly2 = Polygon([(8, 0), (12, 0), (12, 4), (8, 4)])    # Area = 16
+        poly2 = Polygon([(8, 0), (12, 0), (12, 4), (8, 4)])  # Area = 16
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST
+        )
 
         # Check no overlap
         overlap = result1.intersection(result2)
@@ -333,9 +348,15 @@ class TestOverlapStrategies:
         poly2 = Polygon([(3, 0), (5, 0), (5, 2), (3, 2)])
 
         # All strategies should return originals
-        result1_split, result2_split = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT)
-        result1_large, result2_large = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST)
-        result1_small, result2_small = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST)
+        result1_split, result2_split = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SPLIT
+        )
+        result1_large, result2_large = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST
+        )
+        result1_small, result2_small = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST
+        )
 
         assert result1_split.equals(poly1)
         assert result2_split.equals(poly2)
@@ -349,7 +370,9 @@ class TestOverlapStrategies:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
         poly2 = Polygon([(3, 2), (8, 2), (8, 7), (3, 7)])
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.LARGEST
+        )
 
         assert result1.is_valid
         assert result2.is_valid
@@ -361,7 +384,9 @@ class TestOverlapStrategies:
         poly1 = Polygon([(0, 0), (5, 0), (5, 5), (0, 5)])
         poly2 = Polygon([(3, 2), (8, 2), (8, 7), (3, 7)])
 
-        result1, result2 = split_overlap(poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST)
+        result1, result2 = resolve_overlap_pair(
+            poly1, poly2, overlap_strategy=OverlapStrategy.SMALLEST
+        )
 
         assert result1.is_valid
         assert result2.is_valid
@@ -377,7 +402,7 @@ class TestEdgeCases:
         poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
         poly2 = Polygon([(1.99, 0), (4, 0), (4, 2), (1.99, 2)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid
@@ -387,7 +412,7 @@ class TestEdgeCases:
         poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
         poly2 = Polygon([(2, 2), (4, 2), (4, 4), (2, 4)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         # Should return originals or very similar
         assert abs(result1.area - poly1.area) < 0.01
@@ -396,15 +421,25 @@ class TestEdgeCases:
     def test_irregular_polygons(self):
         """Test with irregular, non-convex polygons."""
         # Star-like shape
-        poly1 = Polygon([
-            (2, 0), (2.5, 1.5), (4, 1.5), (3, 2.5),
-            (3.5, 4), (2, 3), (0.5, 4), (1, 2.5), (0, 1.5), (1.5, 1.5)
-        ])
+        poly1 = Polygon(
+            [
+                (2, 0),
+                (2.5, 1.5),
+                (4, 1.5),
+                (3, 2.5),
+                (3.5, 4),
+                (2, 3),
+                (0.5, 4),
+                (1, 2.5),
+                (0, 1.5),
+                (1.5, 1.5),
+            ]
+        )
 
         # Rectangle overlapping the star
         poly2 = Polygon([(1, 1), (3, 1), (3, 3), (1, 3)])
 
-        result1, result2 = split_overlap(poly1, poly2)
+        result1, result2 = resolve_overlap_pair(poly1, poly2)
 
         assert result1.is_valid
         assert result2.is_valid

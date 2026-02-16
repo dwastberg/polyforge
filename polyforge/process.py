@@ -1,8 +1,13 @@
 import numpy as np
 import shapely
 from shapely.geometry import (
-    Polygon, MultiPolygon, LinearRing, MultiLineString, LineString,
-    Point, GeometryCollection
+    Polygon,
+    MultiPolygon,
+    LinearRing,
+    MultiLineString,
+    LineString,
+    Point,
+    GeometryCollection,
 )
 from shapely.geometry.base import BaseGeometry
 
@@ -58,7 +63,9 @@ def _process_coords(coords, process_function, *args, **kwargs):
         return process_function(coords_array, *args, **kwargs)
 
 
-def process_geometry(geometry: BaseGeometry, process_function, *args, **kwargs) -> BaseGeometry:
+def process_geometry(
+    geometry: BaseGeometry, process_function, *args, **kwargs
+) -> BaseGeometry:
     """Process a shapely geometry by applying a function to its vertices.
 
     This function takes any shapely geometry and applies a processing function to its
@@ -79,52 +86,58 @@ def process_geometry(geometry: BaseGeometry, process_function, *args, **kwargs) 
     """
     geom_type = geometry.geom_type
 
-    if geom_type == 'Point':
+    if geom_type == "Point":
         coords = np.array(geometry.coords)
         processed_coords = _process_coords(coords, process_function, *args, **kwargs)
         return Point(processed_coords[0])
 
-    elif geom_type == 'LineString':
+    elif geom_type == "LineString":
         coords = np.array(geometry.coords)
         processed_coords = _process_coords(coords, process_function, *args, **kwargs)
         return LineString(processed_coords)
 
-    elif geom_type == 'LinearRing':
+    elif geom_type == "LinearRing":
         coords = np.array(geometry.coords)
         processed_coords = _process_coords(coords, process_function, *args, **kwargs)
         return LinearRing(processed_coords)
 
-    elif geom_type == 'Polygon':
+    elif geom_type == "Polygon":
         # Process exterior ring
         exterior_coords = np.array(geometry.exterior.coords)
-        processed_exterior = _process_coords(exterior_coords, process_function, *args, **kwargs)
+        processed_exterior = _process_coords(
+            exterior_coords, process_function, *args, **kwargs
+        )
 
         # Process interior rings (holes)
         processed_interiors = []
         for interior in geometry.interiors:
             interior_coords = np.array(interior.coords)
-            processed_interior = _process_coords(interior_coords, process_function, *args, **kwargs)
+            processed_interior = _process_coords(
+                interior_coords, process_function, *args, **kwargs
+            )
             if len(processed_interior) >= 4:  # Valid ring must have at least 4 points
                 processed_interiors.append(processed_interior)
 
         return Polygon(processed_exterior, holes=processed_interiors)
 
-    elif geom_type == 'MultiLineString':
+    elif geom_type == "MultiLineString":
         processed_lines = []
         for line in geometry.geoms:
             coords = np.array(line.coords)
-            processed_coords = _process_coords(coords, process_function, *args, **kwargs)
+            processed_coords = _process_coords(
+                coords, process_function, *args, **kwargs
+            )
             processed_lines.append(LineString(processed_coords))
         return MultiLineString(processed_lines)
 
-    elif geom_type == 'MultiPolygon':
+    elif geom_type == "MultiPolygon":
         processed_polygons = [
             process_geometry(polygon, process_function, *args, **kwargs)
             for polygon in geometry.geoms
         ]
         return MultiPolygon(processed_polygons)
 
-    elif geom_type == 'GeometryCollection':
+    elif geom_type == "GeometryCollection":
         processed_geoms = [
             process_geometry(geom, process_function, *args, **kwargs)
             for geom in geometry.geoms
@@ -136,5 +149,5 @@ def process_geometry(geometry: BaseGeometry, process_function, *args, **kwargs) 
 
 
 __all__ = [
-    'process_geometry',
+    "process_geometry",
 ]

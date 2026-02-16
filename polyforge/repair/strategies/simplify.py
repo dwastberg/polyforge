@@ -7,9 +7,7 @@ from ..utils import clean_coordinates
 
 
 def fix_with_simplify(
-    geometry: BaseGeometry,
-    tolerance: float,
-    verbose: bool
+    geometry: BaseGeometry, tolerance: float, verbose: bool
 ) -> BaseGeometry:
     """Fix geometry using progressive simplification.
 
@@ -71,4 +69,4 @@ def fix_with_simplify(
         raise RepairError(f"Simplify repair failed: {e}")
 
 
-__all__ = ['fix_with_simplify']
+__all__ = ["fix_with_simplify"]

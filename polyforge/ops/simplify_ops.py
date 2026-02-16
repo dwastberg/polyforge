@@ -6,8 +6,6 @@ the heavy orchestration layers. They contain the logic that used to live inside
 ``polyforge.simplify``.
 """
 
-from __future__ import annotations
-
 from typing import Literal
 
 import numpy as np

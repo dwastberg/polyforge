@@ -20,31 +20,35 @@ from polyforge.core import (
 
 
 def _spike_polygon() -> Polygon:
-    return Polygon([
-        (0, 0),
-        (10, 0),
-        (10, 10),
-        (5.001, 10),
-        (5.001, 10.002),
-        (4.999, 10.002),
-        (4.999, 10),
-        (0, 10),
-        (0, 0),
-    ])
+    return Polygon(
+        [
+            (0, 0),
+            (10, 0),
+            (10, 10),
+            (5.001, 10),
+            (5.001, 10.002),
+            (4.999, 10.002),
+            (4.999, 10),
+            (0, 10),
+            (0, 0),
+        ]
+    )
 
 
 def _sensitive_polygon() -> Polygon:
-    return Polygon([
-        (0, 0),
-        (1, 0),
-        (1, 1),
-        (0.55, 1),
-        (0.55, 1.1),
-        (0.45, 1.1),
-        (0.45, 1),
-        (0, 1),
-        (0, 0),
-    ])
+    return Polygon(
+        [
+            (0, 0),
+            (1, 0),
+            (1, 1),
+            (0.55, 1),
+            (0.55, 1.1),
+            (0.45, 1.1),
+            (0.45, 1),
+            (0, 1),
+            (0, 0),
+        ]
+    )
 
 
 def _polygon_with_sliver() -> Polygon:
@@ -140,9 +144,7 @@ class TestGeometryConstraints:
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
         constraints = GeometryConstraints(
-            min_clearance=2.0,
-            min_area_ratio=0.8,
-            must_be_valid=True
+            min_clearance=2.0, min_area_ratio=0.8, must_be_valid=True
         )
 
         status = constraints.check(poly, poly)
@@ -162,7 +164,9 @@ class TestGeometryConstraints:
         assert not status.all_satisfied()
         assert not status.validity
         assert len(status.violations) > 0
-        assert any(v.constraint_type == ConstraintType.VALIDITY for v in status.violations)
+        assert any(
+            v.constraint_type == ConstraintType.VALIDITY for v in status.violations
+        )
 
     def test_clearance_constraint_violated(self):
         """Test detection of low clearance."""
@@ -189,12 +193,15 @@ class TestGeometryConstraints:
 
         assert not status.all_satisfied()
         assert status.area_ratio < 0.9
-        area_violations = status.get_violations_by_type(ConstraintType.AREA_PRESERVATION)
+        area_violations = status.get_violations_by_type(
+            ConstraintType.AREA_PRESERVATION
+        )
         assert len(area_violations) > 0
 
     def test_empty_geometry(self):
         """Test handling of empty geometry."""
         from shapely.geometry import Polygon as EmptyPoly
+
         empty = EmptyPoly()
         original = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
@@ -217,10 +224,12 @@ class TestGeometryConstraints:
 
     def test_disallow_multipolygon_constraint(self):
         """Disallowing multipolygons adds validity violation."""
-        multi = MultiPolygon([
-            Polygon([(0, 0), (5, 0), (5, 5), (0, 5)]),
-            Polygon([(10, 0), (15, 0), (15, 5), (10, 5)]),
-        ])
+        multi = MultiPolygon(
+            [
+                Polygon([(0, 0), (5, 0), (5, 5), (0, 5)]),
+                Polygon([(10, 0), (15, 0), (15, 5), (10, 5)]),
+            ]
+        )
         constraints = GeometryConstraints(allow_multipolygon=False)
         status = constraints.check(multi, multi)
 
@@ -241,15 +250,15 @@ class TestConstraintStatus:
             geometry=poly,
             violations=[
                 ConstraintViolation(ConstraintType.CLEARANCE, 5.0, "Low clearance"),
-                ConstraintViolation(ConstraintType.AREA_PRESERVATION, 3.0, "Area loss")
-            ]
+                ConstraintViolation(ConstraintType.AREA_PRESERVATION, 3.0, "Area loss"),
+            ],
         )
 
         status2 = ConstraintStatus(
             geometry=poly,
             violations=[
                 ConstraintViolation(ConstraintType.CLEARANCE, 5.0, "Low clearance")
-            ]
+            ],
         )
 
         # status2 has fewer violations, so it's better
@@ -264,14 +273,14 @@ class TestConstraintStatus:
             geometry=poly,
             violations=[
                 ConstraintViolation(ConstraintType.CLEARANCE, 5.0, "Low clearance")
-            ]
+            ],
         )
 
         status2 = ConstraintStatus(
             geometry=poly,
             violations=[
                 ConstraintViolation(ConstraintType.CLEARANCE, 3.0, "Low clearance")
-            ]
+            ],
         )
 
         # status2 has lower severity, so it's improved
@@ -286,9 +295,11 @@ class TestConstraintStatus:
             geometry=poly,
             violations=[
                 ConstraintViolation(ConstraintType.CLEARANCE, 5.0, "Low clearance"),
-                ConstraintViolation(ConstraintType.AREA_PRESERVATION, 15.0, "Large area loss"),
-                ConstraintViolation(ConstraintType.VALIDITY, 3.0, "Minor issue")
-            ]
+                ConstraintViolation(
+                    ConstraintType.AREA_PRESERVATION, 15.0, "Large area loss"
+                ),
+                ConstraintViolation(ConstraintType.VALIDITY, 3.0, "Minor issue"),
+            ],
         )
 
         worst = status.worst_violation()
@@ -307,14 +318,16 @@ class TestRobustFixGeometry:
 
         constraints = GeometryConstraints(
             must_be_valid=True,
-            min_area_ratio=0.5  # Allow significant area change for repair
+            min_area_ratio=0.5,  # Allow significant area change for repair
         )
 
         fixed, warning = robust_fix_geometry(invalid, constraints)
 
         # Should be fixed
         assert fixed.is_valid
-        assert warning is None or not warning.status.get_violations_by_type(ConstraintType.VALIDITY)
+        assert warning is None or not warning.status.get_violations_by_type(
+            ConstraintType.VALIDITY
+        )
 
     def test_fix_low_clearance(self):
         """Test fixing low clearance geometry."""
@@ -324,7 +337,7 @@ class TestRobustFixGeometry:
         constraints = GeometryConstraints(
             min_clearance=1.0,
             min_area_ratio=0.0,  # Allow any area change
-            must_be_valid=True
+            must_be_valid=True,
         )
 
         with pytest.warns(UserWarning):
@@ -351,7 +364,7 @@ class TestRobustFixGeometry:
         constraints = GeometryConstraints(
             min_clearance=2.0,
             min_area_ratio=0.5,  # Allow some area loss to remove sliver
-            must_be_valid=True
+            must_be_valid=True,
         )
 
         fixed, warning = robust_fix_geometry(poly_with_sliver, constraints)
@@ -362,15 +375,18 @@ class TestRobustFixGeometry:
 
         # Clearance should be improved (sliver removed by buffer operation)
         fixed_clearance = fixed.minimum_clearance
-        assert fixed_clearance > original_clearance, "Clearance should improve after fixing"
+        assert fixed_clearance > original_clearance, (
+            "Clearance should improve after fixing"
+        )
 
         # Should satisfy the constraint (or at least get close)
         # The buffer-based approach should remove features narrower than min_clearance/2 = 1.0
         # Since the sliver has width 1.2, it should be removed or significantly reduced
         if warning and warning.unmet_constraints:
             # If still not meeting constraint, should at least be much closer
-            assert fixed_clearance >= 0.9 * constraints.min_clearance, \
+            assert fixed_clearance >= 0.9 * constraints.min_clearance, (
                 f"Fixed clearance {fixed_clearance} should be close to target {constraints.min_clearance}"
+            )
 
     def test_returns_warning_when_constraints_not_met(self):
         """Test that warning is returned when constraints cannot be satisfied."""
@@ -379,23 +395,27 @@ class TestRobustFixGeometry:
         # Create impossible constraints
         constraints = GeometryConstraints(
             min_clearance=1000.0,  # Impossible for this geometry
-            must_be_valid=True
+            must_be_valid=True,
         )
 
         with pytest.warns(UserWarning):
-            fixed, warning = robust_fix_geometry(poly, constraints, raise_on_failure=False)
+            fixed, warning = robust_fix_geometry(
+                poly, constraints, raise_on_failure=False
+            )
 
         assert warning is not None
         assert isinstance(warning, FixWarning)
         assert len(warning.unmet_constraints) > 0
-        assert 'CLEARANCE' in warning.unmet_constraints
+        assert "CLEARANCE" in warning.unmet_constraints
 
     def test_allow_multipolygon_false_returns_single_polygon(self):
         """robust_fix_geometry collapses multipolygons when disallowed."""
-        multi = MultiPolygon([
-            Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
-            Polygon([(5, 0), (7, 0), (7, 2), (5, 2)]),
-        ])
+        multi = MultiPolygon(
+            [
+                Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+                Polygon([(5, 0), (7, 0), (7, 2), (5, 2)]),
+            ]
+        )
         constraints = GeometryConstraints(
             allow_multipolygon=False,
             must_be_valid=True,
@@ -411,10 +431,7 @@ class TestRobustFixGeometry:
         """Test that FixWarning is raised when raise_on_failure=True."""
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
-        constraints = GeometryConstraints(
-            min_clearance=1000.0,
-            must_be_valid=True
-        )
+        constraints = GeometryConstraints(min_clearance=1000.0, must_be_valid=True)
 
         with pytest.raises(FixWarning) as exc_info:
             robust_fix_geometry(poly, constraints, raise_on_failure=True)
@@ -428,9 +445,7 @@ class TestRobustFixGeometry:
         base = Polygon([(0, 0), (20, 0), (20, 0.1), (0, 0.1)])  # Low clearance
 
         constraints = GeometryConstraints(
-            min_clearance=0.5,
-            min_area_ratio=0.3,
-            must_be_valid=True
+            min_clearance=0.5, min_area_ratio=0.3, must_be_valid=True
         )
 
         with pytest.warns(UserWarning):
@@ -461,10 +476,7 @@ class TestRobustFixGeometry:
         # Should complete without hanging
         with pytest.warns(UserWarning):
             fixed, warning = robust_fix_geometry(
-                poly,
-                constraints,
-                max_iterations=3,
-                raise_on_failure=False
+                poly, constraints, max_iterations=3, raise_on_failure=False
             )
 
         assert warning is not None  # Couldn't satisfy constraints
@@ -475,9 +487,7 @@ class TestRobustFixGeometry:
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
 
         constraints = GeometryConstraints(
-            min_clearance=2.0,
-            min_area_ratio=0.9,
-            must_be_valid=True
+            min_clearance=2.0, min_area_ratio=0.9, must_be_valid=True
         )
 
         fixed, warning = robust_fix_geometry(poly, constraints)
@@ -502,8 +512,12 @@ class TestRobustFixGeometry:
             fixed, warning = robust_fix_geometry(multi, constraints)
 
         assert warning is not None
-        area_violations = warning.status.get_violations_by_type(ConstraintType.AREA_PRESERVATION)
-        assert area_violations, "Expected area preservation violation relative to raw input"
+        area_violations = warning.status.get_violations_by_type(
+            ConstraintType.AREA_PRESERVATION
+        )
+        assert area_violations, (
+            "Expected area preservation violation relative to raw input"
+        )
         # Raw area = 8, cleaned/unioned area = 6
         assert warning.status.area_ratio == pytest.approx(0.75, rel=1e-9)
         assert fixed.is_valid
@@ -521,17 +535,12 @@ class TestRobustFixBatch:
         geometries = [poly1, poly2, poly3]
 
         constraints = GeometryConstraints(
-            must_be_valid=True,
-            min_clearance=0.5,
-            min_area_ratio=0.3
+            must_be_valid=True, min_clearance=0.5, min_area_ratio=0.3
         )
 
         with pytest.warns(UserWarning):
             fixed_list, warnings, _ = robust_fix_batch(
-                geometries,
-                constraints,
-                handle_overlaps=False,
-                verbose=False
+                geometries, constraints, handle_overlaps=False, verbose=False
             )
 
         assert len(fixed_list) == 3
@@ -550,14 +559,11 @@ class TestRobustFixBatch:
 
         constraints = GeometryConstraints(
             must_be_valid=True,
-            max_overlap_area=0.0  # No overlaps allowed
+            max_overlap_area=0.0,  # No overlaps allowed
         )
 
         fixed_list, warnings, _ = robust_fix_batch(
-            geometries,
-            constraints,
-            handle_overlaps=True,
-            verbose=False
+            geometries, constraints, handle_overlaps=True, verbose=False
         )
 
         assert len(fixed_list) == 2
@@ -571,16 +577,14 @@ class TestRobustFixBatch:
     def test_batch_preserves_order(self):
         """Test that batch processing preserves geometry order."""
         geometries = [
-            Polygon([(i*20, 0), (i*20+10, 0), (i*20+10, 10), (i*20, 10)])
+            Polygon([(i * 20, 0), (i * 20 + 10, 0), (i * 20 + 10, 10), (i * 20, 10)])
             for i in range(5)
         ]
 
         constraints = GeometryConstraints(must_be_valid=True)
 
         fixed_list, warnings, _ = robust_fix_batch(
-            geometries,
-            constraints,
-            handle_overlaps=False
+            geometries, constraints, handle_overlaps=False
         )
 
         assert len(fixed_list) == len(geometries)
@@ -610,7 +614,9 @@ class TestRobustFixBatch:
         assert any(warnings)
         first_warning = next(w for w in warnings if w is not None)
         assert first_warning is not None
-        overlap_violations = first_warning.status.get_violations_by_type(ConstraintType.OVERLAP)
+        overlap_violations = first_warning.status.get_violations_by_type(
+            ConstraintType.OVERLAP
+        )
         assert overlap_violations
 
 
@@ -635,17 +641,11 @@ class TestIntegration:
         narrow_poly = Polygon(coords, poly_with_hole.interiors)
 
         constraints = GeometryConstraints(
-            must_be_valid=True,
-            min_clearance=1.0,
-            min_area_ratio=0.7,
-            max_holes=1
+            must_be_valid=True, min_clearance=1.0, min_area_ratio=0.7, max_holes=1
         )
 
         fixed, warning = robust_fix_geometry(
-            narrow_poly,
-            constraints,
-            max_iterations=20,
-            verbose=False
+            narrow_poly, constraints, max_iterations=20, verbose=False
         )
 
         # Should at least be valid
@@ -654,7 +654,9 @@ class TestIntegration:
         # Should have made some improvement
         if warning:
             # Check we didn't make things worse
-            initial_violations = len(constraints.check(narrow_poly, narrow_poly).violations)
+            initial_violations = len(
+                constraints.check(narrow_poly, narrow_poly).violations
+            )
             final_violations = len(warning.status.violations)
             assert final_violations <= initial_violations
 

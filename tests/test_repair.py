@@ -19,18 +19,33 @@ def _bowtie() -> Polygon:
 
 def _spike_polygon() -> Polygon:
     """Valid polygon with a very thin spike."""
-    return Polygon([
-        (0, 0), (10, 0), (10, 10),
-        (5.001, 10), (5.001, 10.002), (4.999, 10.002), (4.999, 10),
-        (0, 10), (0, 0),
-    ])
+    return Polygon(
+        [
+            (0, 0),
+            (10, 0),
+            (10, 10),
+            (5.001, 10),
+            (5.001, 10.002),
+            (4.999, 10.002),
+            (4.999, 10),
+            (0, 10),
+            (0, 0),
+        ]
+    )
 
 
 def _ring_self_intersection() -> Polygon:
     """Polygon with a ring self-intersection (figure-8 shape)."""
-    return Polygon([
-        (0, 0), (4, 0), (4, 4), (2, 2), (0, 4), (0, 0),
-    ])
+    return Polygon(
+        [
+            (0, 0),
+            (4, 0),
+            (4, 4),
+            (2, 2),
+            (0, 4),
+            (0, 0),
+        ]
+    )
 
 
 class TestRepairGeometry:
@@ -69,9 +84,7 @@ class TestRepairGeometry:
     def test_fix_duplicate_vertices(self):
         """Test repair of a polygon with duplicate/near-duplicate vertices."""
         # Polygon with exact duplicate vertex
-        poly = Polygon([
-            (0, 0), (10, 0), (10, 0), (10, 10), (0, 10), (0, 0)
-        ])
+        poly = Polygon([(0, 0), (10, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
         # Shapely may consider this valid, but repair should handle it
         result = repair_geometry(poly)
         assert result.is_valid
@@ -133,7 +146,7 @@ class TestBatchRepairGeometries:
             _bowtie(),
         ]
         # With 'skip' mode, both bowtie and valid are fine since repair succeeds
-        repaired, failed = batch_repair_geometries(polys, on_error='skip')
+        repaired, failed = batch_repair_geometries(polys, on_error="skip")
         assert len(repaired) == len(polys)  # alignment always preserved
 
     def test_on_error_raise(self):
@@ -141,7 +154,7 @@ class TestBatchRepairGeometries:
         # repair_geometry shouldn't fail on a bowtie, so use a valid poly
         # and check that it works normally
         polys = [Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])]
-        repaired, failed = batch_repair_geometries(polys, on_error='raise')
+        repaired, failed = batch_repair_geometries(polys, on_error="raise")
         assert len(repaired) == 1
 
     def test_empty_list(self):
@@ -169,31 +182,37 @@ class TestGeometryConstraintsValidation:
 
     def test_negative_min_clearance_raises(self):
         from polyforge.core import GeometryConstraints
+
         with pytest.raises(ValueError, match="min_clearance"):
             GeometryConstraints(min_clearance=-1.0)
 
     def test_negative_max_overlap_area_raises(self):
         from polyforge.core import GeometryConstraints
+
         with pytest.raises(ValueError, match="max_overlap_area"):
             GeometryConstraints(max_overlap_area=-1.0)
 
     def test_negative_min_area_ratio_raises(self):
         from polyforge.core import GeometryConstraints
+
         with pytest.raises(ValueError, match="min_area_ratio"):
             GeometryConstraints(min_area_ratio=-0.5)
 
     def test_max_below_min_area_ratio_raises(self):
         from polyforge.core import GeometryConstraints
+
         with pytest.raises(ValueError, match="max_area_ratio"):
             GeometryConstraints(min_area_ratio=0.5, max_area_ratio=0.3)
 
     def test_negative_max_holes_raises(self):
         from polyforge.core import GeometryConstraints
+
         with pytest.raises(ValueError, match="max_holes"):
             GeometryConstraints(max_holes=-1)
 
     def test_valid_constraints_accepted(self):
         from polyforge.core import GeometryConstraints
+
         c = GeometryConstraints(
             min_clearance=0.5,
             min_area_ratio=0.8,
@@ -219,6 +238,7 @@ class TestSafeClearanceNoneReturn:
 
     def test_returns_float_for_valid_polygon(self):
         from polyforge.metrics import _safe_clearance
+
         poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         result = _safe_clearance(poly)
         assert isinstance(result, float)
@@ -267,10 +287,12 @@ class TestRepairEdgeCases:
         assert result.area > 0
 
     def test_multipolygon_input(self):
-        mp = MultiPolygon([
-            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-            Polygon([(5, 5), (6, 5), (6, 6), (5, 6)]),
-        ])
+        mp = MultiPolygon(
+            [
+                Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+                Polygon([(5, 5), (6, 5), (6, 6), (5, 6)]),
+            ]
+        )
         result = repair_geometry(mp)
         assert result.is_valid
 
@@ -320,7 +342,11 @@ class TestBatchRepairFailurePaths:
             Polygon([(20, 0), (30, 0), (30, 10), (20, 10)]),
         ]
         # Force second geometry to fail
-        original_fn = batch_repair_geometries.__wrapped__ if hasattr(batch_repair_geometries, '__wrapped__') else None
+        original_fn = (
+            batch_repair_geometries.__wrapped__
+            if hasattr(batch_repair_geometries, "__wrapped__")
+            else None
+        )
 
         call_count = 0
         real_repair = repair_geometry
@@ -360,7 +386,9 @@ class TestBatchRepairFailurePaths:
         for mode in ("keep", "skip", "raise"):
             try:
                 repaired, _ = batch_repair_geometries(polys, on_error=mode)
-                assert len(repaired) == len(polys), f"Length mismatch with on_error='{mode}'"
+                assert len(repaired) == len(polys), (
+                    f"Length mismatch with on_error='{mode}'"
+                )
             except Exception:
                 pass  # 'raise' mode may raise, that's fine
 

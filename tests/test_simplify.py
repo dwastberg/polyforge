@@ -30,7 +30,9 @@ class TestSnapShortEdges:
     def test_linestring_midpoint_mode(self):
         """Test that midpoint mode averages vertices correctly."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.MIDPOINT)
+        result = collapse_short_edges(
+            line, min_length=0.01, snap_mode=CollapseMode.MIDPOINT
+        )
 
         coords = np.array(result.coords)
         # First two vertices should be snapped to midpoint
@@ -40,7 +42,9 @@ class TestSnapShortEdges:
     def test_linestring_first_mode(self):
         """Test that 'first' mode keeps the first vertex."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.FIRST)
+        result = collapse_short_edges(
+            line, min_length=0.01, snap_mode=CollapseMode.FIRST
+        )
 
         coords = np.array(result.coords)
         # Should keep first vertex
@@ -50,7 +54,9 @@ class TestSnapShortEdges:
     def test_linestring_last_mode(self):
         """Test that 'last' mode keeps the last vertex."""
         line = LineString([(0, 0), (0.005, 0), (1, 0)])
-        result = collapse_short_edges(line, min_length=0.01, snap_mode=CollapseMode.LAST)
+        result = collapse_short_edges(
+            line, min_length=0.01, snap_mode=CollapseMode.LAST
+        )
 
         coords = np.array(result.coords)
         # Should keep last of the snapped pair
@@ -82,7 +88,9 @@ class TestSnapShortEdges:
         """Test snapping when the edge between last and first vertex is short."""
         # Create polygon where last vertex is very close to first
         poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 0.001)])
-        result = collapse_short_edges(poly, min_length=0.01, snap_mode=CollapseMode.MIDPOINT)
+        result = collapse_short_edges(
+            poly, min_length=0.01, snap_mode=CollapseMode.MIDPOINT
+        )
 
         coords = np.array(result.exterior.coords)
         # First and last should be snapped together
@@ -91,13 +99,7 @@ class TestSnapShortEdges:
 
     def test_multiple_consecutive_short_edges(self):
         """Test snapping multiple consecutive short edges."""
-        line = LineString([
-            (0, 0),
-            (0.001, 0),
-            (0.002, 0),
-            (0.003, 0),
-            (1, 0)
-        ])
+        line = LineString([(0, 0), (0.001, 0), (0.002, 0), (0.003, 0), (1, 0)])
         result = collapse_short_edges(line, min_length=0.01)
 
         coords = np.array(result.coords)
@@ -119,8 +121,7 @@ class TestSnapShortEdges:
         result = collapse_short_edges(line, min_length=0.01)
 
         np.testing.assert_array_almost_equal(
-            np.array(line.coords),
-            np.array(result.coords)
+            np.array(line.coords), np.array(result.coords)
         )
 
     def test_empty_geometry(self):
@@ -179,8 +180,7 @@ class TestRemoveDuplicateVertices:
         result = deduplicate_vertices(line)
 
         np.testing.assert_array_almost_equal(
-            np.array(line.coords),
-            np.array(result.coords)
+            np.array(line.coords), np.array(result.coords)
         )
 
     def test_polygon_closed_ring(self):
@@ -191,8 +191,6 @@ class TestRemoveDuplicateVertices:
         coords = np.array(result.exterior.coords)
         # Should still be closed
         np.testing.assert_array_almost_equal(coords[0], coords[-1])
-
-
 
 
 class TestSimplifyRDP:
@@ -222,12 +220,9 @@ class TestSimplifyRDP:
     def test_polygon_rdp(self):
         """Test RDP on a polygon."""
         # Square with extra points on edges
-        poly = Polygon([
-            (0, 0), (0.5, 0), (1, 0),
-            (1, 0.5), (1, 1),
-            (0.5, 1), (0, 1),
-            (0, 0.5)
-        ])
+        poly = Polygon(
+            [(0, 0), (0.5, 0), (1, 0), (1, 0.5), (1, 1), (0.5, 1), (0, 1), (0, 0.5)]
+        )
         result = simplify_rdp(poly, epsilon=0.1)
 
         # Should simplify to fewer vertices
@@ -262,7 +257,7 @@ class TestSimplifyVW:
     def test_linestring_vw_basic(self):
         """Test basic VW simplification."""
         # Create a curved line
-        t = np.linspace(0, 2*np.pi, 200)
+        t = np.linspace(0, 2 * np.pi, 200)
         line = LineString(zip(np.cos(t), np.sin(t)))
 
         result = simplify_vw(line, threshold=0.001)
@@ -274,7 +269,7 @@ class TestSimplifyVW:
     def test_polygon_vw(self):
         """Test VW on a polygon."""
         # Create polygon with many vertices
-        t = np.linspace(0, 2*np.pi, 50)
+        t = np.linspace(0, 2 * np.pi, 50)
         r = 5 + 0.5 * np.sin(10 * t)
         exterior = list(zip(r * np.cos(t), r * np.sin(t)))
         poly = Polygon(exterior)
@@ -285,7 +280,7 @@ class TestSimplifyVW:
 
     def test_3d_geometry_vw(self):
         """Test VW preserves Z coordinates."""
-        line = LineString([(i, np.sin(i), i*10) for i in np.linspace(0, 10, 100)])
+        line = LineString([(i, np.sin(i), i * 10) for i in np.linspace(0, 10, 100)])
         result = simplify_vw(line, threshold=0.1)
 
         assert result.has_z
@@ -304,7 +299,7 @@ class TestSimplifyVWP:
     def test_polygon_vwp_valid(self):
         """Test that VWP maintains validity."""
         # Create a complex polygon
-        t = np.linspace(0, 2*np.pi, 100)
+        t = np.linspace(0, 2 * np.pi, 100)
         r = 5 + 2 * np.sin(5 * t)
         exterior = list(zip(r * np.cos(t), r * np.sin(t)))
         poly = Polygon(exterior)
@@ -320,7 +315,7 @@ class TestSimplifyVWP:
         """Test VWP preserves Z coordinates."""
         # Create a proper 3D polygon (not a degenerate line)
         # Use a star-shaped polygon with varying Z values
-        t = np.linspace(0, 2*np.pi, 20, endpoint=False)
+        t = np.linspace(0, 2 * np.pi, 20, endpoint=False)
         r = 5 + 2 * np.sin(5 * t)
         x = r * np.cos(t)
         y = r * np.sin(t)
@@ -367,7 +362,7 @@ class TestRemoveSmallHoles:
         # Hole coordinates should match
         np.testing.assert_array_almost_equal(
             np.array(result.interiors[0].coords),
-            np.array(hole + [hole[0]])  # Add closing coordinate
+            np.array(hole + [hole[0]]),  # Add closing coordinate
         )
 
     def test_remove_multiple_small_holes(self):
@@ -468,11 +463,15 @@ class TestRemoveSmallHoles:
         """Test that non-polygon geometries raise TypeError."""
         line = LineString([(0, 0), (1, 1)])
 
-        with pytest.raises(TypeError, match="Input geometry must be a Polygon or MultiPolygon"):
+        with pytest.raises(
+            TypeError, match="Input geometry must be a Polygon or MultiPolygon"
+        ):
             remove_small_holes(line, min_area=1.0)
 
         point = Point(0, 0)
-        with pytest.raises(TypeError, match="Input geometry must be a Polygon or MultiPolygon"):
+        with pytest.raises(
+            TypeError, match="Input geometry must be a Polygon or MultiPolygon"
+        ):
             remove_small_holes(point, min_area=1.0)
 
     def test_zero_area_threshold(self):
@@ -506,9 +505,14 @@ class TestRemoveSlivers:
         """Test removing a parallel-sided rectangular slot cut into a rectangle."""
         # Rectangle with a narrow slot cut from the right side
         coords = [
-            (0, 0), (10, 0), (10, 4.9),
-            (3, 4.9), (3, 5.1),
-            (10, 5.1), (10, 10), (0, 10),
+            (0, 0),
+            (10, 0),
+            (10, 4.9),
+            (3, 4.9),
+            (3, 5.1),
+            (10, 5.1),
+            (10, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
         assert poly.is_valid
@@ -524,9 +528,14 @@ class TestRemoveSlivers:
         """Test removing a tapered (wedge-like) sliver."""
         # Rectangle with a V-shaped notch
         coords = [
-            (0, 0), (10, 0), (10, 4),
-            (3, 4.9), (3, 5.1),
-            (10, 6), (10, 10), (0, 10),
+            (0, 0),
+            (10, 0),
+            (10, 4),
+            (3, 4.9),
+            (3, 5.1),
+            (10, 6),
+            (10, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
         assert poly.is_valid
@@ -561,11 +570,18 @@ class TestRemoveSlivers:
     def test_multipolygon_input(self):
         """Test that MultiPolygon input is handled."""
         # One polygon with a sliver, one clean
-        sliver_poly = Polygon([
-            (0, 0), (10, 0), (10, 4.9),
-            (3, 4.9), (3, 5.1),
-            (10, 5.1), (10, 10), (0, 10),
-        ])
+        sliver_poly = Polygon(
+            [
+                (0, 0),
+                (10, 0),
+                (10, 4.9),
+                (3, 4.9),
+                (3, 5.1),
+                (10, 5.1),
+                (10, 10),
+                (0, 10),
+            ]
+        )
         clean_poly = Polygon([(20, 0), (30, 0), (30, 10), (20, 10)])
 
         multi = MultiPolygon([sliver_poly, clean_poly])
@@ -580,9 +596,14 @@ class TestRemoveSlivers:
         """Test that a slot wider than min_width is not removed."""
         # Rectangle with a wide slot (width=2.0)
         coords = [
-            (0, 0), (10, 0), (10, 4),
-            (3, 4), (3, 6),
-            (10, 6), (10, 10), (0, 10),
+            (0, 0),
+            (10, 0),
+            (10, 4),
+            (3, 4),
+            (3, 6),
+            (10, 6),
+            (10, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
         assert poly.minimum_clearance >= 1.0
@@ -595,7 +616,7 @@ class TestRemoveSlivers:
     def test_invalid_type_raises(self):
         """Test that non-polygon input raises TypeError."""
         line = LineString([(0, 0), (1, 1)])
-        with pytest.raises(TypeError, match="Input geometry must be a Polygon or MultiPolygon"):
+        with pytest.raises(
+            TypeError, match="Input geometry must be a Polygon or MultiPolygon"
+        ):
             remove_slivers(line, min_width=1.0)
-
-

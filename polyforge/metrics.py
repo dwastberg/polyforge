@@ -6,9 +6,7 @@ here keeps the rest of the codebase free from ad-hoc ``minimum_clearance`` or
 area checks.
 """
 
-from __future__ import annotations
-
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
 
 from shapely.errors import GEOSException
 from shapely.geometry.base import BaseGeometry
@@ -16,7 +14,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 
-def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
+def _safe_clearance(geometry: BaseGeometry) -> float | None:
     """Safely get the minimum clearance of a geometry.
 
     Returns None if the clearance cannot be computed (e.g., invalid geometry
@@ -32,9 +30,9 @@ def _safe_clearance(geometry: BaseGeometry) -> Optional[float]:
 
 def measure_geometry(
     geometry: BaseGeometry,
-    original: Optional[BaseGeometry] = None,
+    original: BaseGeometry | None = None,
     skip_clearance: bool = False,
-) -> Dict[str, Optional[float]]:
+) -> dict[str, float | None]:
     """Return core metrics for ``geometry``.
 
     Args:
@@ -58,7 +56,7 @@ def measure_geometry(
     """
     area = getattr(geometry, "area", None)
     original_area = getattr(original, "area", None) if original is not None else None
-    area_ratio: Optional[float] = None
+    area_ratio: float | None = None
 
     if area is not None and original_area and original_area > 0:
         area_ratio = area / original_area
@@ -86,9 +84,9 @@ def total_overlap_area(geometries: Iterable[BaseGeometry]) -> float:
 
 
 def overlap_area_by_geometry(
-    geometries: List[BaseGeometry],
+    geometries: list[BaseGeometry],
     min_area_threshold: float = 1e-10,
-) -> List[float]:
+) -> list[float]:
     """Return the overlapping area attributed to each geometry in ``geometries``.
 
     Each pairwise overlap area is added to **both** participating geometries,

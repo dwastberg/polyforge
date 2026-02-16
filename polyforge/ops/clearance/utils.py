@@ -4,12 +4,13 @@ This module provides geometric utility functions used by clearance fix functions
 """
 
 import numpy as np
-from typing import List, Union
 from shapely.geometry import Point
 import math
 
 
-def _find_nearest_vertex_index(coords: np.ndarray, point: Union[Point, tuple, np.ndarray]) -> int:
+def _find_nearest_vertex_index(
+    coords: np.ndarray, point: Point | tuple | np.ndarray
+) -> int:
     """Find index of vertex nearest to given point.
 
     Args:
@@ -57,9 +58,13 @@ def _find_nearest_edge_index(coords: np.ndarray, point: np.ndarray) -> int:
     segment_vectors = segment_ends - segment_starts
     point_vectors = point_2d - segment_starts
 
-    seg_len_sq = np.einsum('ij,ij->i', segment_vectors, segment_vectors)
-    with np.errstate(divide='ignore', invalid='ignore'):
-        t = np.where(seg_len_sq > 0, np.einsum('ij,ij->i', point_vectors, segment_vectors) / seg_len_sq, 0.0)
+    seg_len_sq = np.einsum("ij,ij->i", segment_vectors, segment_vectors)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(
+            seg_len_sq > 0,
+            np.einsum("ij,ij->i", point_vectors, segment_vectors) / seg_len_sq,
+            0.0,
+        )
     t = np.clip(t, 0.0, 1.0)
 
     projections = segment_starts + (segment_vectors.T * t).T
@@ -67,9 +72,12 @@ def _find_nearest_edge_index(coords: np.ndarray, point: np.ndarray) -> int:
 
     degenerate = seg_len_sq == 0
     if np.any(degenerate):
-        distances[degenerate] = np.linalg.norm(point_2d - segment_starts[degenerate], axis=1)
+        distances[degenerate] = np.linalg.norm(
+            point_2d - segment_starts[degenerate], axis=1
+        )
 
     return int(np.argmin(distances))
+
 
 def _angle(p_prev, p, p_next):
     """Interior angle at vertex p in degrees"""
@@ -89,9 +97,10 @@ def _angle(p_prev, p, p_next):
     ang = math.degrees(math.acos(dot))
     return ang
 
+
 def _cross(o, a, b):
     """2D cross product"""
-    return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
 
 def _is_concave(prev, curr, nxt, orientation=1):
@@ -104,12 +113,13 @@ def _is_concave(prev, curr, nxt, orientation=1):
 
 
 def _dist(a, b):
-    return math.hypot(a[0]-b[0], a[1]-b[1])
+    return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
 # ------------------------------------------------------------
 # wedge tracing
 # ------------------------------------------------------------
+
 
 def _trace_wedge(coords, tip_idx, orientation, max_steps=200):
     """
@@ -126,7 +136,6 @@ def _trace_wedge(coords, tip_idx, orientation, max_steps=200):
     j = tip_idx
 
     for _ in range(max_steps):
-
         i = (i - 1) % n
         j = (j + 1) % n
 
@@ -142,18 +151,18 @@ def _trace_wedge(coords, tip_idx, orientation, max_steps=200):
 
 def _find_best_join(coords, left_chain, right_chain):
     """
-    Find closest pair between chains → neck location.
+    Find closest pair between chains -> neck location.
 
     Both chains trace from the tip all the way around the polygon, so every
     vertex except the tip appears in both.  We must skip pairs where the
     remaining body (the arc from li to ri NOT going through the tip) is too
-    short to form a valid polygon — otherwise we always pick li == ri with
+    short to form a valid polygon -- otherwise we always pick li == ri with
     distance 0.
 
     For left_chain position *a* and right_chain position *b* the wedge
     path through the tip has ``a + b + 2`` edges, so the body path has
     ``n - (a + b + 2)`` edges.  We require the body to have at least 2
-    edges (3 vertices → a triangle).
+    edges (3 vertices -> a triangle).
     """
 
     n = len(coords)
@@ -193,6 +202,7 @@ def _compute_depth(coords, tip_idx, left_chain, right_chain):
 # splice polygon
 # ------------------------------------------------------------
 
+
 def _splice_polygon(coords, left_idx, right_idx):
     """
     Remove wedge region between left_idx and right_idx.
@@ -202,10 +212,10 @@ def _splice_polygon(coords, left_idx, right_idx):
     n = len(coords)
 
     if left_idx < right_idx:
-        new = coords[:left_idx+1] + coords[right_idx:]
+        new = coords[: left_idx + 1] + coords[right_idx:]
     else:
         # wrap case
-        new = coords[right_idx:left_idx+1]
+        new = coords[right_idx : left_idx + 1]
 
     # ensure closed
     if new[0] != new[-1]:
@@ -215,9 +225,7 @@ def _splice_polygon(coords, left_idx, right_idx):
 
 
 def _point_to_segment_distance(
-    point: np.ndarray,
-    segment_start: np.ndarray,
-    segment_end: np.ndarray
+    point: np.ndarray, segment_start: np.ndarray, segment_end: np.ndarray
 ) -> float:
     """Calculate distance from point to line segment.
 
@@ -247,9 +255,7 @@ def _point_to_segment_distance(
 
 
 def _point_to_line_perpendicular_distance(
-    point: np.ndarray,
-    line_start: np.ndarray,
-    line_end: np.ndarray
+    point: np.ndarray, line_start: np.ndarray, line_end: np.ndarray
 ) -> float:
     """Calculate perpendicular distance from a point to an infinite line.
 
@@ -291,16 +297,16 @@ def _point_to_line_perpendicular_distance(
     # Calculate perpendicular distance using cross product formula
     # For 2D: distance = |cross product| / |line vector|
     # But since line_vec is normalized, distance = |cross product|
-    cross = abs(line_vec_normalized[0] * point_vec[1] - line_vec_normalized[1] * point_vec[0])
+    cross = abs(
+        line_vec_normalized[0] * point_vec[1] - line_vec_normalized[1] * point_vec[0]
+    )
 
     return float(cross)
 
 
 def _get_vertex_neighborhood(
-    center_idx: int,
-    coords: np.ndarray,
-    radius: int
-) -> List[int]:
+    center_idx: int, coords: np.ndarray, radius: int
+) -> list[int]:
     """Get indices of vertices within radius of center vertex.
 
     Args:
@@ -333,9 +339,9 @@ def _calculate_curvature_at_vertex(coords: np.ndarray, idx: int) -> float:
 
     Returns:
         Turning angle in degrees (0-180), where:
-        - ~0° = straight continuation
-        - ~90° = right angle turn
-        - ~180° = sharp reversal/spike
+        - ~0 degrees = straight continuation
+        - ~90 degrees = right angle turn
+        - ~180 degrees = sharp reversal/spike
     """
     n = len(coords) - 1  # Exclude closing vertex
     prev_idx = (idx - 1) % n
@@ -383,7 +389,7 @@ def _compute_wedge_tip_angle(
         separation: Shortest ring distance between idx1 and idx2.
 
     Returns:
-        Tip angle in degrees.  Small values (< 20°) indicate very acute
+        Tip angle in degrees.  Small values (< 20 degrees) indicate very acute
         wedges.  Returns 180.0 when no meaningful tip can be identified
         (e.g. separation < 2 or degenerate geometry).
     """
@@ -412,7 +418,7 @@ def _compute_wedge_tip_angle(
     baseline_len = float(np.linalg.norm(baseline))
 
     if baseline_len < 1e-12:
-        # Degenerate baseline — endpoints coincide
+        # Degenerate baseline -- endpoints coincide
         tip_idx = short_path_indices[0]
     else:
         baseline_unit = baseline / baseline_len
@@ -443,9 +449,7 @@ def _compute_wedge_tip_angle(
 
 
 def _remove_vertices_between(
-    coords: np.ndarray,
-    start_idx: int,
-    end_idx: int
+    coords: np.ndarray, start_idx: int, end_idx: int
 ) -> np.ndarray:
     """Remove all vertices between start and end, creating straight edge.
 
@@ -461,12 +465,9 @@ def _remove_vertices_between(
 
     if start_idx < end_idx:
         # Simple case: continuous range
-        new_coords = np.vstack([
-            coords[:start_idx + 1],
-            coords[end_idx:]
-        ])
+        new_coords = np.vstack([coords[: start_idx + 1], coords[end_idx:]])
     else:
         # Wrapped case: range crosses array boundary
-        new_coords = coords[end_idx:start_idx + 1]
+        new_coords = coords[end_idx : start_idx + 1]
 
     return new_coords

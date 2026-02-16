@@ -1,6 +1,3 @@
-"""Vertex movement merge strategy - move vertices toward each other."""
-
-from typing import List, Union
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import unary_union, nearest_points
@@ -9,10 +6,8 @@ from polyforge.core.geometry_utils import remove_holes, safe_buffer_fix
 
 
 def merge_vertex_movement(
-    group_polygons: List[Polygon],
-    margin: float,
-    preserve_holes: bool
-) -> Union[Polygon, MultiPolygon]:
+    group_polygons: list[Polygon], margin: float, preserve_holes: bool
+) -> Polygon | MultiPolygon:
     """Merge by moving vertices of close polygons toward each other.
 
     Precise control, preserves overall structure.
@@ -40,7 +35,7 @@ def merge_vertex_movement(
             vertex = Point(coords[i])
 
             # Find closest point on other polygons
-            min_dist = float('inf')
+            min_dist = float("inf")
             closest_point = None
 
             for other_idx, other_poly in enumerate(group_polygons):
@@ -80,4 +75,4 @@ def merge_vertex_movement(
     return result
 
 
-__all__ = ['merge_vertex_movement']
+__all__ = ["merge_vertex_movement"]

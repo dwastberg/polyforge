@@ -76,6 +76,7 @@ class ARAPLiteSolver:
         x = self.solve(b)
         return x.reshape((self.n, self.dim))
 
+
 def _widen_notch_arap(
     polygon: Polygon,
     min_clearance: float,
@@ -155,7 +156,7 @@ def _widen_notch_arap(
 
         candidate = Polygon(
             np.vstack([new_coords, new_coords[0]]),
-            holes=[ring.coords[:] for ring in original_holes]
+            holes=[ring.coords[:] for ring in original_holes],
         )
 
         if not candidate.is_valid:
@@ -179,7 +180,6 @@ def widen_narrow_passage_offset_arap_lite(
     join_style: int = JOIN_STYLE.mitre,
     tolerance: float = 1e-9,
 ) -> Polygon | None:
-
     if not polygon.is_valid or polygon.is_empty:
         return None
 
@@ -210,7 +210,9 @@ def widen_narrow_passage_offset_arap_lite(
         if eroded.geom_type == "Polygon":
             # Erosion didn't split - this could be a notch case
             # Try direct widening using minimum_clearance_line
-            result = _widen_notch_arap(current, min_clearance, original_holes, original_area, tolerance)
+            result = _widen_notch_arap(
+                current, min_clearance, original_holes, original_area, tolerance
+            )
             if result is not None:
                 return result
             return current
@@ -277,10 +279,9 @@ def widen_narrow_passage_offset_arap_lite(
         # --- Solve deformation ---
         new_coords = solver.solve_positions(coords, constraints)
 
-
         candidate = Polygon(
             np.vstack([new_coords, new_coords[0]]),
-            holes=[ring.coords[:] for ring in original_holes]
+            holes=[ring.coords[:] for ring in original_holes],
         )
 
         if not candidate.is_valid:

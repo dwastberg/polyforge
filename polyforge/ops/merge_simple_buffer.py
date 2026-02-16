@@ -1,6 +1,5 @@
 """Simple buffer merge strategy - classic expand-contract method."""
 
-from typing import List, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 
@@ -8,11 +7,11 @@ from polyforge.ops.merge_common import postprocess_merge_result
 
 
 def merge_simple_buffer(
-    group_polygons: List[Polygon],
+    group_polygons: list[Polygon],
     margin: float,
     preserve_holes: bool,
-    simplify: bool = True
-) -> Union[Polygon, MultiPolygon]:
+    simplify: bool = True,
+) -> Polygon | MultiPolygon:
     """Merge using classic expand-contract buffer method.
 
     Fast and simple, but changes polygon shape (rounds corners).
@@ -45,8 +44,8 @@ def merge_simple_buffer(
         result,
         preserve_holes=preserve_holes,
         simplify=simplify,
-        simplify_threshold=margin / 2
+        simplify_threshold=margin / 2,
     )
 
 
-__all__ = ['merge_simple_buffer']
+__all__ = ["merge_simple_buffer"]

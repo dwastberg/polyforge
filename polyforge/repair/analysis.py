@@ -1,7 +1,3 @@
-"""Geometry analysis and diagnostic functions."""
-
-from typing import Dict, List, Tuple
-
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
@@ -9,7 +5,9 @@ from shapely.validation import explain_validity
 def analyze_geometry(geometry: BaseGeometry) -> dict:
     """Analyze geometry validity issues."""
     metrics = _collect_geometry_metrics(geometry)
-    issues, suggestions = _categorize_issues(metrics["is_valid"], metrics["validity_message"])
+    issues, suggestions = _categorize_issues(
+        metrics["is_valid"], metrics["validity_message"]
+    )
     extra_issues, extra_suggestions = _collect_coordinate_issues(geometry)
     issues.extend(extra_issues)
     suggestions.extend(extra_suggestions)
@@ -17,7 +15,7 @@ def analyze_geometry(geometry: BaseGeometry) -> dict:
     return _format_analysis(metrics, issues, suggestions)
 
 
-def _collect_geometry_metrics(geometry: BaseGeometry) -> Dict[str, object]:
+def _collect_geometry_metrics(geometry: BaseGeometry) -> dict[str, object]:
     return {
         "is_valid": geometry.is_valid,
         "validity_message": explain_validity(geometry),
@@ -27,19 +25,36 @@ def _collect_geometry_metrics(geometry: BaseGeometry) -> Dict[str, object]:
     }
 
 
-def _categorize_issues(is_valid: bool, validity_message: str) -> Tuple[List[str], List[str]]:
-    issues: List[str] = []
-    suggestions: List[str] = []
+def _categorize_issues(
+    is_valid: bool, validity_message: str
+) -> tuple[list[str], list[str]]:
+    issues: list[str] = []
+    suggestions: list[str] = []
 
     if not is_valid:
         msg = validity_message.lower()
         rules = [
-            (("self-intersection", "self intersection"), False, "Self-intersection", "Try buffer(0) or simplification"),
+            (
+                ("self-intersection", "self intersection"),
+                False,
+                "Self-intersection",
+                "Try buffer(0) or simplification",
+            ),
             (("duplicate",), False, "Duplicate vertices", "Clean coordinates"),
-            (("not closed", "unclosed"), False, "Unclosed ring", "Close coordinate rings"),
+            (
+                ("not closed", "unclosed"),
+                False,
+                "Unclosed ring",
+                "Close coordinate rings",
+            ),
             (("ring", "invalid"), True, "Invalid ring", "Reconstruct ring geometry"),
             (("hole",), False, "Invalid hole", "Remove or fix interior rings"),
-            (("spike", "collapse"), False, "Collapsed/spike geometry", "Simplification or buffer"),
+            (
+                ("spike", "collapse"),
+                False,
+                "Collapsed/spike geometry",
+                "Simplification or buffer",
+            ),
         ]
         for keywords, match_all, issue, suggestion in rules:
             match_func = all if match_all else any
@@ -54,9 +69,9 @@ def _categorize_issues(is_valid: bool, validity_message: str) -> Tuple[List[str]
     return issues, suggestions
 
 
-def _collect_coordinate_issues(geometry: BaseGeometry) -> Tuple[List[str], List[str]]:
-    issues: List[str] = []
-    suggestions: List[str] = []
+def _collect_coordinate_issues(geometry: BaseGeometry) -> tuple[list[str], list[str]]:
+    issues: list[str] = []
+    suggestions: list[str] = []
 
     if hasattr(geometry, "exterior"):
         coords = list(geometry.exterior.coords)
@@ -73,7 +88,9 @@ def _collect_coordinate_issues(geometry: BaseGeometry) -> Tuple[List[str], List[
     return issues, suggestions
 
 
-def _format_analysis(metrics: Dict[str, object], issues: List[str], suggestions: List[str]) -> Dict[str, object]:
+def _format_analysis(
+    metrics: dict[str, object], issues: list[str], suggestions: list[str]
+) -> dict[str, object]:
     return {
         **metrics,
         "issues": issues,
@@ -81,4 +98,4 @@ def _format_analysis(metrics: Dict[str, object], issues: List[str], suggestions:
     }
 
 
-__all__ = ['analyze_geometry']
+__all__ = ["analyze_geometry"]

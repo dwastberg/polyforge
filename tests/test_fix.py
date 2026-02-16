@@ -40,14 +40,11 @@ class TestFixGeometry:
     def test_duplicate_vertices(self):
         """Test fixing polygon with duplicate vertices."""
         # Polygon with duplicate consecutive vertices
-        poly = Polygon([
-            (0, 0), (1, 0), (1, 0), (1, 1), (1, 1), (0, 1)
-        ])
+        poly = Polygon([(0, 0), (1, 0), (1, 0), (1, 1), (1, 1), (0, 1)])
 
         result = repair_geometry(poly, repair_strategy=RepairStrategy.AUTO)
 
         assert result.is_valid
-
 
     def test_buffer_strategy(self):
         """Test explicit buffer strategy."""
@@ -91,7 +88,9 @@ class TestFixGeometry:
         """Test that auto strategy tries multiple approaches."""
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy=RepairStrategy.AUTO, verbose=False)
+        result = repair_geometry(
+            poly, repair_strategy=RepairStrategy.AUTO, verbose=False
+        )
 
         assert result.is_valid
 
@@ -112,7 +111,7 @@ class TestFixGeometry:
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
         with pytest.raises(ValueError, match="Unknown repair_strategy"):
-            repair_geometry(poly, repair_strategy='nonexistent')
+            repair_geometry(poly, repair_strategy="nonexistent")
 
     def test_verbose_mode(self):
         """Test that verbose mode runs without errors."""
@@ -127,16 +126,16 @@ class TestFixGeometry:
         """Test using custom buffer distance."""
         poly = Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
 
-        result = repair_geometry(poly, repair_strategy=RepairStrategy.BUFFER, buffer_distance=0.01)
+        result = repair_geometry(
+            poly, repair_strategy=RepairStrategy.BUFFER, buffer_distance=0.01
+        )
 
         assert result.is_valid
 
     def test_custom_tolerance(self):
         """Test using custom tolerance."""
         # Polygon with very small duplicates
-        poly = Polygon([
-            (0, 0), (1, 0), (1.00001, 0.00001), (1, 1), (0, 1)
-        ])
+        poly = Polygon([(0, 0), (1, 0), (1.00001, 0.00001), (1, 1), (0, 1)])
 
         result = repair_geometry(poly, tolerance=0.001)
 
@@ -145,10 +144,7 @@ class TestFixGeometry:
     def test_complex_self_intersection(self):
         """Test fixing complex self-intersecting polygon."""
         # Star shape with self-intersections
-        poly = Polygon([
-            (0, 0), (2, 1), (4, 0), (3, 2), (4, 4),
-            (2, 3), (0, 4), (1, 2)
-        ])
+        poly = Polygon([(0, 0), (2, 1), (4, 0), (3, 2), (4, 4), (2, 3), (0, 4), (1, 2)])
 
         if not poly.is_valid:
             result = repair_geometry(poly)
@@ -164,10 +160,10 @@ class TestDiagnoseGeometry:
 
         diagnosis = analyze_geometry(poly)
 
-        assert diagnosis['is_valid'] is True
-        assert diagnosis['geometry_type'] == 'Polygon'
-        assert not diagnosis['is_empty']
-        assert diagnosis['area'] == 1.0
+        assert diagnosis["is_valid"] is True
+        assert diagnosis["geometry_type"] == "Polygon"
+        assert not diagnosis["is_empty"]
+        assert diagnosis["area"] == 1.0
 
     def test_diagnose_self_intersection(self):
         """Test diagnosing self-intersecting polygon."""
@@ -175,21 +171,19 @@ class TestDiagnoseGeometry:
 
         diagnosis = analyze_geometry(poly)
 
-        assert diagnosis['is_valid'] is False
-        assert 'Self-intersection' in diagnosis['issues']
-        assert any('buffer' in s.lower() for s in diagnosis['suggestions'])
+        assert diagnosis["is_valid"] is False
+        assert "Self-intersection" in diagnosis["issues"]
+        assert any("buffer" in s.lower() for s in diagnosis["suggestions"])
 
     def test_diagnose_duplicate_vertices(self):
         """Test diagnosing duplicate vertices."""
         # Create polygon with duplicates
-        poly = Polygon([
-            (0, 0), (1, 0), (1, 0), (1, 1), (0, 1)
-        ])
+        poly = Polygon([(0, 0), (1, 0), (1, 0), (1, 1), (0, 1)])
 
         diagnosis = analyze_geometry(poly)
 
         # Check for duplicate-related issues
-        assert 'Consecutive duplicate vertices' in diagnosis['issues']
+        assert "Consecutive duplicate vertices" in diagnosis["issues"]
 
     def test_diagnose_includes_all_fields(self):
         """Test that diagnosis includes all expected fields."""
@@ -197,13 +191,13 @@ class TestDiagnoseGeometry:
 
         diagnosis = analyze_geometry(poly)
 
-        assert 'is_valid' in diagnosis
-        assert 'validity_message' in diagnosis
-        assert 'issues' in diagnosis
-        assert 'suggestions' in diagnosis
-        assert 'geometry_type' in diagnosis
-        assert 'is_empty' in diagnosis
-        assert 'area' in diagnosis
+        assert "is_valid" in diagnosis
+        assert "validity_message" in diagnosis
+        assert "issues" in diagnosis
+        assert "suggestions" in diagnosis
+        assert "geometry_type" in diagnosis
+        assert "is_empty" in diagnosis
+        assert "area" in diagnosis
 
     def test_diagnose_empty_geometry(self):
         """Test diagnosing empty geometry."""
@@ -211,7 +205,7 @@ class TestDiagnoseGeometry:
 
         diagnosis = analyze_geometry(poly)
 
-        assert diagnosis['is_empty'] is True
+        assert diagnosis["is_empty"] is True
 
 
 class TestBatchFixGeometries:
@@ -222,7 +216,7 @@ class TestBatchFixGeometries:
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
             Polygon([(2, 0), (3, 0), (3, 1), (2, 1)]),
-            Polygon([(0, 2), (1, 2), (1, 3), (0, 3)])
+            Polygon([(0, 2), (1, 2), (1, 3), (0, 3)]),
         ]
 
         fixed, failed = batch_repair_geometries(polys)
@@ -236,7 +230,7 @@ class TestBatchFixGeometries:
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),  # Valid
             Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),  # Invalid (bow-tie)
-            Polygon([(2, 0), (3, 0), (3, 1), (2, 1)])   # Valid
+            Polygon([(2, 0), (3, 0), (3, 1), (2, 1)]),  # Valid
         ]
 
         fixed, failed = batch_repair_geometries(polys)
@@ -249,14 +243,12 @@ class TestBatchFixGeometries:
         """Test batch fixing with skip on error."""
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
+            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
         # Use strict strategy which might fail
         fixed, failed = batch_repair_geometries(
-            polys,
-            repair_strategy=RepairStrategy.STRICT,
-            on_error='skip'
+            polys, repair_strategy=RepairStrategy.STRICT, on_error="skip"
         )
 
         # Should skip unfixable ones
@@ -266,13 +258,11 @@ class TestBatchFixGeometries:
         """Test batch fixing with keep on error."""
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
+            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
         fixed, failed = batch_repair_geometries(
-            polys,
-            repair_strategy=RepairStrategy.STRICT,
-            on_error='keep'
+            polys, repair_strategy=RepairStrategy.STRICT, on_error="keep"
         )
 
         # Should keep all, even if invalid
@@ -282,14 +272,12 @@ class TestBatchFixGeometries:
         """Test batch fixing with raise on error."""
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
+            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
         with pytest.raises(RepairError):
             batch_repair_geometries(
-                polys,
-                repair_strategy=RepairStrategy.STRICT,
-                on_error='raise'
+                polys, repair_strategy=RepairStrategy.STRICT, on_error="raise"
             )
 
     def test_batch_fix_empty_list(self):
@@ -303,7 +291,7 @@ class TestBatchFixGeometries:
         """Test batch fixing with verbose mode."""
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
-            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)])
+            Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
         fixed, failed = batch_repair_geometries(polys, verbose=True)
@@ -315,7 +303,7 @@ class TestBatchFixGeometries:
         polys = [
             Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
             Polygon([(2, 0), (3, 0), (3, 1), (2, 1)]),
-            Polygon([(0, 2), (1, 2), (1, 3), (0, 3)])
+            Polygon([(0, 2), (1, 2), (1, 3), (0, 3)]),
         ]
 
         fixed, failed = batch_repair_geometries(polys)
@@ -332,9 +320,7 @@ class TestEdgeCases:
 
     def test_fix_very_small_polygon(self):
         """Test fixing very small polygon."""
-        poly = Polygon([
-            (0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001)
-        ])
+        poly = Polygon([(0, 0), (0.001, 0), (0.001, 0.001), (0, 0.001)])
 
         if poly.is_valid:
             result = repair_geometry(poly)
@@ -363,10 +349,7 @@ class TestEdgeCases:
 
     def test_fix_nearly_collinear_points(self):
         """Test fixing polygon with nearly collinear points."""
-        poly = Polygon([
-            (0, 0), (1, 0), (1.0001, 0.0001), (2, 0),
-            (2, 2), (0, 2)
-        ])
+        poly = Polygon([(0, 0), (1, 0), (1.0001, 0.0001), (2, 0), (2, 2), (0, 2)])
 
         result = repair_geometry(poly, tolerance=0.001)
         assert result.is_valid

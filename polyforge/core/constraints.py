@@ -1,11 +1,6 @@
-"""Lightweight constraint measurement built on top of :mod:`polyforge.metrics`."""
-
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import math
-from typing import Dict, List, Optional, Tuple
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
@@ -33,15 +28,15 @@ class ConstraintViolation:
     constraint_type: ConstraintType
     severity: float
     message: str
-    actual_value: Optional[float] = None
-    required_value: Optional[float] = None
+    actual_value: float | None = None
+    required_value: float | None = None
 
 
 @dataclass
 class ConstraintStatus:
     geometry: BaseGeometry
-    violations: List[ConstraintViolation] = field(default_factory=list)
-    metrics: Dict[str, Optional[float]] = field(default_factory=dict)
+    violations: list[ConstraintViolation] = field(default_factory=list)
+    metrics: dict[str, float | None] = field(default_factory=dict)
     overlap_area: float = 0.0
 
     @property
@@ -49,11 +44,11 @@ class ConstraintStatus:
         return bool(self.metrics.get("is_valid"))
 
     @property
-    def clearance(self) -> Optional[float]:
+    def clearance(self) -> float | None:
         return self.metrics.get("clearance")
 
     @property
-    def area_ratio(self) -> Optional[float]:
+    def area_ratio(self) -> float | None:
         return self.metrics.get("area_ratio")
 
     def all_satisfied(self) -> bool:
@@ -69,10 +64,12 @@ class ConstraintStatus:
             return len(self.violations) < len(other.violations)
         return self._severity() < other._severity()
 
-    def get_violations_by_type(self, constraint_type: ConstraintType) -> List[ConstraintViolation]:
+    def get_violations_by_type(
+        self, constraint_type: ConstraintType
+    ) -> list[ConstraintViolation]:
         return [v for v in self.violations if v.constraint_type == constraint_type]
 
-    def worst_violation(self) -> Optional[ConstraintViolation]:
+    def worst_violation(self) -> ConstraintViolation | None:
         if not self.violations:
             return None
         return max(self.violations, key=lambda v: v.severity)
@@ -81,7 +78,9 @@ class ConstraintStatus:
         if self.all_satisfied():
             return f"ConstraintStatus(all satisfied, clearance={self.clearance}, area_ratio={self.area_ratio})"
         violations_str = "; ".join(v.message for v in self.violations)
-        return f"ConstraintStatus({len(self.violations)} violation(s): {violations_str})"
+        return (
+            f"ConstraintStatus({len(self.violations)} violation(s): {violations_str})"
+        )
 
     def _severity(self) -> float:
         return sum(v.severity for v in self.violations)
@@ -89,22 +88,24 @@ class ConstraintStatus:
 
 @dataclass
 class GeometryConstraints:
-    min_clearance: Optional[float] = None
+    min_clearance: float | None = None
     max_overlap_area: float = 0.0
     min_area_ratio: float = 0.0
     max_area_ratio: float = float("inf")
     must_be_valid: bool = True
     allow_multipolygon: bool = True
-    max_holes: Optional[int] = None
-    min_hole_area: Optional[float] = None
-    max_hole_aspect_ratio: Optional[float] = None
-    min_hole_width: Optional[float] = None
+    max_holes: int | None = None
+    min_hole_area: float | None = None
+    max_hole_aspect_ratio: float | None = None
+    min_hole_width: float | None = None
 
     def __post_init__(self) -> None:
         if self.min_clearance is not None and self.min_clearance < 0:
             raise ValueError(f"min_clearance must be >= 0, got {self.min_clearance}")
         if self.max_overlap_area < 0:
-            raise ValueError(f"max_overlap_area must be >= 0, got {self.max_overlap_area}")
+            raise ValueError(
+                f"max_overlap_area must be >= 0, got {self.max_overlap_area}"
+            )
         if self.min_area_ratio < 0:
             raise ValueError(f"min_area_ratio must be >= 0, got {self.min_area_ratio}")
         if self.max_area_ratio < self.min_area_ratio:
@@ -116,7 +117,9 @@ class GeometryConstraints:
         if self.min_hole_area is not None and self.min_hole_area < 0:
             raise ValueError(f"min_hole_area must be >= 0, got {self.min_hole_area}")
         if self.max_hole_aspect_ratio is not None and self.max_hole_aspect_ratio <= 0:
-            raise ValueError(f"max_hole_aspect_ratio must be > 0, got {self.max_hole_aspect_ratio}")
+            raise ValueError(
+                f"max_hole_aspect_ratio must be > 0, got {self.max_hole_aspect_ratio}"
+            )
         if self.min_hole_width is not None and self.min_hole_width < 0:
             raise ValueError(f"min_hole_width must be >= 0, got {self.min_hole_width}")
 
@@ -124,8 +127,8 @@ class GeometryConstraints:
         self,
         geometry: BaseGeometry,
         original: BaseGeometry,
-        overlap_area: Optional[float] = None,
-        metrics: Optional[Dict] = None,
+        overlap_area: float | None = None,
+        metrics: dict | None = None,
     ) -> ConstraintStatus:
         """Check constraints against geometry.
 
@@ -141,10 +144,12 @@ class GeometryConstraints:
         # Use cached metrics if provided, otherwise calculate
         if metrics is None:
             # Auto-detect if clearance calculation needed
-            skip_clearance = (self.min_clearance is None)
-            metrics = measure_geometry(geometry, original, skip_clearance=skip_clearance)
+            skip_clearance = self.min_clearance is None
+            metrics = measure_geometry(
+                geometry, original, skip_clearance=skip_clearance
+            )
 
-        violations: List[ConstraintViolation] = []
+        violations: list[ConstraintViolation] = []
         overlap_value = max(0.0, overlap_area or 0.0)
 
         if metrics.get("is_empty", False):
@@ -175,7 +180,9 @@ class GeometryConstraints:
             )
 
         clearance = metrics.get("clearance")
-        if self.min_clearance and (clearance is None or clearance + _CONSTRAINT_TOLERANCE < self.min_clearance):
+        if self.min_clearance and (
+            clearance is None or clearance + _CONSTRAINT_TOLERANCE < self.min_clearance
+        ):
             violations.append(
                 ConstraintViolation(
                     constraint_type=ConstraintType.CLEARANCE,
@@ -232,7 +239,9 @@ class GeometryConstraints:
             overlap_area=overlap_value,
         )
 
-    def _check_holes(self, geometry: BaseGeometry, violations: List[ConstraintViolation]) -> None:
+    def _check_holes(
+        self, geometry: BaseGeometry, violations: list[ConstraintViolation]
+    ) -> None:
         holes = _collect_holes(geometry)
 
         if self.max_holes is not None and len(holes) > self.max_holes:
@@ -267,7 +276,10 @@ class GeometryConstraints:
                 except Exception:
                     continue
 
-                if self.max_hole_aspect_ratio and aspect_ratio > self.max_hole_aspect_ratio:
+                if (
+                    self.max_hole_aspect_ratio
+                    and aspect_ratio > self.max_hole_aspect_ratio
+                ):
                     violations.append(
                         ConstraintViolation(
                             constraint_type=ConstraintType.HOLE_VALIDITY,
@@ -278,7 +290,10 @@ class GeometryConstraints:
                         )
                     )
 
-                if self.min_hole_width and width + _CONSTRAINT_TOLERANCE < self.min_hole_width:
+                if (
+                    self.min_hole_width
+                    and width + _CONSTRAINT_TOLERANCE < self.min_hole_width
+                ):
                     violations.append(
                         ConstraintViolation(
                             constraint_type=ConstraintType.HOLE_VALIDITY,
@@ -299,7 +314,7 @@ class MergeConstraints:
     insert_vertices: bool = False
 
 
-def _collect_holes(geometry: BaseGeometry) -> List:
+def _collect_holes(geometry: BaseGeometry) -> list:
     if isinstance(geometry, Polygon):
         return list(geometry.interiors)
     if isinstance(geometry, MultiPolygon):

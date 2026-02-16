@@ -1,48 +1,19 @@
-"""Exception hierarchy for polyforge operations.
+from typing import Any
 
-This module defines all custom exceptions used throughout polyforge.
-All exceptions inherit from PolyforgeError, allowing users to catch
-any polyforge-specific error with a single except clause.
-"""
-
-from typing import List, Optional, Any
 from shapely.geometry.base import BaseGeometry
 
 
 class PolyforgeError(Exception):
-    """Base exception for all polyforge errors.
-
-    All polyforge exceptions inherit from this, allowing users to catch
-    any polyforge-specific error with a single except clause.
-
-    Examples:
-        >>> try:
-        ...     result = some_polyforge_function()
-        ... except PolyforgeError as e:
-        ...     print(f"Polyforge error: {e}")
-    """
     pass
 
 
 class ValidationError(PolyforgeError):
-    """Input geometry validation failed.
-
-    Raised when input validation detects invalid parameters or geometries
-    that cannot be processed.
-
-    Attributes:
-        geometry: The invalid input geometry (optional)
-        issues: List of detected validation issues (optional)
-
-    Examples:
-        >>> try:
-        ...     result = process_geometry(invalid_geom)
-        ... except ValidationError as e:
-        ...     print(f"Validation failed: {e}")
-        ...     print(f"Issues: {e.issues}")
-    """
-    def __init__(self, message: str, geometry: Optional[BaseGeometry] = None,
-                 issues: Optional[List[str]] = None):
+    def __init__(
+        self,
+        message: str,
+        geometry: BaseGeometry | None = None,
+        issues: list[str] | None = None,
+    ):
         super().__init__(message)
         self.geometry = geometry
         self.issues = issues or []
@@ -58,26 +29,13 @@ class ValidationError(PolyforgeError):
 
 
 class RepairError(PolyforgeError):
-    """Geometry repair failed after trying all strategies.
-
-    Raised when a geometry cannot be repaired using any available strategy.
-
-    Attributes:
-        geometry: The geometry that couldn't be repaired (optional)
-        strategies_tried: List of strategies that were attempted (optional)
-        last_error: The error from the last attempted strategy (optional)
-
-    Examples:
-        >>> try:
-        ...     result = repair_geometry(broken_geom)
-        ... except RepairError as e:
-        ...     print(f"Repair failed: {e}")
-        ...     print(f"Tried strategies: {e.strategies_tried}")
-        ...     print(f"Last error: {e.last_error}")
-    """
-    def __init__(self, message: str, geometry: Optional[BaseGeometry] = None,
-                 strategies_tried: Optional[List[str]] = None,
-                 last_error: Optional[Exception] = None):
+    def __init__(
+        self,
+        message: str,
+        geometry: BaseGeometry | None = None,
+        strategies_tried: list[str] | None = None,
+        last_error: Exception | None = None,
+    ):
         super().__init__(message)
         self.geometry = geometry
         self.strategies_tried = strategies_tried or []
@@ -96,7 +54,6 @@ class OverlapResolutionError(PolyforgeError):
     Attributes:
         iterations: Number of iterations completed
         remaining_overlaps: Number of overlaps still present
-        polygons: Current state of polygons (optional)
 
     Examples:
         >>> try:
@@ -105,39 +62,27 @@ class OverlapResolutionError(PolyforgeError):
         ...     print(f"Failed after {e.iterations} iterations")
         ...     print(f"Still have {e.remaining_overlaps} overlaps")
     """
-    def __init__(self, message: str, iterations: int = 0,
-                 remaining_overlaps: int = 0, polygons: Optional[List[Any]] = None):
+
+    def __init__(self, message: str, iterations: int = 0, remaining_overlaps: int = 0):
         super().__init__(message)
         self.iterations = iterations
         self.remaining_overlaps = remaining_overlaps
-        self.polygons = polygons
 
     def __repr__(self):
-        return (f"OverlapResolutionError('{str(self)}', "
-                f"iterations={self.iterations}, "
-                f"remaining={self.remaining_overlaps})")
+        return (
+            f"OverlapResolutionError('{str(self)}', "
+            f"iterations={self.iterations}, "
+            f"remaining={self.remaining_overlaps})"
+        )
 
 
 class MergeError(PolyforgeError):
-    """Polygon merge operation failed.
-
-    Raised when polygon merging fails due to invalid geometries or
-    strategy-specific issues.
-
-    Attributes:
-        strategy: The merge strategy that failed (optional)
-        group_indices: Indices of polygons being merged when error occurred (optional)
-
-    Examples:
-        >>> try:
-        ...     result = merge_close_polygons(polygons, strategy='invalid')
-        ... except MergeError as e:
-        ...     print(f"Merge failed: {e}")
-        ...     print(f"Strategy: {e.strategy}")
-        ...     print(f"Group: {e.group_indices}")
-    """
-    def __init__(self, message: str, strategy: Optional[str] = None,
-                 group_indices: Optional[List[int]] = None):
+    def __init__(
+        self,
+        message: str,
+        strategy: str | None = None,
+        group_indices: list[int] | None = None,
+    ):
         super().__init__(message)
         self.strategy = strategy
         self.group_indices = group_indices
@@ -167,10 +112,15 @@ class ClearanceError(PolyforgeError):
         ...     print(f"Achieved: {e.achieved_clearance}")
         ...     print(f"Issue type: {e.issue_type}")
     """
-    def __init__(self, message: str, geometry: Optional[BaseGeometry] = None,
-                 target_clearance: Optional[float] = None,
-                 achieved_clearance: Optional[float] = None,
-                 issue_type: Optional[str] = None):
+
+    def __init__(
+        self,
+        message: str,
+        geometry: BaseGeometry | None = None,
+        target_clearance: float | None = None,
+        achieved_clearance: float | None = None,
+        issue_type: str | None = None,
+    ):
         super().__init__(message)
         self.geometry = geometry
         self.target_clearance = target_clearance
@@ -178,55 +128,25 @@ class ClearanceError(PolyforgeError):
         self.issue_type = issue_type
 
     def __repr__(self):
-        return (f"ClearanceError('{str(self)}', "
-                f"target={self.target_clearance}, "
-                f"achieved={self.achieved_clearance})")
+        return (
+            f"ClearanceError('{str(self)}', "
+            f"target={self.target_clearance}, "
+            f"achieved={self.achieved_clearance})"
+        )
 
 
 class ConfigurationError(PolyforgeError):
-    """Invalid configuration or parameter value.
-
-    Raised when configuration parameters are invalid or incompatible.
-
-    Examples:
-        >>> try:
-        ...     config.set_tolerance(-1.0)
-        ... except ConfigurationError as e:
-        ...     print(f"Invalid configuration: {e}")
-    """
     pass
 
 
 class FixWarning(PolyforgeError):
-    """Geometry fix completed but some constraints could not be satisfied.
-
-    This is raised (or can be caught as a warning) when robust_fix_geometry()
-    returns a best-effort result that doesn't meet all specified constraints.
-    The geometry returned is the best result found, but may not be perfect.
-
-    Attributes:
-        geometry: The best geometry that was achieved
-        status: ConstraintStatus showing which constraints were violated
-        unmet_constraints: List of constraint types that could not be satisfied
-        history: Summary of fix attempts made (optional)
-
-    Examples:
-        >>> try:
-        ...     result = robust_fix_geometry(polygon, constraints)
-        ... except FixWarning as w:
-        ...     print(f"Warning: {w}")
-        ...     print(f"Unmet constraints: {w.unmet_constraints}")
-        ...     print(f"Best result area: {w.geometry.area}")
-        ...     # Still use the best result
-        ...     use_geometry(w.geometry)
-    """
     def __init__(
         self,
         message: str,
-        geometry: Optional[BaseGeometry] = None,
-        status: Optional[Any] = None,
-        unmet_constraints: Optional[List[str]] = None,
-        history: Optional[List[str]] = None
+        geometry: BaseGeometry | None = None,
+        status: Any | None = None,
+        unmet_constraints: list[str] | None = None,
+        history: list[str] | None = None,
     ):
         super().__init__(message)
         self.geometry = geometry
@@ -235,25 +155,24 @@ class FixWarning(PolyforgeError):
         self.history = history or []
 
     def __repr__(self):
-        return (f"FixWarning('{str(self)}', "
-                f"unmet={self.unmet_constraints})")
+        return f"FixWarning('{str(self)}', unmet={self.unmet_constraints})"
 
     def __str__(self):
         result = super().__str__()
         if self.unmet_constraints:
             result += f"\nUnmet constraints: {', '.join(self.unmet_constraints)}"
-        if self.status and hasattr(self.status, 'violations'):
+        if self.status and hasattr(self.status, "violations"):
             result += f"\nViolations: {len(self.status.violations)}"
         return result
 
 
 __all__ = [
-    'PolyforgeError',
-    'ValidationError',
-    'RepairError',
-    'OverlapResolutionError',
-    'MergeError',
-    'ClearanceError',
-    'ConfigurationError',
-    'FixWarning',
+    "PolyforgeError",
+    "ValidationError",
+    "RepairError",
+    "OverlapResolutionError",
+    "MergeError",
+    "ClearanceError",
+    "ConfigurationError",
+    "FixWarning",
 ]

@@ -1,13 +1,5 @@
-"""Functions for fixing holes that cause low clearance.
-
-This module provides functions to handle holes (interior rings) that cause
-low minimum clearance, either by being too close to the exterior boundary
-or by having near-self-intersections within the hole ring itself.
-"""
-
 import math
 import numpy as np
-from typing import Optional, Union
 from shapely.geometry import Polygon, LinearRing, Point
 from shapely.errors import GEOSException
 import shapely.ops
@@ -19,14 +11,7 @@ _SELF_CLEARANCE_RATIO = 0.1
 
 
 def _has_self_clearance_issue(hole_ring: LinearRing, min_clearance: float) -> bool:
-    """Check whether a hole ring has a near-self-intersection.
-
-    A near-self-intersection is when the ring almost touches itself,
-    creating a gap much smaller than the hole's overall size.  Normal
-    small holes (e.g. a 1x1 square with self-clearance 1.0) are NOT
-    flagged; only holes where self-clearance is disproportionately
-    small relative to sqrt(area) are considered problematic.
-    """
+    """Check whether a hole ring has a near-self-intersection."""
     try:
         self_clearance = float(hole_ring.minimum_clearance)
     except (GEOSException, ValueError):
@@ -46,14 +31,9 @@ def _has_self_clearance_issue(hole_ring: LinearRing, min_clearance: float) -> bo
 def fix_hole_too_close(
     geometry: Polygon,
     min_clearance: float,
-    strategy: Union[HoleStrategy, str] = HoleStrategy.REMOVE,
+    strategy: HoleStrategy | str = HoleStrategy.REMOVE,
 ) -> Polygon:
     """Fix holes that cause low clearance.
-
-    Detects two types of hole clearance issues:
-    1. Holes too close to the exterior boundary
-    2. Holes with near-self-intersections (low self-clearance within the ring)
-
     Args:
         geometry: Input polygon (possibly with holes)
         min_clearance: Target minimum clearance
@@ -65,14 +45,6 @@ def fix_hole_too_close(
 
     Returns:
         Polygon with holes fixed
-
-    Examples:
-        >>> exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
-        >>> hole = [(1, 1), (2, 1), (2, 2), (1, 2)]  # Very close to edge
-        >>> poly = Polygon(exterior, holes=[hole])
-        >>> fixed = fix_hole_too_close(poly, min_clearance=2.0)
-        >>> len(fixed.interiors)  # Hole removed
-        0
     """
     if not geometry.interiors:
         return geometry  # No holes to fix
@@ -117,7 +89,7 @@ def fix_hole_too_close(
             shrunk_hole = hole_poly.buffer(-shrink_amount)
 
             if shrunk_hole.is_valid and not shrunk_hole.is_empty:
-                if shrunk_hole.geom_type == 'Polygon':
+                if shrunk_hole.geom_type == "Polygon":
                     good_holes.append(shrunk_hole.exterior.coords)
             # else: hole shrunk to nothing, effectively removed
 
@@ -133,10 +105,7 @@ def fix_hole_too_close(
     return Polygon(exterior.coords, holes=good_holes)
 
 
-def _calculate_hole_to_exterior_distance(
-    hole: Polygon,
-    exterior: LinearRing
-) -> float:
+def _calculate_hole_to_exterior_distance(hole: Polygon, exterior: LinearRing) -> float:
     """Calculate minimum distance from hole to exterior boundary.
 
     Args:
@@ -153,10 +122,8 @@ def _calculate_hole_to_exterior_distance(
 
 
 def _move_hole_away_from_exterior(
-    hole: Polygon,
-    exterior: LinearRing,
-    target_distance: float
-) -> Optional[Polygon]:
+    hole: Polygon, exterior: LinearRing, target_distance: float
+) -> Polygon | None:
     """Move hole away from exterior to achieve target distance.
 
     Uses actual boundary distances (not centroids) to determine movement direction.
@@ -169,10 +136,6 @@ def _move_hole_away_from_exterior(
 
     Returns:
         Moved hole polygon, or None if move not possible
-
-    Note:
-        Fixed in Phase 1.1: Now uses actual closest boundary points instead of
-        centroids, providing correct movement direction for irregularly shaped holes.
     """
     from shapely.affinity import translate
 
@@ -209,14 +172,16 @@ def _closest_boundary_points(hole: Polygon, exterior: LinearRing):
     hole_ring = LinearRing(hole.exterior.coords)
     exterior_ring = LinearRing(exterior.coords)
     try:
-        pt_on_hole, pt_on_exterior = shapely.ops.nearest_points(hole_ring, exterior_ring)
+        pt_on_hole, pt_on_exterior = shapely.ops.nearest_points(
+            hole_ring, exterior_ring
+        )
     except Exception:
         return None
     distance = pt_on_hole.distance(pt_on_exterior)
     return pt_on_hole, pt_on_exterior, distance
 
 
-def _normalized_direction(source: Point, target: Point) -> Optional[np.ndarray]:
+def _normalized_direction(source: Point, target: Point) -> np.ndarray | None:
     move_vec = np.array(target.coords[0]) - np.array(source.coords[0])
     move_dist = np.linalg.norm(move_vec)
     if move_dist < 1e-10:
@@ -225,5 +190,5 @@ def _normalized_direction(source: Point, target: Point) -> Optional[np.ndarray]:
 
 
 __all__ = [
-    'fix_hole_too_close',
+    "fix_hole_too_close",
 ]

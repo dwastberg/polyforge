@@ -10,17 +10,18 @@ Includes wrappers for the high-performance simplification library algorithms:
 - Topology-preserving Visvalingam-Whyatt (VWP)
 """
 
-from typing import Union, Optional
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry import Polygon, MultiPolygon
 
 from polyforge.process import process_geometry
 from .core.types import CollapseMode, coerce_enum
 from polyforge.ops.cleanup_ops import (
-    remove_small_holes as _remove_small_holes_impl,
-    remove_narrow_holes as _remove_narrow_holes_impl,
+    remove_small_holes,
+    remove_narrow_holes,
 )
-from polyforge.ops.clearance.protrusions import remove_narrow_wedges as _fill_narrow_wedge
+from polyforge.ops.clearance.protrusions import (
+    remove_narrow_wedges as _fill_narrow_wedge,
+)
 from polyforge.ops.simplify_ops import (
     simplify_rdp_coords,
     simplify_vw_coords,
@@ -32,10 +33,11 @@ from polyforge.ops.simplify_ops import (
 # Public API functions (work with Shapely geometries)
 # ============================================================================
 
+
 def collapse_short_edges(
     geometry: BaseGeometry,
     min_length: float,
-    snap_mode: Union[CollapseMode, str] = CollapseMode.MIDPOINT,
+    snap_mode: CollapseMode | str = CollapseMode.MIDPOINT,
 ) -> BaseGeometry:
     """Collapse edges shorter than min_length by snapping vertices together.
 
@@ -74,8 +76,7 @@ def collapse_short_edges(
 
 
 def deduplicate_vertices(
-    geometry: BaseGeometry,
-    tolerance: float = 1e-10
+    geometry: BaseGeometry, tolerance: float = 1e-10
 ) -> BaseGeometry:
     """Remove consecutive duplicate vertices within tolerance.
 
@@ -101,10 +102,7 @@ def deduplicate_vertices(
     return process_geometry(geometry, remove_duplicate_vertices, tolerance=tolerance)
 
 
-def simplify_rdp(
-    geometry: BaseGeometry,
-    epsilon: float
-) -> BaseGeometry:
+def simplify_rdp(geometry: BaseGeometry, epsilon: float) -> BaseGeometry:
     """Simplify geometry using the Ramer-Douglas-Peucker algorithm.
 
     RDP is a classic line simplification algorithm that recursively removes vertices
@@ -124,10 +122,7 @@ def simplify_rdp(
     return process_geometry(geometry, simplify_rdp_coords, epsilon=epsilon)
 
 
-def simplify_vw(
-    geometry: BaseGeometry,
-    threshold: float
-) -> BaseGeometry:
+def simplify_vw(geometry: BaseGeometry, threshold: float) -> BaseGeometry:
     """Simplify geometry using the Visvalingam-Whyatt algorithm.
 
     VW progressively removes vertices with the smallest effective area until
@@ -146,10 +141,7 @@ def simplify_vw(
     return process_geometry(geometry, simplify_vw_coords, threshold=threshold)
 
 
-def simplify_vwp(
-    geometry: BaseGeometry,
-    threshold: float
-) -> BaseGeometry:
+def simplify_vwp(geometry: BaseGeometry, threshold: float) -> BaseGeometry:
     """Simplify geometry using topology-preserving Visvalingam-Whyatt.
 
     This is a slower but more robust variant of VW that ensures the output
@@ -168,33 +160,9 @@ def simplify_vwp(
     """
     return process_geometry(geometry, simplify_vwp_coords, threshold=threshold)
 
-def remove_small_holes(
-    geometry: Union[Polygon, MultiPolygon],
-    min_area: float,
-) -> BaseGeometry:
-    """Remove holes smaller than ``min_area``"""
-    if not isinstance(geometry, (Polygon, MultiPolygon)):
-        raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
-    return _remove_small_holes_impl(geometry, min_area)
-
-
-def remove_narrow_holes(
-    geometry: Union[Polygon, MultiPolygon],
-    max_aspect_ratio: float = 50.0,
-    min_width: Optional[float] = None,
-) -> BaseGeometry:
-    """Remove narrow holes based on aspect ratio and/or minimum width."""
-    if not isinstance(geometry, (Polygon, MultiPolygon)):
-        raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
-    return _remove_narrow_holes_impl(
-        geometry,
-        max_aspect_ratio=max_aspect_ratio,
-        min_width=min_width,
-    )
-
 
 def remove_slivers(
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     min_width: float,
     max_iterations: int = 10,
     min_area_ratio: float = 0.5,
@@ -224,8 +192,10 @@ def remove_slivers(
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")
 
     if isinstance(geometry, MultiPolygon):
-        parts = [remove_slivers(p, min_width, max_iterations, min_area_ratio)
-                 for p in geometry.geoms]
+        parts = [
+            remove_slivers(p, min_width, max_iterations, min_area_ratio)
+            for p in geometry.geoms
+        ]
         return MultiPolygon([p for p in parts if not p.is_empty])
 
     try:
@@ -245,7 +215,9 @@ def remove_slivers(
         except Exception:
             break
 
-        candidate = _fill_narrow_wedge(current, angle_threshold=100, min_depth=min_width)
+        candidate = _fill_narrow_wedge(
+            current, angle_threshold=100, min_depth=min_width
+        )
         if candidate is None:
             break
         current = candidate
@@ -256,8 +228,12 @@ def remove_slivers(
             buffer_dist = min_width * 0.5
             dilated = current.buffer(buffer_dist, join_style=2)
             closed = dilated.buffer(-buffer_dist, join_style=2)
-            if (isinstance(closed, Polygon) and closed.is_valid and not closed.is_empty
-                    and closed.minimum_clearance > current.minimum_clearance):
+            if (
+                isinstance(closed, Polygon)
+                and closed.is_valid
+                and not closed.is_empty
+                and closed.minimum_clearance > current.minimum_clearance
+            ):
                 current = closed
     except Exception:
         pass
@@ -270,12 +246,12 @@ def remove_slivers(
 
 
 __all__ = [
-    'collapse_short_edges',
-    'deduplicate_vertices',
-    'simplify_rdp',
-    'simplify_vw',
-    'simplify_vwp',
-    'remove_small_holes',
-    'remove_narrow_holes',
-    'remove_slivers',
+    "collapse_short_edges",
+    "deduplicate_vertices",
+    "simplify_rdp",
+    "simplify_vw",
+    "simplify_vwp",
+    "remove_small_holes",
+    "remove_narrow_holes",
+    "remove_slivers",
 ]

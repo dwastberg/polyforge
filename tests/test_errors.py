@@ -55,12 +55,11 @@ class TestValidationError:
     def test_validation_error_with_issues(self):
         """ValidationError can carry issues list."""
         error = ValidationError(
-            "Invalid geometry",
-            issues=['self-intersection', 'duplicate vertices']
+            "Invalid geometry", issues=["self-intersection", "duplicate vertices"]
         )
 
-        assert error.issues == ['self-intersection', 'duplicate vertices']
-        assert 'self-intersection' in str(error)
+        assert error.issues == ["self-intersection", "duplicate vertices"]
+        assert "self-intersection" in str(error)
 
     def test_validation_error_with_geometry(self):
         """ValidationError can carry geometry object."""
@@ -71,11 +70,11 @@ class TestValidationError:
 
     def test_validation_error_repr(self):
         """ValidationError has useful repr."""
-        error = ValidationError("test", issues=['issue1'])
+        error = ValidationError("test", issues=["issue1"])
         repr_str = repr(error)
 
-        assert 'ValidationError' in repr_str
-        assert 'issue1' in repr_str
+        assert "ValidationError" in repr_str
+        assert "issue1" in repr_str
 
 
 class TestRepairError:
@@ -91,11 +90,10 @@ class TestRepairError:
     def test_repair_error_with_strategies(self):
         """RepairError can carry strategies_tried list."""
         error = RepairError(
-            "Repair failed",
-            strategies_tried=['buffer', 'simplify', 'reconstruct']
+            "Repair failed", strategies_tried=["buffer", "simplify", "reconstruct"]
         )
 
-        assert error.strategies_tried == ['buffer', 'simplify', 'reconstruct']
+        assert error.strategies_tried == ["buffer", "simplify", "reconstruct"]
 
     def test_repair_error_with_last_error(self):
         """RepairError can carry the last error encountered."""
@@ -106,11 +104,11 @@ class TestRepairError:
 
     def test_repair_error_repr(self):
         """RepairError has useful repr."""
-        error = RepairError("test", strategies_tried=['buffer', 'simplify'])
+        error = RepairError("test", strategies_tried=["buffer", "simplify"])
         repr_str = repr(error)
 
-        assert 'RepairError' in repr_str
-        assert 'buffer' in repr_str
+        assert "RepairError" in repr_str
+        assert "buffer" in repr_str
 
 
 class TestOverlapResolutionError:
@@ -124,9 +122,7 @@ class TestOverlapResolutionError:
     def test_overlap_error_with_metadata(self):
         """OverlapResolutionError can carry iteration metadata."""
         error = OverlapResolutionError(
-            "Max iterations reached",
-            iterations=100,
-            remaining_overlaps=5
+            "Max iterations reached", iterations=100, remaining_overlaps=5
         )
 
         assert error.iterations == 100
@@ -137,9 +133,9 @@ class TestOverlapResolutionError:
         error = OverlapResolutionError("test", iterations=10, remaining_overlaps=3)
         repr_str = repr(error)
 
-        assert 'OverlapResolutionError' in repr_str
-        assert '10' in repr_str
-        assert '3' in repr_str
+        assert "OverlapResolutionError" in repr_str
+        assert "10" in repr_str
+        assert "3" in repr_str
 
 
 class TestMergeError:
@@ -153,21 +149,19 @@ class TestMergeError:
     def test_merge_error_with_strategy(self):
         """MergeError can carry strategy information."""
         error = MergeError(
-            "Merge failed",
-            strategy='selective_buffer',
-            group_indices=[0, 1, 2]
+            "Merge failed", strategy="selective_buffer", group_indices=[0, 1, 2]
         )
 
-        assert error.strategy == 'selective_buffer'
+        assert error.strategy == "selective_buffer"
         assert error.group_indices == [0, 1, 2]
 
     def test_merge_error_repr(self):
         """MergeError has useful repr."""
-        error = MergeError("test", strategy='convex_bridges')
+        error = MergeError("test", strategy="convex_bridges")
         repr_str = repr(error)
 
-        assert 'MergeError' in repr_str
-        assert 'convex_bridges' in repr_str
+        assert "MergeError" in repr_str
+        assert "convex_bridges" in repr_str
 
 
 class TestClearanceError:
@@ -184,21 +178,21 @@ class TestClearanceError:
             "Clearance not achieved",
             target_clearance=1.0,
             achieved_clearance=0.5,
-            issue_type='narrow_passage'
+            issue_type="narrow_passage",
         )
 
         assert error.target_clearance == 1.0
         assert error.achieved_clearance == 0.5
-        assert error.issue_type == 'narrow_passage'
+        assert error.issue_type == "narrow_passage"
 
     def test_clearance_error_repr(self):
         """ClearanceError has useful repr."""
         error = ClearanceError("test", target_clearance=1.0, achieved_clearance=0.5)
         repr_str = repr(error)
 
-        assert 'ClearanceError' in repr_str
-        assert '1.0' in repr_str
-        assert '0.5' in repr_str
+        assert "ClearanceError" in repr_str
+        assert "1.0" in repr_str
+        assert "0.5" in repr_str
 
 
 class TestConfigurationError:
@@ -216,22 +210,21 @@ class TestErrorMessages:
     def test_validation_error_includes_issues_in_message(self):
         """ValidationError should include issues in string representation."""
         error = ValidationError(
-            "Invalid geometry",
-            issues=['self-intersection', 'duplicate vertices']
+            "Invalid geometry", issues=["self-intersection", "duplicate vertices"]
         )
 
         error_str = str(error)
-        assert 'Invalid geometry' in error_str
-        assert 'self-intersection' in error_str
-        assert 'duplicate vertices' in error_str
+        assert "Invalid geometry" in error_str
+        assert "self-intersection" in error_str
+        assert "duplicate vertices" in error_str
 
     def test_errors_have_meaningful_messages(self):
         """All errors should have meaningful string representations."""
         errors = [
-            ValidationError("validation failed", issues=['issue1']),
-            RepairError("repair failed", strategies_tried=['buffer']),
+            ValidationError("validation failed", issues=["issue1"]),
+            RepairError("repair failed", strategies_tried=["buffer"]),
             OverlapResolutionError("overlap failed", iterations=10),
-            MergeError("merge failed", strategy='test'),
+            MergeError("merge failed", strategy="test"),
             ClearanceError("clearance failed", target_clearance=1.0),
             ConfigurationError("config failed"),
         ]
@@ -251,6 +244,7 @@ class TestErrorImports:
             ValidationError,
             RepairError,
         )
+
         assert PolyforgeError is not None
         assert ValidationError is not None
         assert RepairError is not None
@@ -262,6 +256,7 @@ class TestErrorImports:
             ValidationError,
             RepairError,
         )
+
         assert PolyforgeError is not None
         assert ValidationError is not None
         assert RepairError is not None
@@ -273,6 +268,7 @@ class TestErrorImports:
             ValidationError,
             RepairError,
         )
+
         assert PolyforgeError is not None
         assert ValidationError is not None
         assert RepairError is not None

@@ -29,14 +29,13 @@ from .clearance import (
     fix_narrow_protrusion,
     remove_narrow_protrusions,
     fix_sharp_intrusion,
-
+    fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
 )
 
 # Overlap handling functions
 from .overlap import (
-    split_overlap,
     remove_overlaps,
     count_overlaps,
     find_overlapping_groups,
@@ -44,7 +43,7 @@ from .overlap import (
 )
 
 # Merge functions
-from .merge import merge_close_polygons, find_close_polygon_groups
+from .merge import merge_close_polygons
 
 # Topology functions
 from .topology import align_boundaries
@@ -92,74 +91,62 @@ from .core import (
 )
 
 __all__ = [
-
     # Simplification
-    'simplify_rdp',
-    'simplify_vw',
-    'simplify_vwp',
-    'collapse_short_edges',
-    'deduplicate_vertices',
-    'remove_small_holes',
-    'remove_narrow_holes',
-    'remove_slivers',
-
+    "simplify_rdp",
+    "simplify_vw",
+    "simplify_vwp",
+    "collapse_short_edges",
+    "deduplicate_vertices",
+    "remove_small_holes",
+    "remove_narrow_holes",
+    "remove_slivers",
     # Clearance fixing
-    'fix_clearance',
-    'diagnose_clearance',
-    'ClearanceIssue',
-    'ClearanceDiagnosis',
-    'ClearanceFixSummary',
-    'fix_hole_too_close',
-    'fix_narrow_protrusion',
-    'remove_narrow_protrusions',
-    'fix_sharp_intrusion',
-    'fix_narrow_passage',
-    'fix_near_self_intersection',
-    'fix_parallel_close_edges',
-
+    "fix_clearance",
+    "diagnose_clearance",
+    "ClearanceIssue",
+    "ClearanceDiagnosis",
+    "ClearanceFixSummary",
+    "fix_hole_too_close",
+    "fix_narrow_protrusion",
+    "remove_narrow_protrusions",
+    "fix_sharp_intrusion",
+    "fix_narrow_passage",
+    "fix_near_self_intersection",
+    "fix_parallel_close_edges",
     # Overlap handling
-    'split_overlap',
-    'remove_overlaps',
-    'count_overlaps',
-    'find_overlapping_groups',
-    'resolve_overlap_pair',
-
+    "remove_overlaps",
+    "count_overlaps",
+    "find_overlapping_groups",
+    "resolve_overlap_pair",
     # Merge
-    'merge_close_polygons',
-    'find_close_polygon_groups',
-
+    "merge_close_polygons",
     # Topology
-    'align_boundaries',
-
+    "align_boundaries",
     # Geometry repair
-    'repair_geometry',
-    'analyze_geometry',
-    'batch_repair_geometries',
-
+    "repair_geometry",
+    "analyze_geometry",
+    "batch_repair_geometries",
     # Robust constraint-aware repair
-    'robust_fix_geometry',
-    'robust_fix_batch',
-
+    "robust_fix_geometry",
+    "robust_fix_batch",
     # Core types (enums)
-    'OverlapStrategy',
-    'MergeStrategy',
-    'RepairStrategy',
-    'CollapseMode',
-
+    "OverlapStrategy",
+    "MergeStrategy",
+    "RepairStrategy",
+    "CollapseMode",
     # Core exceptions
-    'PolyforgeError',
-    'ValidationError',
-    'RepairError',
-    'OverlapResolutionError',
-    'MergeError',
-    'ClearanceError',
-    'ConfigurationError',
-    'FixWarning',
-
+    "PolyforgeError",
+    "ValidationError",
+    "RepairError",
+    "OverlapResolutionError",
+    "MergeError",
+    "ClearanceError",
+    "ConfigurationError",
+    "FixWarning",
     # Constraint framework
-    'GeometryConstraints',
-    'ConstraintStatus',
-    'ConstraintViolation',
-    'ConstraintType',
-    'MergeConstraints',
+    "GeometryConstraints",
+    "ConstraintStatus",
+    "ConstraintViolation",
+    "ConstraintType",
+    "MergeConstraints",
 ]

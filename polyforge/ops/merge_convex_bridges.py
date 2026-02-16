@@ -1,6 +1,6 @@
 """Convex bridges merge strategy - connect with convex hull of close regions."""
 
-from typing import List, Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
 
 from shapely.geometry import MultiPoint, MultiPolygon, Point, Polygon
 from shapely.ops import nearest_points, unary_union
@@ -12,10 +12,8 @@ from polyforge.ops.merge_common import union_with_bridges
 
 
 def merge_convex_bridges(
-    group_polygons: List[Polygon],
-    margin: float,
-    preserve_holes: bool
-) -> Union[Polygon, MultiPolygon]:
+    group_polygons: list[Polygon], margin: float, preserve_holes: bool
+) -> Polygon | MultiPolygon:
     """Merge using convex hull of close boundary regions.
 
     Creates smooth connections for irregular gaps.
@@ -44,11 +42,11 @@ def merge_convex_bridges(
 
 
 def _build_convex_bridges(
-    polygons: List[Polygon],
+    polygons: list[Polygon],
     margin: float,
-) -> List[Polygon]:
+) -> list[Polygon]:
     """Return a list of convex bridge polygons for all close pairs."""
-    bridges: List[Polygon] = []
+    bridges: list[Polygon] = []
 
     for i, j in iterate_unique_pairs(polygons):
         poly1 = polygons[i]
@@ -64,15 +62,19 @@ def _bridge_for_polygon_pair(
     poly1: Polygon,
     poly2: Polygon,
     margin: float,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Build a bridge polygon between two polygons if they are close."""
     distance = poly1.distance(poly2)
     if distance > margin:
         return None
 
     pt1, pt2 = nearest_points(poly1, poly2)
-    boundary1 = get_boundary_points_near(poly1, pt1, _bridge_search_radius(margin, distance))
-    boundary2 = get_boundary_points_near(poly2, pt2, _bridge_search_radius(margin, distance))
+    boundary1 = get_boundary_points_near(
+        poly1, pt1, _bridge_search_radius(margin, distance)
+    )
+    boundary2 = get_boundary_points_near(
+        poly2, pt2, _bridge_search_radius(margin, distance)
+    )
 
     if len(boundary1) < 2 or len(boundary2) < 2:
         return _fallback_point_bridge(pt1, pt2, margin)
@@ -86,7 +88,7 @@ def _bridge_search_radius(margin: float, distance: float) -> float:
     return min(margin * 0.75, distance * 2.0 + 0.5)
 
 
-def _fallback_point_bridge(pt1: Point, pt2: Point, margin: float) -> Optional[Polygon]:
+def _fallback_point_bridge(pt1: Point, pt2: Point, margin: float) -> Polygon | None:
     """Create a simple buffered line between two points."""
     try:
         bridge_line = pt1.buffer(0).union(pt2.buffer(0)).envelope
@@ -98,10 +100,10 @@ def _fallback_point_bridge(pt1: Point, pt2: Point, margin: float) -> Optional[Po
 
 
 def _convex_hull_bridge(
-    points: Sequence[Tuple[float, float]],
+    points: Sequence[tuple[float, float]],
     margin: float,
     distance: float,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Create a convex hull bridge buffered to ensure overlap."""
     if len(points) < 3:
         return None
@@ -121,4 +123,4 @@ def _convex_hull_bridge(
     return None
 
 
-__all__ = ['merge_convex_bridges']
+__all__ = ["merge_convex_bridges"]

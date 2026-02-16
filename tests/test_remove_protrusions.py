@@ -11,15 +11,17 @@ class TestRemoveNarrowProtrusions:
     """Tests for basic protrusion removal functionality."""
 
     def test_collect_candidate_helper(self):
-        coords = np.array([
-            (0, 0),
-            (5, 0),
-            (5, 2),
-            (5.2, 2.2),
-            (5, 4),
-            (0, 4),
-            (0, 0),
-        ])
+        coords = np.array(
+            [
+                (0, 0),
+                (5, 0),
+                (5, 2),
+                (5.2, 2.2),
+                (5, 4),
+                (0, 4),
+                (0, 0),
+            ]
+        )
 
         candidate = _collect_protrusion_candidate(coords, threshold=3.0)
         assert candidate is not None
@@ -31,9 +33,14 @@ class TestRemoveNarrowProtrusions:
         """Test removing a simple horizontal spike."""
         # Rectangle with narrow horizontal spike - modified to avoid sharp corners
         coords = [
-            (0, 0), (10, 0), (10, 3),
-            (10, 4.9), (12, 5), (10, 5.1),  # Narrow spike
-            (10, 7), (0, 7)
+            (0, 0),
+            (10, 0),
+            (10, 3),
+            (10, 4.9),
+            (12, 5),
+            (10, 5.1),  # Narrow spike
+            (10, 7),
+            (0, 7),
         ]
         poly = Polygon(coords)
 
@@ -50,9 +57,13 @@ class TestRemoveNarrowProtrusions:
     def test_vertical_spike(self):
         """Test removing a vertical spike."""
         coords = [
-            (0, 0), (10, 0), (10, 10),
-            (5.1, 10), (5, 12), (4.9, 10),  # Vertical spike on top edge
-            (0, 10)
+            (0, 0),
+            (10, 0),
+            (10, 10),
+            (5.1, 10),
+            (5, 12),
+            (4.9, 10),  # Vertical spike on top edge
+            (0, 10),
         ]
         poly = Polygon(coords)
 
@@ -78,9 +89,14 @@ class TestRemoveNarrowProtrusions:
     def test_aspect_ratio_threshold(self):
         """Test that aspect ratio threshold controls what gets removed."""
         coords = [
-            (0, 0), (10, 0), (10, 4),
-            (10, 4.9), (12, 5), (10, 5.1),
-            (10, 6), (0, 6)
+            (0, 0),
+            (10, 0),
+            (10, 4),
+            (10, 4.9),
+            (12, 5),
+            (10, 5.1),
+            (10, 6),
+            (0, 6),
         ]
         poly = Polygon(coords)
 
@@ -95,13 +111,20 @@ class TestRemoveNarrowProtrusions:
     def test_multiple_spikes(self):
         """Test removing multiple narrow spikes."""
         coords = [
-            (0, 0), (5, 0), (5, 2),
+            (0, 0),
+            (5, 0),
+            (5, 2),
             # Spike 1 pointing right
-            (5, 2.4), (6, 2.5), (5, 2.6),
-            (5, 8), (5, 10),
+            (5, 2.4),
+            (6, 2.5),
+            (5, 2.6),
+            (5, 8),
+            (5, 10),
             # Spike 2 pointing up
-            (2.6, 10), (2.5, 11), (2.4, 10),
-            (0, 10)
+            (2.6, 10),
+            (2.5, 11),
+            (2.4, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
 
@@ -119,9 +142,14 @@ class TestProtrusionPreservation:
         """Test that interior holes are preserved."""
         # Polygon with spike and hole
         exterior = [
-            (0, 0), (10, 0), (10, 4),
-            (10, 4.9), (12, 5), (10, 5.1),
-            (10, 10), (0, 10)
+            (0, 0),
+            (10, 0),
+            (10, 4),
+            (10, 4.9),
+            (12, 5),
+            (10, 5.1),
+            (10, 10),
+            (0, 10),
         ]
         hole = [(3, 3), (7, 3), (7, 7), (3, 7)]
         poly = Polygon(exterior, holes=[hole])
@@ -140,7 +168,7 @@ class TestProtrusionPreservation:
             # Pentagon
             [(0, 0), (10, 0), (12, 5), (5, 10), (0, 5)],
             # Complex shape
-            [(0, 0), (10, 0), (10, 5), (15, 5), (15, 10), (0, 10)]
+            [(0, 0), (10, 0), (10, 5), (15, 5), (15, 10), (0, 10)],
         ]
 
         for coords in test_cases:
@@ -167,9 +195,14 @@ class TestEdgeCases:
     def test_very_narrow_spike(self):
         """Test with extremely narrow spike."""
         coords = [
-            (0, 0), (10, 0), (10, 5),
-            (10, 4.99), (15, 5), (10, 5.01),  # Very narrow
-            (10, 10), (0, 10)
+            (0, 0),
+            (10, 0),
+            (10, 5),
+            (10, 4.99),
+            (15, 5),
+            (10, 5.01),  # Very narrow
+            (10, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
 
@@ -182,9 +215,14 @@ class TestEdgeCases:
     def test_wide_protrusion(self):
         """Test that wide protrusions are NOT removed."""
         coords = [
-            (0, 0), (10, 0), (10, 3),
-            (10, 2), (12, 5), (10, 8),  # Wide protrusion (low aspect ratio)
-            (10, 10), (0, 10)
+            (0, 0),
+            (10, 0),
+            (10, 3),
+            (10, 2),
+            (12, 5),
+            (10, 8),  # Wide protrusion (low aspect ratio)
+            (10, 10),
+            (0, 10),
         ]
         poly = Polygon(coords)
 
@@ -195,11 +233,7 @@ class TestEdgeCases:
 
     def test_iteration_limit(self):
         """Test that max_iterations prevents infinite loops."""
-        coords = [
-            (0, 0), (10, 0), (10, 10),
-            (5.1, 10), (5, 11), (4.9, 10),
-            (0, 10)
-        ]
+        coords = [(0, 0), (10, 0), (10, 10), (5.1, 10), (5, 11), (4.9, 10), (0, 10)]
         poly = Polygon(coords)
 
         # Should work with limited iterations
@@ -253,9 +287,13 @@ class TestAspectRatioCalculation:
         """Test that very thin triangles have high aspect ratio."""
         # Very thin triangle - narrow spike on right edge
         coords = [
-            (0, 0), (10, 0), (10, 2.45),
+            (0, 0),
+            (10, 0),
+            (10, 2.45),
             (10.05, 2.5),  # Very narrow spike tip, only 0.05 units out
-            (10, 2.55), (10, 5), (0, 5)
+            (10, 2.55),
+            (10, 5),
+            (0, 5),
         ]
         poly = Polygon(coords)
 

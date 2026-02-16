@@ -1,6 +1,5 @@
 """Common preprocessing and postprocessing for merge strategies."""
 
-from typing import List, Optional, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import unary_union
 
@@ -9,10 +8,8 @@ from polyforge.core.geometry_utils import remove_holes
 
 
 def preprocess_merge_group(
-    group_polygons: List[Polygon],
-    margin: float,
-    preserve_holes: bool
-) -> Optional[Union[Polygon, MultiPolygon]]:
+    group_polygons: list[Polygon], margin: float, preserve_holes: bool
+) -> Polygon | MultiPolygon | None:
     """Common preprocessing for all merge strategies.
 
     Handles:
@@ -48,11 +45,11 @@ def preprocess_merge_group(
 
 
 def postprocess_merge_result(
-    result: Union[Polygon, MultiPolygon],
+    result: Polygon | MultiPolygon,
     preserve_holes: bool,
     simplify: bool = False,
-    simplify_threshold: Optional[float] = None
-) -> Union[Polygon, MultiPolygon]:
+    simplify_threshold: float | None = None,
+) -> Polygon | MultiPolygon:
     """Common post-processing for merge results.
 
     Args:
@@ -73,10 +70,8 @@ def postprocess_merge_result(
 
 
 def union_with_bridges(
-    polygons: List[Polygon],
-    bridges: List[Polygon],
-    preserve_holes: bool
-) -> Union[Polygon, MultiPolygon]:
+    polygons: list[Polygon], bridges: list[Polygon], preserve_holes: bool
+) -> Polygon | MultiPolygon:
     """Union polygons with bridge geometries.
 
     Common pattern used by boundary_extension and convex_bridges strategies.
@@ -95,7 +90,7 @@ def union_with_bridges(
 
 
 __all__ = [
-    'preprocess_merge_group',
-    'postprocess_merge_result',
-    'union_with_bridges',
+    "preprocess_merge_group",
+    "postprocess_merge_result",
+    "union_with_bridges",
 ]

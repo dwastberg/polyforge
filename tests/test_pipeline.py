@@ -41,7 +41,9 @@ def test_pipeline_rejects_area_regressions():
 
     def shrink_step(geometry, context):
         candidate = scale(geometry, xfact=0.8, yfact=0.8)
-        return _evaluate_candidate("shrink", geometry, candidate, context, "shrink attempt")
+        return _evaluate_candidate(
+            "shrink", geometry, candidate, context, "shrink attempt"
+        )
 
     result, status, history = run_steps(square, [shrink_step], ctx, max_passes=1)
     assert result.equals(square)
@@ -193,7 +195,9 @@ class TestMultiStepPipeline:
             if step_calls["count"] <= 3:
                 # Keep improving until we hit target
                 candidate = geometry.buffer(0.5, join_style=2)
-                return _evaluate_candidate("improve", geometry, candidate, context, "improved")
+                return _evaluate_candidate(
+                    "improve", geometry, candidate, context, "improved"
+                )
             return StepResult("improve", geometry, False, "no more improvement")
 
         result, status, history = run_steps(thin, [improving_step], ctx, max_passes=10)

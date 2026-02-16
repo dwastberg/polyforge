@@ -8,7 +8,6 @@ from .types import (
     OverlapStrategy,
     MergeStrategy,
     RepairStrategy,
-    SimplifyAlgorithm,
     CollapseMode,
     coerce_enum,
 )
@@ -34,27 +33,24 @@ from .constraints import (
 
 __all__ = [
     # Strategy enums (public)
-    'OverlapStrategy',
-    'MergeStrategy',
-    'RepairStrategy',
-    'SimplifyAlgorithm',
-    'CollapseMode',
-    'coerce_enum',
-
+    "OverlapStrategy",
+    "MergeStrategy",
+    "RepairStrategy",
+    "CollapseMode",
+    "coerce_enum",
     # Exceptions
-    'PolyforgeError',
-    'ValidationError',
-    'RepairError',
-    'OverlapResolutionError',
-    'MergeError',
-    'ClearanceError',
-    'ConfigurationError',
-    'FixWarning',
-
+    "PolyforgeError",
+    "ValidationError",
+    "RepairError",
+    "OverlapResolutionError",
+    "MergeError",
+    "ClearanceError",
+    "ConfigurationError",
+    "FixWarning",
     # Constraint framework
-    'ConstraintType',
-    'ConstraintViolation',
-    'ConstraintStatus',
-    'GeometryConstraints',
-    'MergeConstraints',
+    "ConstraintType",
+    "ConstraintViolation",
+    "ConstraintStatus",
+    "GeometryConstraints",
+    "MergeConstraints",
 ]

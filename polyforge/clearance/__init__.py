@@ -18,7 +18,7 @@ from polyforge.ops.clearance import (
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
-    remove_narrow_wedges
+    remove_narrow_wedges,
 )
 from .fix_clearance import (
     fix_clearance,
@@ -30,17 +30,17 @@ from .fix_clearance import (
 
 __all__ = [
     # Main public API
-    'fix_clearance',
-    'diagnose_clearance',
-    'ClearanceIssue',
-    'ClearanceDiagnosis',
-    'ClearanceFixSummary',
-    'fix_hole_too_close',
-    'fix_narrow_protrusion',
-    'remove_narrow_protrusions',
-    'remove_narrow_wedges',
-    'fix_sharp_intrusion',
-    'fix_narrow_passage',
-    'fix_near_self_intersection',
-    'fix_parallel_close_edges',
+    "fix_clearance",
+    "diagnose_clearance",
+    "ClearanceIssue",
+    "ClearanceDiagnosis",
+    "ClearanceFixSummary",
+    "fix_hole_too_close",
+    "fix_narrow_protrusion",
+    "remove_narrow_protrusions",
+    "remove_narrow_wedges",
+    "fix_sharp_intrusion",
+    "fix_narrow_passage",
+    "fix_near_self_intersection",
+    "fix_parallel_close_edges",
 ]

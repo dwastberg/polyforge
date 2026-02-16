@@ -6,11 +6,7 @@ from ...core.errors import RepairError
 from ..utils import clean_coordinates
 
 
-def fix_strict(
-    geometry: BaseGeometry,
-    tolerance: float,
-    verbose: bool
-) -> BaseGeometry:
+def fix_strict(geometry: BaseGeometry, tolerance: float, verbose: bool) -> BaseGeometry:
     """Apply only conservative fixes that preserve geometric intent.
 
     This strategy only applies minimal coordinate cleaning:
@@ -58,4 +54,4 @@ def fix_strict(
     )
 
 
-__all__ = ['fix_strict']
+__all__ = ["fix_strict"]

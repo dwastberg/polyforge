@@ -5,7 +5,6 @@ sharp indentations that create low minimum clearance.
 """
 
 import numpy as np
-from typing import Optional, Tuple, Union
 from shapely.geometry import Polygon, Point
 from shapely.geometry.polygon import orient
 from shapely.ops import nearest_points
@@ -23,7 +22,7 @@ from .utils import (
     _find_best_join,
     _compute_depth,
     _trace_wedge,
-    _splice_polygon
+    _splice_polygon,
 )
 from polyforge.core.geometry_utils import safe_buffer_fix
 from polyforge.core.types import IntrusionStrategy, coerce_enum
@@ -46,16 +45,7 @@ def fix_narrow_protrusion(
         max_iterations: Maximum iterations to attempt (default 10)
 
     Returns:
-        Polygon with narrow protrusions fixed by moving vertices
-
-    Examples:
-        >>> # Polygon with narrow spike
-        >>> coords = [(0, 0), (10, 0), (10, 5), (11, 10), (10, 5.1),
-        ...           (10, 10), (0, 10)]
-        >>> poly = Polygon(coords)
-        >>> fixed = fix_narrow_protrusion(poly, min_clearance=1.0)
-        >>> fixed.is_valid
-        True
+        Polygon with narrow protrusions fixed
     """
     candidate_builder = _make_protrusion_candidate_builder(min_clearance)
     result, _ = _run_clearance_loop(
@@ -71,7 +61,7 @@ def fix_narrow_protrusion(
 def fix_sharp_intrusion(
     geometry: Polygon,
     min_clearance: float,
-    strategy: Union[IntrusionStrategy, str] = IntrusionStrategy.FILL,
+    strategy: IntrusionStrategy | str = IntrusionStrategy.FILL,
     max_iterations: int = 10,
 ) -> Polygon:
     """Fix sharp narrow intrusions by filling or smoothing.
@@ -90,18 +80,11 @@ def fix_sharp_intrusion(
 
     Returns:
         Polygon with sharp intrusions fixed
-
-    Examples:
-        >>> # Polygon with narrow intrusion
-        >>> coords = [(0, 0), (10, 0), (10, 10), (5, 5), (5, 4.9),
-        ...           (0, 10)]
-        >>> poly = Polygon(coords)
-        >>> fixed = fix_sharp_intrusion(poly, min_clearance=1.0)
-        >>> fixed.is_valid
-        True
     """
     strategy_enum = coerce_enum(strategy, IntrusionStrategy)
-    candidate_builder = _make_intrusion_candidate_builder(strategy_enum, min_clearance, geometry)
+    candidate_builder = _make_intrusion_candidate_builder(
+        strategy_enum, min_clearance, geometry
+    )
     _, best = _run_clearance_loop(
         geometry,
         min_clearance,
@@ -112,7 +95,9 @@ def fix_sharp_intrusion(
     return best
 
 
-def _detect_protrusion_bottleneck(geometry: Polygon) -> Optional[Tuple[np.ndarray, np.ndarray, int, int]]:
+def _detect_protrusion_bottleneck(
+    geometry: Polygon,
+) -> tuple[np.ndarray, np.ndarray, int, int] | None:
     """Return clearance line endpoints, direction, and nearest vertex indices."""
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
@@ -142,10 +127,10 @@ def _detect_protrusion_bottleneck(geometry: Polygon) -> Optional[Tuple[np.ndarra
 
 def _move_vertices_for_clearance(
     geometry: Polygon,
-    bottleneck: Tuple[np.ndarray, np.ndarray, int, int],
+    bottleneck: tuple[np.ndarray, np.ndarray, int, int],
     target_clearance: float,
     current_clearance: float,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Create a new polygon by moving the two bottleneck vertices apart."""
     pt1, direction, idx1, idx2 = bottleneck
     required_increase = max(0.0, target_clearance - current_clearance)
@@ -156,7 +141,9 @@ def _move_vertices_for_clearance(
     coords = np.array(geometry.exterior.coords)
     new_coords = coords.copy()
 
-    new_coords[idx1] = _translate_vertex(coords[idx1], -direction[:2], movement_distance)
+    new_coords[idx1] = _translate_vertex(
+        coords[idx1], -direction[:2], movement_distance
+    )
     new_coords[idx2] = _translate_vertex(coords[idx2], direction[:2], movement_distance)
 
     if idx1 == 0 or idx2 == 0:
@@ -209,7 +196,7 @@ def _run_clearance_loop(
     max_iterations: int,
     candidate_builder,
     min_area_ratio: float,
-) -> Tuple[Polygon, Polygon]:
+) -> tuple[Polygon, Polygon]:
     """Generic improvement loop returning (current, best) geometries."""
     current = geometry
     best = geometry
@@ -241,7 +228,10 @@ def _run_clearance_loop(
 
 def _make_protrusion_candidate_builder(min_clearance: float):
     """Return a closure that builds protrusion candidates."""
-    def _builder(current: Polygon, iteration: int, current_clearance: float) -> Optional[Polygon]:
+
+    def _builder(
+        current: Polygon, iteration: int, current_clearance: float
+    ) -> Polygon | None:
         bottleneck = _detect_protrusion_bottleneck(current)
         if bottleneck is None:
             return None
@@ -270,8 +260,8 @@ def _make_intrusion_candidate_builder(
 
     original_area = original.area
 
-    def _builder(current: Polygon, iteration: int, _: float) -> Optional[Polygon]:
-        epsilon = base_epsilon * (2.0 ** iteration)
+    def _builder(current: Polygon, iteration: int, _: float) -> Polygon | None:
+        epsilon = base_epsilon * (2.0**iteration)
         epsilon = min(epsilon, current.length / 10)
         try:
             simplified = simplify_rdp(current, epsilon=epsilon)
@@ -290,13 +280,13 @@ def _make_intrusion_candidate_builder(
 
     return _builder
 
-    
+
 def remove_narrow_wedges(
     polygon: Polygon,
     angle_threshold=20,
     depth_width_ratio=3.0,
     min_depth=0.0,
-    remove_multiple=True
+    remove_multiple=True,
 ) -> Polygon:
     """
 
@@ -329,10 +319,9 @@ def remove_narrow_wedges(
     # find candidate wedge tips
     # --------------------------------------------------
     for i in range(n):
-
-        prev = coords[(i-1) % n]
+        prev = coords[(i - 1) % n]
         curr = coords[i]
-        nxt = coords[(i+1) % n]
+        nxt = coords[(i + 1) % n]
 
         ang = _angle(prev, curr, nxt)
 
@@ -351,14 +340,12 @@ def remove_narrow_wedges(
 
         li, ri, width = join
 
-        
         depth = _compute_depth(coords, i, left_chain, right_chain)
 
         if depth < min_depth:
             continue
 
-            
-        if width > 0:
+        if width <= 0:
             continue
 
         ratio = depth / width
@@ -366,14 +353,16 @@ def remove_narrow_wedges(
         if ratio < depth_width_ratio:
             continue
 
-        wedges.append({
-            "tip": i,
-            "left": li,
-            "right": ri,
-            "depth": depth,
-            "width": width,
-            "ratio": ratio
-        })
+        wedges.append(
+            {
+                "tip": i,
+                "left": li,
+                "right": ri,
+                "depth": depth,
+                "width": width,
+                "ratio": ratio,
+            }
+        )
 
     if not wedges:
         return polygon
@@ -388,7 +377,6 @@ def remove_narrow_wedges(
     # remove wedges
     # --------------------------------------------------
     for w in wedges:
-
         coords = _splice_polygon(coords, w["left"], w["right"])
 
         # reset polygon after each splice
@@ -405,9 +393,8 @@ def remove_narrow_wedges(
     return polygon
 
 
-
 __all__ = [
-    'fix_narrow_protrusion',
-    'fix_sharp_intrusion',
-    'fill_narrow_wedge',
+    "fix_narrow_protrusion",
+    "fix_sharp_intrusion",
+    "fill_narrow_wedge",
 ]

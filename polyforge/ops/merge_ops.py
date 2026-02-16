@@ -1,9 +1,5 @@
 """Merge-related geometry helpers shared across strategies."""
 
-from __future__ import annotations
-
-from typing import List, Optional, Tuple
-
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points
@@ -17,17 +13,17 @@ from ..core.spatial_utils import (
 
 
 def find_close_boundary_pairs(
-    polygons: List[Polygon],
+    polygons: list[Polygon],
     margin: float,
-    segment_length: Optional[float] = None,
-) -> List[Tuple[LineString, LineString, float]]:
+    segment_length: float | None = None,
+) -> list[tuple[LineString, LineString, float]]:
     """Return pairs of boundary segments that sit within ``margin`` of each other."""
     if segment_length is None:
         segment_length = margin * 2.0 if margin > 0 else 1.0
 
     index = build_segment_index(polygons, segment_length)
-    close_pairs: List[Tuple[LineString, LineString, float]] = []
-    seen: set[Tuple[int, int]] = set()
+    close_pairs: list[tuple[LineString, LineString, float]] = []
+    seen: set[tuple[int, int]] = set()
 
     for seg_idx, segment in enumerate(index.segments):
         owner_i = index.owners[seg_idx][0]
@@ -52,7 +48,7 @@ def get_boundary_points_near(
     polygon: Polygon,
     point: Point,
     radius: float,
-) -> List[Tuple[float, float]]:
+) -> list[tuple[float, float]]:
     """Extract boundary points within ``radius`` of ``point``."""
     coords = list(polygon.exterior.coords)
     close_points = []
@@ -76,10 +72,10 @@ def get_boundary_points_near(
 
 
 def insert_connection_vertices(
-    polygons: List[Polygon],
+    polygons: list[Polygon],
     margin: float,
     tolerance: float = 0.01,
-) -> List[Polygon]:
+) -> list[Polygon]:
     """Insert vertices at optimal connection points between close polygons."""
     if len(polygons) < 2:
         return polygons
@@ -153,7 +149,9 @@ def _interpolate_vertex(start, end, point) -> tuple:
     return (point.x, point.y)
 
 
-def _rebuild_from_coords(polygons: List[Polygon], modified_coords: dict) -> List[Polygon]:
+def _rebuild_from_coords(
+    polygons: list[Polygon], modified_coords: dict
+) -> list[Polygon]:
     result = []
     for idx, poly in enumerate(polygons):
         if idx not in modified_coords:
@@ -162,7 +160,9 @@ def _rebuild_from_coords(polygons: List[Polygon], modified_coords: dict) -> List
         coords = modified_coords[idx]
         if coords[0] != coords[-1]:
             coords.append(coords[0])
-        holes = [list(hole.coords) for hole in poly.interiors] if poly.interiors else None
+        holes = (
+            [list(hole.coords) for hole in poly.interiors] if poly.interiors else None
+        )
         result.append(Polygon(coords, holes=holes))
     return result
 

@@ -77,7 +77,9 @@ class TestProximityDetection:
         poly3 = Polygon([(100, 100), (110, 100), (110, 110), (100, 110)])
 
         polygons = [poly1, poly2, poly3]
-        result, mapping = merge_close_polygons(polygons, margin=1.0, return_mapping=True)
+        result, mapping = merge_close_polygons(
+            polygons, margin=1.0, return_mapping=True
+        )
 
         assert len(result) == 2  # poly1 and poly2 merged, poly3 separate
         assert len(mapping) == 2
@@ -127,7 +129,9 @@ class TestSimpleBufferStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
 
-        result = merge_close_polygons([poly1, poly2], margin=0.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=0.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -141,7 +145,9 @@ class TestSimpleBufferStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -153,7 +159,11 @@ class TestSimpleBufferStrategy:
         poly2 = Polygon([(10.5, 0), (20, 0), (20, 10), (10.5, 10)])
         poly3 = Polygon([(20.5, 0), (30, 0), (30, 10), (20.5, 10)])
 
-        result = merge_close_polygons([poly1, poly2, poly3], margin=1.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER)
+        result = merge_close_polygons(
+            [poly1, poly2, poly3],
+            margin=1.0,
+            merge_strategy=MergeStrategy.SIMPLE_BUFFER,
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -172,7 +182,7 @@ class TestSimpleBufferStrategy:
             [poly_with_hole, poly2],
             margin=2.0,
             merge_strategy=MergeStrategy.SIMPLE_BUFFER,
-            preserve_holes=False
+            preserve_holes=False,
         )
 
         assert len(result) == 1
@@ -188,7 +198,9 @@ class TestSelectiveBufferStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.SELECTIVE_BUFFER
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -224,7 +236,9 @@ class TestVertexMovementStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.VERTEX_MOVEMENT)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.VERTEX_MOVEMENT
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -235,7 +249,9 @@ class TestVertexMovementStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (5, 10), (5, 5), (0, 5)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.VERTEX_MOVEMENT)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.VERTEX_MOVEMENT
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -271,7 +287,9 @@ class TestBoundaryExtensionStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 2), (0, 2)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 2), (11, 2)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -282,7 +300,9 @@ class TestBoundaryExtensionStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 20), (0, 20)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 20), (11, 20)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -293,7 +313,9 @@ class TestBoundaryExtensionStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (5, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (16, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.BOUNDARY_EXTENSION
+        )
 
         # Should still merge (using fallback)
         assert all(p.is_valid for p in result)
@@ -370,7 +392,9 @@ class TestConvexBridgesStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.CONVEX_BRIDGES)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=2.0, merge_strategy=MergeStrategy.CONVEX_BRIDGES
+        )
 
         assert len(result) == 1
         assert result[0].is_valid
@@ -381,7 +405,9 @@ class TestConvexBridgesStrategy:
         poly1 = Polygon([(0, 0), (10, 0), (8, 5), (10, 10), (0, 10)])
         poly2 = Polygon([(12, 2), (22, 2), (22, 8), (12, 8)])
 
-        result = merge_close_polygons([poly1, poly2], margin=3.0, merge_strategy=MergeStrategy.CONVEX_BRIDGES)
+        result = merge_close_polygons(
+            [poly1, poly2], margin=3.0, merge_strategy=MergeStrategy.CONVEX_BRIDGES
+        )
 
         assert all(p.is_valid for p in result)
 
@@ -396,7 +422,9 @@ class TestEdgeCases:
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
         with pytest.raises(ValueError):
-            merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy='nonexistent_strategy')
+            merge_close_polygons(
+                [poly1, poly2], margin=2.0, merge_strategy="nonexistent_strategy"
+            )
 
     def test_margin_zero(self):
         """Test with margin=0 (only overlaps)."""
@@ -452,10 +480,7 @@ class TestEdgeCases:
         poly4 = Polygon([(0, 11), (10, 11), (10, 21), (0, 21)])
         poly5 = Polygon([(11, 11), (21, 11), (21, 21), (11, 21)])
 
-        result = merge_close_polygons(
-            [poly1, poly2, poly3, poly4, poly5],
-            margin=2.0
-        )
+        result = merge_close_polygons([poly1, poly2, poly3, poly4, poly5], margin=2.0)
 
         # All should merge into one
         assert len(result) == 1
@@ -488,13 +513,13 @@ class TestMultipleGroups:
         group1 = [
             Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
             Polygon([(11, 0), (21, 0), (21, 10), (11, 10)]),
-            Polygon([(22, 0), (32, 0), (32, 10), (22, 10)])
+            Polygon([(22, 0), (32, 0), (32, 10), (22, 10)]),
         ]
 
         # Group 2: Two close polygons far from group 1
         group2 = [
             Polygon([(100, 100), (110, 100), (110, 110), (100, 110)]),
-            Polygon([(111, 100), (121, 100), (121, 110), (111, 110)])
+            Polygon([(111, 100), (121, 100), (121, 110), (111, 110)]),
         ]
 
         all_polygons = group1 + group2
@@ -513,11 +538,13 @@ class TestMultipleGroups:
         # Close group
         group = [
             Polygon([(200, 200), (210, 200), (210, 210), (200, 210)]),
-            Polygon([(211, 200), (221, 200), (221, 210), (211, 210)])
+            Polygon([(211, 200), (221, 200), (221, 210), (211, 210)]),
         ]
 
         all_polygons = [isolated1, isolated2] + group
-        result, mapping = merge_close_polygons(all_polygons, margin=2.0, return_mapping=True)
+        result, mapping = merge_close_polygons(
+            all_polygons, margin=2.0, return_mapping=True
+        )
 
         # Should have 3 polygons: 2 isolated + 1 merged
         assert len(result) == 3
@@ -537,9 +564,7 @@ class TestPerformance:
         for i in range(10):
             for j in range(10):
                 x, y = i * 100, j * 100
-                poly = Polygon([
-                    (x, y), (x + 10, y), (x + 10, y + 10), (x, y + 10)
-                ])
+                poly = Polygon([(x, y), (x + 10, y), (x + 10, y + 10), (x, y + 10)])
                 polygons.append(poly)
 
         start = time.time()
@@ -559,12 +584,12 @@ class TestPerformance:
         for i in range(5):
             for j in range(5):
                 x, y = i * 9, j * 9  # Overlap by 1 unit
-                poly = Polygon([
-                    (x, y), (x + 10, y), (x + 10, y + 10), (x, y + 10)
-                ])
+                poly = Polygon([(x, y), (x + 10, y), (x + 10, y + 10), (x, y + 10)])
                 polygons.append(poly)
 
-        result = merge_close_polygons(polygons, margin=0.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER)
+        result = merge_close_polygons(
+            polygons, margin=0.0, merge_strategy=MergeStrategy.SIMPLE_BUFFER
+        )
 
         # Should merge into one large polygon (or a few)
         assert len(result) <= 25
@@ -579,20 +604,33 @@ class TestValidation:
         # Create various polygon configurations
         test_cases = [
             # Overlapping
-            [Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
-             Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])],
+            [
+                Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
+                Polygon([(5, 5), (15, 5), (15, 15), (5, 15)]),
+            ],
             # Close with gap
-            [Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
-             Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])],
+            [
+                Polygon([(0, 0), (10, 0), (10, 10), (0, 10)]),
+                Polygon([(11, 0), (21, 0), (21, 10), (11, 10)]),
+            ],
             # Irregular shapes
-            [Polygon([(0, 0), (10, 0), (8, 5), (10, 10), (0, 10)]),
-             Polygon([(11, 2), (21, 2), (21, 8), (11, 8)])],
+            [
+                Polygon([(0, 0), (10, 0), (8, 5), (10, 10), (0, 10)]),
+                Polygon([(11, 2), (21, 2), (21, 8), (11, 8)]),
+            ],
         ]
 
         for polygons in test_cases:
-            for strategy in [MergeStrategy.SIMPLE_BUFFER, MergeStrategy.SELECTIVE_BUFFER, MergeStrategy.VERTEX_MOVEMENT,
-                           MergeStrategy.BOUNDARY_EXTENSION, MergeStrategy.CONVEX_BRIDGES]:
-                result = merge_close_polygons(polygons, margin=2.0, merge_strategy=strategy)
+            for strategy in [
+                MergeStrategy.SIMPLE_BUFFER,
+                MergeStrategy.SELECTIVE_BUFFER,
+                MergeStrategy.VERTEX_MOVEMENT,
+                MergeStrategy.BOUNDARY_EXTENSION,
+                MergeStrategy.CONVEX_BRIDGES,
+            ]:
+                result = merge_close_polygons(
+                    polygons, margin=2.0, merge_strategy=strategy
+                )
                 assert all(p.is_valid for p in result), f"Invalid result for {strategy}"
 
     def test_non_empty_results(self):
@@ -600,8 +638,15 @@ class TestValidation:
         poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         poly2 = Polygon([(11, 0), (21, 0), (21, 10), (11, 10)])
 
-        for strategy in [MergeStrategy.SIMPLE_BUFFER, MergeStrategy.SELECTIVE_BUFFER, MergeStrategy.VERTEX_MOVEMENT,
-                        MergeStrategy.BOUNDARY_EXTENSION, MergeStrategy.CONVEX_BRIDGES]:
-            result = merge_close_polygons([poly1, poly2], margin=2.0, merge_strategy=strategy)
+        for strategy in [
+            MergeStrategy.SIMPLE_BUFFER,
+            MergeStrategy.SELECTIVE_BUFFER,
+            MergeStrategy.VERTEX_MOVEMENT,
+            MergeStrategy.BOUNDARY_EXTENSION,
+            MergeStrategy.CONVEX_BRIDGES,
+        ]:
+            result = merge_close_polygons(
+                [poly1, poly2], margin=2.0, merge_strategy=strategy
+            )
             assert all(not p.is_empty for p in result), f"Empty result for {strategy}"
             assert all(p.area > 0 for p in result), f"Zero area for {strategy}"

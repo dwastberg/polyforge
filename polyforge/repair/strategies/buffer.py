@@ -8,9 +8,7 @@ from ...core.geometry_utils import safe_buffer_fix
 
 
 def fix_with_buffer(
-    geometry: BaseGeometry,
-    buffer_distance: float,
-    verbose: bool
+    geometry: BaseGeometry, buffer_distance: float, verbose: bool
 ) -> BaseGeometry:
     """Fix geometry using the buffer operation.
 
@@ -58,4 +56,4 @@ def fix_with_buffer(
     return fixed
 
 
-__all__ = ['fix_with_buffer']
+__all__ = ["fix_with_buffer"]

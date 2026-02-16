@@ -28,7 +28,7 @@ class TestSafeClearance:
         clearance = _safe_clearance(poly)
 
         # Empty polygons have infinite clearance (no vertices to move)
-        assert clearance == float('inf')
+        assert clearance == float("inf")
 
     def test_invalid_polygon(self):
         """Test clearance of invalid polygon returns 0.0."""

@@ -1,9 +1,7 @@
 """Minimal pipeline runner used by the new repair implementation."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable
 
 from shapely.geometry.base import BaseGeometry
 
@@ -16,7 +14,7 @@ PipelineStep = Callable[[BaseGeometry, "PipelineContext"], "StepResult"]
 class FixConfig:
     """Subset of constraint settings needed by the pipeline steps."""
 
-    min_clearance: Optional[float] = None
+    min_clearance: float | None = None
     min_area_ratio: float = 0.0
     must_be_valid: bool = True
     allow_multipolygon: bool = True
@@ -28,14 +26,14 @@ class PipelineContext:
     original: BaseGeometry
     constraints: GeometryConstraints
     config: FixConfig
-    merge_constraints: Optional[MergeConstraints] = None
-    metadata: Dict[str, object] = field(default_factory=dict)
+    merge_constraints: MergeConstraints | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
     # Metric caching for performance (hidden from repr)
-    _geometry_cache: Optional[BaseGeometry] = field(default=None, repr=False)
-    _metrics_cache: Optional[Dict] = field(default=None, repr=False)
+    _geometry_cache: BaseGeometry | None = field(default=None, repr=False)
+    _metrics_cache: dict | None = field(default=None, repr=False)
 
-    def get_metrics(self, geometry: BaseGeometry) -> Dict:
+    def get_metrics(self, geometry: BaseGeometry) -> dict:
         """Get metrics for geometry with caching.
 
         Only recalculates metrics if geometry has changed since last call.
@@ -54,8 +52,10 @@ class PipelineContext:
             return self._metrics_cache
 
         # Calculate new metrics and cache them
-        skip_clearance = (self.constraints.min_clearance is None)
-        metrics = measure_geometry(geometry, self.original, skip_clearance=skip_clearance)
+        skip_clearance = self.constraints.min_clearance is None
+        metrics = measure_geometry(
+            geometry, self.original, skip_clearance=skip_clearance
+        )
 
         self._geometry_cache = geometry
         self._metrics_cache = metrics
@@ -66,6 +66,7 @@ class PipelineContext:
 @dataclass
 class StepResult:
     """Result of a pipeline step."""
+
     name: str
     geometry: BaseGeometry
     changed: bool
@@ -85,12 +86,12 @@ def config_from_constraints(constraints: GeometryConstraints) -> FixConfig:
 
 def run_steps(
     initial_geometry: BaseGeometry,
-    steps: List[PipelineStep],
+    steps: list[PipelineStep],
     context: PipelineContext,
     max_passes: int = 10,
-) -> Tuple[BaseGeometry, ConstraintStatus, List[StepResult]]:
+) -> tuple[BaseGeometry, ConstraintStatus, list[StepResult]]:
     """Execute the supplied steps until constraints are satisfied or progress stalls.
-    
+
     Args:
         initial_geometry: Geometry to fix
         steps: List of pipeline steps to execute
@@ -101,7 +102,7 @@ def run_steps(
         Tuple of (final_geometry, final_status, history)
     """
     geometry = initial_geometry
-    history: List[StepResult] = []
+    history: list[StepResult] = []
 
     for _ in range(max_passes):
         iteration_changed = False

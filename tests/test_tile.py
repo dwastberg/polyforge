@@ -76,7 +76,9 @@ class TestTileBox:
         """Test that missing both tile_count and tile_size raises error."""
         test_box = box(0, 0, 10, 10)
 
-        with pytest.raises(ValueError, match="Either tile_count or tile_size must be provided"):
+        with pytest.raises(
+            ValueError, match="Either tile_count or tile_size must be provided"
+        ):
             _tile_box(test_box)
 
     def test_tile_coverage(self):
@@ -86,6 +88,7 @@ class TestTileBox:
 
         # Union of all tiles should equal the box
         from shapely.ops import unary_union
+
         tiles_union = unary_union(tiles)
 
         assert abs(tiles_union.area - test_box.area) < 1e-8
@@ -160,10 +163,7 @@ class TestTilePolygon:
     def test_complex_polygon(self):
         """Test tiling a more complex polygon."""
         # L-shaped polygon
-        poly = Polygon([
-            (0, 0), (10, 0), (10, 5), (5, 5),
-            (5, 10), (0, 10), (0, 0)
-        ])
+        poly = Polygon([(0, 0), (10, 0), (10, 5), (5, 5), (5, 10), (0, 10), (0, 0)])
         result = tile_polygon(poly, tile_count=4, axis_oriented=True)
 
         assert result.is_valid
@@ -368,4 +368,6 @@ class TestPerformance:
         result = tile_polygon(poly, tile_count=10, axis_oriented=True)
 
         assert result.is_valid
-        assert abs(result.area - poly.area) < 1e-3  # Larger tolerance for large polygons
+        assert (
+            abs(result.area - poly.area) < 1e-3
+        )  # Larger tolerance for large polygons

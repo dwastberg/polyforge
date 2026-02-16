@@ -1,4 +1,3 @@
-from typing import List, Optional, Tuple, Union
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, LineString, Point, box
 from shapely.ops import unary_union
@@ -9,10 +8,8 @@ from polyforge.ops.merge_selective_buffer import merge_selective_buffer
 
 
 def merge_boundary_extension(
-    group_polygons: List[Polygon],
-    margin: float,
-    preserve_holes: bool
-) -> Union[Polygon, MultiPolygon]:
+    group_polygons: list[Polygon], margin: float, preserve_holes: bool
+) -> Polygon | MultiPolygon:
     """Merge by extending parallel edges toward each other.
 
     Best for rectangular/architectural features.
@@ -41,7 +38,7 @@ def merge_boundary_extension(
 
 
 def _collect_parallel_pairs(
-    polygons: List[Polygon],
+    polygons: list[Polygon],
     margin: float,
 ):
     """Return parallel edge pairs within the requested margin."""
@@ -55,9 +52,9 @@ def _build_bridges(
     parallel_edges,
     margin: float,
     min_overlap: float = 1e-6,
-) -> List[Polygon]:
+) -> list[Polygon]:
     """Convert parallel edge pairs into bridge polygons."""
-    bridges: List[Polygon] = []
+    bridges: list[Polygon] = []
     for edge1, edge2, distance in parallel_edges:
         bridge = _bridge_from_edge_pair(edge1, edge2, min_overlap)
         if bridge is None:
@@ -73,7 +70,9 @@ def _build_bridges(
     return bridges
 
 
-def _bridge_from_edge_pair(edge1: LineString, edge2: LineString, min_overlap: float) -> Optional[Polygon]:
+def _bridge_from_edge_pair(
+    edge1: LineString, edge2: LineString, min_overlap: float
+) -> Polygon | None:
     """Create a bridge polygon for a pair of edges if overlap exists."""
     coords1 = np.array(edge1.coords)
     coords2 = np.array(edge2.coords)
@@ -136,7 +135,7 @@ def _bridge_for_angled_edges(coords1, coords2):
     return Polygon(bridge_coords)
 
 
-def _interval_overlap(range1, range2) -> Optional[Tuple[float, float]]:
+def _interval_overlap(range1, range2) -> tuple[float, float] | None:
     """Return the overlap between two ranges, or None if disjoint."""
     overlap_start = max(range1[0], range2[0])
     overlap_end = min(range1[1], range2[1])
@@ -146,11 +145,11 @@ def _interval_overlap(range1, range2) -> Optional[Tuple[float, float]]:
 
 
 def _merge_with_bridges(
-    polygons: List[Polygon],
-    bridges: List[Polygon],
+    polygons: list[Polygon],
+    bridges: list[Polygon],
     preserve_holes: bool,
     margin: float,
-) -> Union[Polygon, MultiPolygon]:
+) -> Polygon | MultiPolygon:
     """Union polygons with bridges and post-process holes."""
     all_geoms = list(polygons) + bridges
     merged = unary_union(all_geoms)
@@ -204,9 +203,9 @@ def _bridge_buffer_distance(gap_distance: float, margin: float) -> float:
 
 
 def _cleanup_sliver_holes(
-    geometry: Union[Polygon, MultiPolygon],
+    geometry: Polygon | MultiPolygon,
     margin: float,
-) -> Union[Polygon, MultiPolygon]:
+) -> Polygon | MultiPolygon:
     """Remove interior holes below a small area threshold."""
     min_area = max(1e-6, (max(margin, 1e-6) ** 2) * 0.05)
 
@@ -214,8 +213,7 @@ def _cleanup_sliver_holes(
         return _strip_small_holes_from_polygon(geometry, min_area)
     if isinstance(geometry, MultiPolygon):
         cleaned = [
-            _strip_small_holes_from_polygon(poly, min_area)
-            for poly in geometry.geoms
+            _strip_small_holes_from_polygon(poly, min_area) for poly in geometry.geoms
         ]
         return MultiPolygon(cleaned)
     return geometry
@@ -265,4 +263,4 @@ def _gap_corridor(
         return hull
 
 
-__all__ = ['merge_boundary_extension']
+__all__ = ["merge_boundary_extension"]

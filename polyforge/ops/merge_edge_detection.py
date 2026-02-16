@@ -1,17 +1,15 @@
 """Edge detection utilities for finding parallel and close edges."""
 
-from typing import List, Tuple
 from collections import defaultdict
 import numpy as np
 from shapely.geometry import Polygon, LineString
 
 from polyforge.core.spatial_utils import iterate_unique_pairs
 
+
 def find_parallel_close_edges(
-    polygons: List[Polygon],
-    margin: float,
-    angle_threshold: float = 15.0
-) -> List[Tuple[LineString, LineString, float]]:
+    polygons: list[Polygon], margin: float, angle_threshold: float = 15.0
+) -> list[tuple[LineString, LineString, float]]:
     """Find pairs of parallel edges that are close to each other.
 
     Args:
@@ -45,7 +43,7 @@ def find_parallel_close_edges(
     for i, j in iterate_unique_pairs(all_edges):
         poly_idx_i, edge_i = all_edges[i]
         poly_idx_j, edge_j = all_edges[j]
-            # Only consider edges from different polygons
+        # Only consider edges from different polygons
         if poly_idx_i == poly_idx_j:
             continue
         distance = edge_i.distance(edge_j)
@@ -82,8 +80,8 @@ def find_parallel_close_edges(
 
 
 def filter_redundant_parallel_pairs(
-    pairs: List[Tuple[LineString, LineString, float]]
-) -> List[Tuple[LineString, LineString, float]]:
+    pairs: list[tuple[LineString, LineString, float]],
+) -> list[tuple[LineString, LineString, float]]:
     """Filter out redundant parallel edge pairs.
 
     When an edge is matched with multiple collinear segments from another polygon,
@@ -131,12 +129,24 @@ def filter_redundant_parallel_pairs(
                 # Simple approach: use the range of coordinates
                 if abs(coords1[1][0] - coords1[0][0]) < 1e-6:
                     # Vertical edge - compare Y coordinates
-                    range1 = [min(coords1[0][1], coords1[1][1]), max(coords1[0][1], coords1[1][1])]
-                    range2 = [min(coords2[0][1], coords2[1][1]), max(coords2[0][1], coords2[1][1])]
+                    range1 = [
+                        min(coords1[0][1], coords1[1][1]),
+                        max(coords1[0][1], coords1[1][1]),
+                    ]
+                    range2 = [
+                        min(coords2[0][1], coords2[1][1]),
+                        max(coords2[0][1], coords2[1][1]),
+                    ]
                 else:
                     # Horizontal or angled - compare X coordinates
-                    range1 = [min(coords1[0][0], coords1[1][0]), max(coords1[0][0], coords1[1][0])]
-                    range2 = [min(coords2[0][0], coords2[1][0]), max(coords2[0][0], coords2[1][0])]
+                    range1 = [
+                        min(coords1[0][0], coords1[1][0]),
+                        max(coords1[0][0], coords1[1][0]),
+                    ]
+                    range2 = [
+                        min(coords2[0][0], coords2[1][0]),
+                        max(coords2[0][0], coords2[1][0]),
+                    ]
 
                 # Calculate overlap
                 overlap_start = max(range1[0], range2[0])
@@ -153,4 +163,4 @@ def filter_redundant_parallel_pairs(
     return filtered
 
 
-__all__ = ['find_parallel_close_edges', 'filter_redundant_parallel_pairs']
+__all__ = ["find_parallel_close_edges", "filter_redundant_parallel_pairs"]

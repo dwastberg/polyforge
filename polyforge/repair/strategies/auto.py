@@ -11,10 +11,7 @@ from .reconstruct import fix_with_reconstruct
 
 
 def auto_fix_geometry(
-    geometry: BaseGeometry,
-    buffer_distance: float,
-    tolerance: float,
-    verbose: bool
+    geometry: BaseGeometry, buffer_distance: float, tolerance: float, verbose: bool
 ) -> BaseGeometry:
     """Automatically detect and fix geometry issues using multiple strategies.
 
@@ -112,9 +109,7 @@ def auto_fix_geometry(
             print(f"   Failed: {e}")
 
     # All strategies failed
-    raise RepairError(
-        f"Could not repair {geom_type}: {explain_validity(geometry)}"
-    )
+    raise RepairError(f"Could not repair {geom_type}: {explain_validity(geometry)}")
 
 
-__all__ = ['auto_fix_geometry']
+__all__ = ["auto_fix_geometry"]

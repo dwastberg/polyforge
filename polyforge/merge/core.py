@@ -1,6 +1,3 @@
-"""Core merge orchestration logic."""
-
-from typing import List, Tuple, Union
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.strtree import STRtree
 from shapely.ops import unary_union
@@ -20,23 +17,14 @@ from polyforge.ops.merge import (
 
 
 def merge_close_polygons(
-    polygons: List[Polygon],
+    polygons: list[Polygon],
     margin: float = 0.0,
-    merge_strategy: Union[MergeStrategy, str] = MergeStrategy.SELECTIVE_BUFFER,
+    merge_strategy: MergeStrategy | str = MergeStrategy.SELECTIVE_BUFFER,
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False,
-) -> Union[List[Polygon], Tuple[List[Polygon], List[List[int]]]]:
+) -> list[Polygon] | tuple[list[Polygon], list[list[int]]]:
     """Merge polygons that overlap or are within margin distance.
-
-    This function efficiently identifies and merges polygons that are close to
-    each other. In typical real-world cases where most polygons are isolated,
-    the function uses spatial indexing to quickly identify and return unchanged
-    the polygons that don't need merging (90-99% in typical cases).
-
-    Only polygons that are actually close (within margin distance) are processed
-    and merged according to the selected strategy.
-
     Args:
         polygons: List of input polygons
         margin: Maximum distance for merging (0.0 = only overlapping polygons)
@@ -80,12 +68,15 @@ def merge_close_polygons(
         return result
 
     strategy = coerce_enum(merge_strategy, MergeStrategy)
-    isolated_indices, merge_groups = find_close_polygon_groups(polygons, margin)
+    isolated_indices, merge_groups = _find_close_polygon_groups(polygons, margin)
 
-    result: List[Polygon] = []
-    mapping: List[List[int]] = []
+    result: list[Polygon] = []
+    mapping: list[list[int]] = []
 
-    _append_isolated_polygons(result, mapping, polygons, isolated_indices, return_mapping)
+    for idx in isolated_indices:
+        result.append(polygons[idx])
+        if return_mapping:
+            mapping.append([idx])
 
     for group_indices in merge_groups:
         merged_group = _merge_group_polygons(
@@ -96,15 +87,22 @@ def merge_close_polygons(
             preserve_holes,
             insert_vertices,
         )
-        _append_merge_result(result, mapping, merged_group, group_indices, return_mapping)
+        if isinstance(merged_group, MultiPolygon):
+            for poly in merged_group.geoms:
+                result.append(poly)
+                if return_mapping:
+                    mapping.append(group_indices)
+        elif isinstance(merged_group, Polygon):
+            result.append(merged_group)
+            if return_mapping:
+                mapping.append(group_indices)
 
     return (result, mapping) if return_mapping else result
 
 
-def find_close_polygon_groups(
-    polygons: List[Polygon],
-    margin: float
-) -> Tuple[List[int], List[List[int]]]:
+def _find_close_polygon_groups(
+    polygons: list[Polygon], margin: float
+) -> tuple[list[int], list[list[int]]]:
     """Find groups of polygons that are within margin distance of each other.
 
     Uses spatial indexing (STRtree) for efficient proximity detection.
@@ -136,8 +134,8 @@ def find_close_polygon_groups(
 
 
 def _merge_group_polygons(
-    group_polygons: List[Polygon],
-    group_indices: List[int],
+    group_polygons: list[Polygon],
+    group_indices: list[int],
     strategy: MergeStrategy,
     margin: float,
     preserve_holes: bool,
@@ -158,7 +156,7 @@ def _merge_group_polygons(
     if isinstance(base_union, MultiPolygon) and len(base_union.geoms) == 1:
         return remove_holes(base_union.geoms[0], preserve_holes)
 
-    # Still multiple polygons after union → apply strategy to bridge gaps
+    # Still multiple polygons after union -> apply strategy to bridge gaps
     # Update group_polygons to the result of unary_union (removes overlaps)
     if isinstance(base_union, MultiPolygon):
         group_polygons = list(base_union.geoms)
@@ -185,49 +183,16 @@ def _merge_group_polygons(
     return merge_func(group_polygons, margin, preserve_holes)
 
 
-def _append_isolated_polygons(
-    result: List[Polygon],
-    mapping: List[List[int]],
-    polygons: List[Polygon],
-    isolated_indices: List[int],
-    return_mapping: bool,
-) -> None:
-    """Append isolated polygons directly to the result."""
-    for idx in isolated_indices:
-        result.append(polygons[idx])
-        if return_mapping:
-            mapping.append([idx])
-
-
-def _append_merge_result(
-    result: List[Polygon],
-    mapping: List[List[int]],
-    merged,
-    group_indices: List[int],
-    return_mapping: bool,
-) -> None:
-    """Append merged geometry to outputs, handling MultiPolygon cases."""
-    if isinstance(merged, MultiPolygon):
-        for poly in merged.geoms:
-            result.append(poly)
-            if return_mapping:
-                mapping.append(group_indices)
-    elif isinstance(merged, Polygon):
-        result.append(merged)
-        if return_mapping:
-            mapping.append(group_indices)
-
-
 def _map_components_to_inputs(
-    components: List[Polygon],
-    inputs: List[Polygon],
+    components: list[Polygon],
+    inputs: list[Polygon],
     area_eps: float = 1e-12,
-) -> List[List[int]]:
+) -> list[list[int]]:
     """Build component-to-input index mapping for unary_union results."""
-    mapping: List[List[int]] = []
+    mapping: list[list[int]] = []
 
     for comp in components:
-        contributors: List[int] = []
+        contributors: list[int] = []
         if comp.is_empty:
             mapping.append(contributors)
             continue
@@ -250,4 +215,4 @@ def _map_components_to_inputs(
     return mapping
 
 
-__all__ = ['merge_close_polygons', 'find_close_polygon_groups']
+__all__ = ["merge_close_polygons"]

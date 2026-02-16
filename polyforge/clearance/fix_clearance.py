@@ -1,12 +1,6 @@
-"""Automatic clearance detection and fixing.
-
-This module provides an intelligent function that automatically diagnoses
-clearance issues and applies the most appropriate fixing strategy.
-"""
-
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, Point, LineString, LinearRing
@@ -20,11 +14,13 @@ from polyforge.ops.clearance import (
     fix_narrow_passage,
     fix_near_self_intersection,
     fix_parallel_close_edges,
+)
+from polyforge.ops.clearance.utils import (
     _find_nearest_vertex_index,
     _calculate_curvature_at_vertex,
     _compute_wedge_tip_angle,
-    _erode_dilate_fix,
 )
+from polyforge.ops.clearance.passages import _erode_dilate_fix
 from polyforge.core.geometry_utils import to_single_polygon
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
 from polyforge.core.iterative_utils import iterative_improve
@@ -33,12 +29,12 @@ from polyforge.metrics import _safe_clearance
 
 # --- Clearance diagnosis thresholds ---
 # Turning angle (degrees) above which a vertex is considered a sharp reversal,
-# characteristic of spike-like protrusions.  135° means the path turns more
-# than 45° past a right-angle bend.
+# characteristic of spike-like protrusions.  135 degrees means the path turns more
+# than 45 degrees past a right-angle bend.
 _PROTRUSION_SHARP_ANGLE = 135.0
 
 # Turning angle threshold for detecting protrusions when vertices are very
-# close together (separation <= _CLOSE_VERTEX_SEPARATION).  A 90° turn
+# close together (separation <= _CLOSE_VERTEX_SEPARATION).  A 90 degree turn
 # combined with close vertices typically indicates a narrow finger.
 _PROTRUSION_MODERATE_ANGLE = 90.0
 
@@ -98,7 +94,7 @@ class ClearanceDiagnosis:
     meets_requirement: bool
     current_clearance: float
     clearance_ratio: float
-    clearance_line: Optional[LineString]
+    clearance_line: LineString | None
     recommended_fix: str
 
     @property
@@ -117,7 +113,7 @@ class ClearanceFixSummary:
     issue: ClearanceIssue
     fixed: bool
     valid: bool
-    history: List[ClearanceIssue]
+    history: list[ClearanceIssue]
 
 
 def fix_clearance(
@@ -126,7 +122,7 @@ def fix_clearance(
     max_iterations: int = 10,
     min_area_ratio: float = 0.9,
     return_diagnosis: bool = False,
-) -> Union[Polygon, Tuple[Polygon, ClearanceFixSummary]]:
+) -> Polygon | tuple[Polygon, ClearanceFixSummary]:
     """Automatically diagnose and fix low minimum clearance in a polygon."""
     if not isinstance(geometry, Polygon):
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
@@ -150,7 +146,7 @@ def fix_clearance(
     if summary.fixed:
         return (geometry, summary) if return_diagnosis else geometry
 
-    issue_history: List[ClearanceIssue] = []
+    issue_history: list[ClearanceIssue] = []
 
     # --- Phase 1: Region fix (erosion-dilation) ---
     # Handles slivers, narrow peninsulas, and extended narrow features in O(1).
@@ -159,7 +155,11 @@ def fix_clearance(
         region_clearance = _safe_clearance(region_candidate) or 0.0
         if region_clearance >= min_clearance:
             issue_history.append(ClearanceIssue.PARALLEL_CLOSE_EDGES)
-            final_area_ratio = region_candidate.area / original_area if original_area > 0 else float("inf")
+            final_area_ratio = (
+                region_candidate.area / original_area
+                if original_area > 0
+                else float("inf")
+            )
             summary = ClearanceFixSummary(
                 initial_clearance=initial_clearance,
                 final_clearance=region_clearance,
@@ -177,7 +177,7 @@ def fix_clearance(
     # or doesn't fully solve the problem (e.g., holes, single protrusions).
     best_valid = geometry
 
-    def improve(poly: Polygon, target: float) -> Optional[Polygon]:
+    def improve(poly: Polygon, target: float) -> Polygon | None:
         diagnosis = diagnose_clearance(poly, target)
         issue_history.append(diagnosis.issue)
         if diagnosis.issue == ClearanceIssue.NONE:
@@ -216,7 +216,11 @@ def fix_clearance(
     # Point fixes may have partially resolved slivers, making erosion viable
     # where it wasn't in Phase 1.
     cleanup_clearance = _safe_clearance(improved) or 0.0
-    if cleanup_clearance < min_clearance and improved.is_valid and not improved.is_empty:
+    if (
+        cleanup_clearance < min_clearance
+        and improved.is_valid
+        and not improved.is_empty
+    ):
         cleanup_candidate = _erode_dilate_fix(improved, min_clearance, min_area_ratio)
         if cleanup_candidate is not None and cleanup_candidate.is_valid:
             cleanup_result_clearance = _safe_clearance(cleanup_candidate) or 0.0
@@ -225,7 +229,9 @@ def fix_clearance(
                 issue_history.append(ClearanceIssue.PARALLEL_CLOSE_EDGES)
 
     final_clearance = _safe_clearance(improved) or 0.0
-    final_area_ratio = improved.area / original_area if original_area > 0 else float("inf")
+    final_area_ratio = (
+        improved.area / original_area if original_area > 0 else float("inf")
+    )
     final_diag = diagnose_clearance(improved, min_clearance)
     summary = ClearanceFixSummary(
         initial_clearance=initial_clearance,
@@ -241,9 +247,9 @@ def fix_clearance(
     return (improved, summary) if return_diagnosis else improved
 
 
-StrategyFunc = Callable[[Polygon, float, ClearanceDiagnosis], Optional[Polygon]]
+StrategyFunc = Callable[[Polygon, float, ClearanceDiagnosis], Polygon | None]
 
-RECOMMENDED_FIXES: Dict[ClearanceIssue, str] = {
+RECOMMENDED_FIXES: dict[ClearanceIssue, str] = {
     ClearanceIssue.NONE: "none",
     ClearanceIssue.HOLE_TOO_CLOSE: "fix_hole_too_close",
     ClearanceIssue.NARROW_PROTRUSION: "remove_narrow_protrusions",
@@ -254,7 +260,7 @@ RECOMMENDED_FIXES: Dict[ClearanceIssue, str] = {
     ClearanceIssue.UNKNOWN: "fix_narrow_passage",
 }
 
-STRATEGY_REGISTRY: Dict[ClearanceIssue, StrategyFunc] = {}
+STRATEGY_REGISTRY: dict[ClearanceIssue, StrategyFunc] = {}
 
 
 def _strategy(issue: ClearanceIssue) -> StrategyFunc:
@@ -265,7 +271,7 @@ def _apply_clearance_strategy(
     geometry: Polygon,
     min_clearance: float,
     diagnosis: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Apply the diagnosed strategy, falling back to alternatives on failure."""
     current_clearance = diagnosis.current_clearance
     strategies = _build_fallback_chain(diagnosis.issue)
@@ -285,7 +291,7 @@ def _apply_clearance_strategy(
     return None
 
 
-def _build_fallback_chain(issue: ClearanceIssue) -> List[StrategyFunc]:
+def _build_fallback_chain(issue: ClearanceIssue) -> list[StrategyFunc]:
     """Return an ordered list of strategy functions to try.
 
     The diagnosed strategy is tried first. If it fails, erosion-dilation
@@ -310,7 +316,7 @@ def _strategy_erode_dilate(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Morphological approach: erode then dilate to remove narrow features."""
     return _erode_dilate_fix(geometry, min_clearance, min_area_ratio=0.85)
 
@@ -328,7 +334,7 @@ def _strategy_hole_too_close(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     fixed = fix_hole_too_close(geometry, min_clearance, strategy=HoleStrategy.REMOVE)
     return fixed
 
@@ -338,7 +344,7 @@ def _strategy_narrow_protrusion(
     geometry: Polygon,
     min_clearance: float,
     diagnosis: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     baseline = diagnosis.current_clearance
     first_pass = remove_narrow_protrusions(geometry, aspect_ratio_threshold=6.0)
     if first_pass.is_valid and (_safe_clearance(first_pass) or 0.0) > baseline:
@@ -351,7 +357,7 @@ def _strategy_narrow_wedge(
     geometry: Polygon,
     min_clearance: float,
     diagnosis: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Strategy for narrow wedge intrusions: trace and bridge the opening."""
     result = remove_narrow_wedges(geometry, angle_threshold=_ACUTE_TIP_ANGLE)
     if result is not None:
@@ -365,7 +371,7 @@ def _strategy_narrow_passage(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
 
@@ -374,7 +380,7 @@ def _strategy_near_self_intersection(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     return fix_near_self_intersection(
         geometry,
         min_clearance,
@@ -387,7 +393,7 @@ def _strategy_parallel_edges(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     return fix_parallel_close_edges(
         geometry,
         min_clearance,
@@ -399,11 +405,11 @@ def _strategy_default(
     geometry: Polygon,
     min_clearance: float,
     _: ClearanceDiagnosis,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
 
-def _normalize_polygon(candidate: Optional[BaseGeometry]) -> Optional[Polygon]:
+def _normalize_polygon(candidate: BaseGeometry | None) -> Polygon | None:
     if candidate is None:
         return None
     if candidate.is_empty or not candidate.is_valid:
@@ -413,8 +419,7 @@ def _normalize_polygon(candidate: Optional[BaseGeometry]) -> Optional[Polygon]:
 
 
 def _diagnose_clearance_issue(
-    geometry: Polygon,
-    min_clearance: float
+    geometry: Polygon, min_clearance: float
 ) -> ClearanceIssue:
     """Diagnose the type of clearance issue in a polygon.
 
@@ -451,9 +456,12 @@ def _diagnose_clearance_issue(
     return ClearanceIssue.UNKNOWN
 
 
-def _classify_ring_types(geometry: Polygon, pt1: Tuple[float, float], pt2: Tuple[float, float]) -> Tuple[str, str]:
+def _classify_ring_types(
+    geometry: Polygon, pt1: tuple[float, float], pt2: tuple[float, float]
+) -> tuple[str, str]:
     """Return ring type ('exterior' or 'hole') for each endpoint of the clearance line."""
-    def classify(point: Tuple[float, float]) -> Tuple[str, Optional[int]]:
+
+    def classify(point: tuple[float, float]) -> tuple[str, int | None]:
         p = Point(point)
         exterior_ring = LinearRing(geometry.exterior.coords)
         d_exterior = p.distance(exterior_ring)
@@ -488,7 +496,7 @@ def _has_close_hole(geometry: Polygon, min_clearance: float) -> bool:
 
 def _compute_edge_angle_similarity(
     coords: np.ndarray, idx1: int, idx2: int
-) -> Optional[float]:
+) -> float | None:
     """Compute the angle (degrees) between edge directions at two vertex indices.
 
     Returns the smallest angle between the two edge vectors, in [0, 180].
@@ -532,7 +540,9 @@ def _get_ring_coords_for_point(
     return best_coords
 
 
-def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> Optional["ClearanceContext"]:
+def _build_clearance_context(
+    geometry: Polygon, min_clearance: float = 0.0
+) -> ClearanceContext | None:
     try:
         clearance_line = shapely.minimum_clearance_line(geometry)
     except (GEOSException, ValueError):
@@ -564,7 +574,9 @@ def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> O
 
     if ring_types[0] == ring_types[1] == "exterior":
         separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
-        edge_angle_similarity = _compute_edge_angle_similarity(exterior_coords, idx1, idx2)
+        edge_angle_similarity = _compute_edge_angle_similarity(
+            exterior_coords, idx1, idx2
+        )
     else:
         # Points on different rings: use large separation to avoid
         # misclassifying as protrusion or near-self-intersection
@@ -579,9 +591,7 @@ def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> O
 
     tip_angle = None
     if ring_types[0] == ring_types[1] == "exterior" and separation >= 2:
-        tip_angle = _compute_wedge_tip_angle(
-            exterior_coords, idx1, idx2, separation
-        )
+        tip_angle = _compute_wedge_tip_angle(exterior_coords, idx1, idx2, separation)
 
     return ClearanceContext(
         curvature=(curvature1, curvature2),
@@ -596,13 +606,13 @@ def _build_clearance_context(geometry: Polygon, min_clearance: float = 0.0) -> O
 
 @dataclass
 class ClearanceContext:
-    curvature: Tuple[float, float]
+    curvature: tuple[float, float]
     separation: int
     vertex_count: int
-    ring_types: Tuple[str, str]
-    edge_angle_similarity: Optional[float] = None
+    ring_types: tuple[str, str]
+    edge_angle_similarity: float | None = None
     narrow_extent: int = 0
-    tip_angle: Optional[float] = None
+    tip_angle: float | None = None
 
 
 # Minimum number of narrow vertex pairs beyond the clearance endpoints
@@ -653,7 +663,9 @@ def _compute_narrow_extent(
     return extent
 
 
-def _looks_like_narrow_wedge(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+def _looks_like_narrow_wedge(
+    context: ClearanceContext, _: float
+) -> ClearanceIssue | None:
     """Detect narrow wedge intrusions (V-notches, tapered peninsulas).
 
     A narrow wedge is a protrusion-like feature where the narrowness extends
@@ -671,21 +683,27 @@ def _looks_like_narrow_wedge(context: ClearanceContext, _: float) -> Optional[Cl
         return None
 
     # Path 1: Width-based detection (original)
-    if (context.separation <= _CLOSE_VERTEX_SEPARATION
-            and max(context.curvature) >= _PROTRUSION_MODERATE_ANGLE
-            and context.narrow_extent >= _NARROW_WEDGE_MIN_EXTENT):
+    if (
+        context.separation <= _CLOSE_VERTEX_SEPARATION
+        and max(context.curvature) >= _PROTRUSION_MODERATE_ANGLE
+        and context.narrow_extent >= _NARROW_WEDGE_MIN_EXTENT
+    ):
         return ClearanceIssue.NARROW_WEDGE
 
     # Path 2: Angle-based detection for long wedges with acute tips
-    if (context.tip_angle is not None
-            and context.tip_angle < _ACUTE_TIP_ANGLE
-            and context.separation >= 2):
+    if (
+        context.tip_angle is not None
+        and context.tip_angle < _ACUTE_TIP_ANGLE
+        and context.separation >= 2
+    ):
         return ClearanceIssue.NARROW_WEDGE
 
     return None
 
 
-def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+def _looks_like_protrusion(
+    context: ClearanceContext, _: float
+) -> ClearanceIssue | None:
     """Detect narrow spike-like protrusions.
 
     Protrusions are characterised by at least one endpoint of the clearance
@@ -701,13 +719,16 @@ def _looks_like_protrusion(context: ClearanceContext, _: float) -> Optional[Clea
         return ClearanceIssue.NARROW_PROTRUSION
 
     if context.separation <= _CLOSE_VERTEX_SEPARATION and (
-        curvature1 > _PROTRUSION_MODERATE_ANGLE or curvature2 > _PROTRUSION_MODERATE_ANGLE
+        curvature1 > _PROTRUSION_MODERATE_ANGLE
+        or curvature2 > _PROTRUSION_MODERATE_ANGLE
     ):
         return ClearanceIssue.NARROW_PROTRUSION
     return None
 
 
-def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+def _looks_like_near_self_intersection(
+    context: ClearanceContext, _: float
+) -> ClearanceIssue | None:
     """Detect near-self-intersection where the polygon path almost touches itself.
 
     When both clearance-line endpoints are close in ring distance *and* both
@@ -719,12 +740,17 @@ def _looks_like_near_self_intersection(context: ClearanceContext, _: float) -> O
         return None
     if context.separation <= _CLOSE_VERTEX_SEPARATION:
         curvature1, curvature2 = context.curvature
-        if curvature1 <= _SELF_INTERSECTION_MAX_ANGLE and curvature2 <= _SELF_INTERSECTION_MAX_ANGLE:
+        if (
+            curvature1 <= _SELF_INTERSECTION_MAX_ANGLE
+            and curvature2 <= _SELF_INTERSECTION_MAX_ANGLE
+        ):
             return ClearanceIssue.NEAR_SELF_INTERSECTION
     return None
 
 
-def _looks_like_parallel_edges(context: ClearanceContext, _: float) -> Optional[ClearanceIssue]:
+def _looks_like_parallel_edges(
+    context: ClearanceContext, _: float
+) -> ClearanceIssue | None:
     """Detect parallel close edges (narrow channels, U-shapes, peninsulas).
 
     Parallel edges are characterised by:
@@ -763,10 +789,7 @@ def _default_clearance_issue(_: ClearanceContext, __: float) -> ClearanceIssue:
     return ClearanceIssue.NARROW_PASSAGE
 
 
-def diagnose_clearance(
-    geometry: Polygon,
-    min_clearance: float
-) -> ClearanceDiagnosis:
+def diagnose_clearance(geometry: Polygon, min_clearance: float) -> ClearanceDiagnosis:
     """Diagnose clearance issues without fixing them."""
     if not isinstance(geometry, Polygon):
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
@@ -791,7 +814,9 @@ def diagnose_clearance(
         )
 
     issue = _diagnose_clearance_issue(geometry, min_clearance)
-    recommended = RECOMMENDED_FIXES.get(issue, RECOMMENDED_FIXES[ClearanceIssue.UNKNOWN])
+    recommended = RECOMMENDED_FIXES.get(
+        issue, RECOMMENDED_FIXES[ClearanceIssue.UNKNOWN]
+    )
     return ClearanceDiagnosis(
         issue=issue,
         meets_requirement=False,
@@ -803,9 +828,9 @@ def diagnose_clearance(
 
 
 __all__ = [
-    'fix_clearance',
-    'diagnose_clearance',
-    'ClearanceIssue',
-    'ClearanceDiagnosis',
-    'ClearanceFixSummary',
+    "fix_clearance",
+    "diagnose_clearance",
+    "ClearanceIssue",
+    "ClearanceDiagnosis",
+    "ClearanceFixSummary",
 ]

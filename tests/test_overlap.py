@@ -107,7 +107,9 @@ class TestRemoveOverlaps:
         large = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         small = Polygon([(8, 8), (12, 8), (12, 12), (8, 12)])
 
-        result = remove_overlaps([large, small], overlap_strategy=OverlapStrategy.LARGEST)
+        result = remove_overlaps(
+            [large, small], overlap_strategy=OverlapStrategy.LARGEST
+        )
 
         assert len(result) == 2
         # Large polygon should have kept most of its area
@@ -119,7 +121,9 @@ class TestRemoveOverlaps:
         large = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
         small = Polygon([(8, 8), (12, 8), (12, 12), (8, 12)])
 
-        result = remove_overlaps([large, small], overlap_strategy=OverlapStrategy.SMALLEST)
+        result = remove_overlaps(
+            [large, small], overlap_strategy=OverlapStrategy.SMALLEST
+        )
 
         assert len(result) == 2
         # Small polygon should have kept most of its area
@@ -142,9 +146,7 @@ class TestRemoveOverlaps:
         for i in range(3):
             for j in range(3):
                 x, y = i * 1.5, j * 1.5
-                poly = Polygon([
-                    (x, y), (x + 2, y), (x + 2, y + 2), (x, y + 2)
-                ])
+                poly = Polygon([(x, y), (x + 2, y), (x + 2, y + 2), (x, y + 2)])
                 polygons.append(poly)
 
         result = remove_overlaps(polygons)
@@ -164,10 +166,9 @@ class TestRemoveOverlaps:
         # Create a challenging case with many overlaps
         polygons = []
         for i in range(10):
-            poly = Polygon([
-                (i * 0.8, 0), (i * 0.8 + 2, 0),
-                (i * 0.8 + 2, 2), (i * 0.8, 2)
-            ])
+            poly = Polygon(
+                [(i * 0.8, 0), (i * 0.8 + 2, 0), (i * 0.8 + 2, 2), (i * 0.8, 2)]
+            )
             polygons.append(poly)
 
         result = remove_overlaps(polygons, max_iterations=50)
@@ -333,9 +334,7 @@ class TestPerformance:
         for i in range(10):
             for j in range(10):
                 x, y = i * 1.8, j * 1.8
-                poly = Polygon([
-                    (x, y), (x + 2, y), (x + 2, y + 2), (x, y + 2)
-                ])
+                poly = Polygon([(x, y), (x + 2, y), (x + 2, y + 2), (x, y + 2)])
                 polygons.append(poly)
 
         # This should complete quickly with spatial indexing
@@ -354,9 +353,7 @@ class TestPerformance:
         for i in range(10):
             for j in range(10):
                 x, y = i * 3, j * 3  # No overlaps, spread out
-                poly = Polygon([
-                    (x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)
-                ])
+                poly = Polygon([(x, y), (x + 1, y), (x + 1, y + 1), (x, y + 1)])
                 polygons.append(poly)
 
         # Should complete very quickly - spatial index finds no candidates

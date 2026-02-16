@@ -8,9 +8,7 @@ from ..utils import extract_all_coords
 
 
 def fix_with_reconstruct(
-    geometry: BaseGeometry,
-    tolerance: float,
-    verbose: bool
+    geometry: BaseGeometry, tolerance: float, verbose: bool
 ) -> BaseGeometry:
     """Fix geometry by reconstructing from its convex hull.
 
@@ -50,7 +48,7 @@ def fix_with_reconstruct(
     try:
         geom_type = geometry.geom_type
 
-        if geom_type in ('Polygon', 'MultiPolygon'):
+        if geom_type in ("Polygon", "MultiPolygon"):
             # Try convex hull
             hull = geometry.convex_hull
             if hull.is_valid:
@@ -74,4 +72,4 @@ def fix_with_reconstruct(
         raise RepairError(f"Reconstruct repair failed: {e}")
 
 
-__all__ = ['fix_with_reconstruct']
+__all__ = ["fix_with_reconstruct"]

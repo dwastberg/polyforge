@@ -6,12 +6,11 @@ protrusions from polygons based on aspect ratio.
 
 import numpy as np
 from shapely.geometry import Polygon
-from typing import List, Optional, Tuple
 
 from .utils import _point_to_line_perpendicular_distance
 
 
-class _ProtrusionCandidate(Tuple[int, float]): ...
+class _ProtrusionCandidate(tuple[int, float]): ...
 
 
 def remove_narrow_protrusions(
@@ -21,11 +20,6 @@ def remove_narrow_protrusions(
     max_iterations: int = 10,
 ) -> Polygon:
     """Remove narrow protrusions by identifying high aspect ratio triangles.
-
-    A narrow protrusion is defined as three consecutive vertices forming a triangle
-    with a very high aspect ratio (length >> width). This function identifies such
-    protrusions and removes the middle vertex, effectively cutting off the spike.
-
     Args:
         geometry: Input polygon
         aspect_ratio_threshold: Minimum aspect ratio to consider a protrusion
@@ -36,20 +30,6 @@ def remove_narrow_protrusions(
 
     Returns:
         Polygon with narrow protrusions removed
-
-    Examples:
-        >>> # Polygon with narrow horizontal spike
-        >>> coords = [(0, 0), (10, 0), (10, 4), (10, 4.9), (12, 5), (10, 5.1),
-        ...           (10, 6), (0, 6)]
-        >>> poly = Polygon(coords)
-        >>> fixed = remove_narrow_protrusions(poly, aspect_ratio_threshold=5.0)
-        >>> # Spike vertices removed, base vertices connected directly
-
-    Notes:
-        - Aspect ratio = max_edge_length / height_to_base
-        - Only removes protrusions where the tip vertex extends significantly
-        - Preserves interior rings (holes)
-        - Multiple iterations handle cases where removing one protrusion reveals another
     """
     if not isinstance(geometry, Polygon):
         raise TypeError("Geometry must be a Polygon")
@@ -82,10 +62,10 @@ def remove_narrow_protrusions(
 def _collect_protrusion_candidate(
     coords: np.ndarray,
     threshold: float,
-) -> Optional[Tuple[int, float]]:
+) -> tuple[int, float] | None:
     """Return the vertex index with highest aspect ratio beyond the threshold."""
     n = len(coords) - 1
-    best_idx: Optional[int] = None
+    best_idx: int | None = None
     best_ratio = threshold
 
     for i in range(n):
@@ -109,7 +89,7 @@ def _remove_candidate_vertex(
     geometry: Polygon,
     coords: np.ndarray,
     index: int,
-) -> Optional[Polygon]:
+) -> Polygon | None:
     """Remove the vertex at index and rebuild a polygon."""
     new_coords = np.delete(coords, index, axis=0)
     if not np.allclose(new_coords[0], new_coords[-1]):
@@ -127,7 +107,9 @@ def _remove_candidate_vertex(
     return new_poly
 
 
-def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.ndarray) -> float:
+def _calculate_triangle_aspect_ratio(
+    pt1: np.ndarray, pt2: np.ndarray, pt3: np.ndarray
+) -> float:
     """Calculate aspect ratio of a triangle formed by three points.
 
     Aspect ratio is defined as the ratio of the longest edge to the
@@ -173,5 +155,5 @@ def _calculate_triangle_aspect_ratio(pt1: np.ndarray, pt2: np.ndarray, pt3: np.n
 
 
 __all__ = [
-    'remove_narrow_protrusions',
+    "remove_narrow_protrusions",
 ]

@@ -1,16 +1,15 @@
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, box
 from shapely import affinity
-from typing import Tuple, Optional, Union, List
 from math import atan2, ceil
 
 
 def tile_polygon(
     polygon: Polygon,
-    tile_count: Optional[Union[Tuple[int, int], int]] = None,
-    tile_size: Optional[Union[Tuple[float, float], float]] = None,
-    axis_oriented: bool = False
-) -> Union[Polygon, MultiPolygon]:
+    tile_count: tuple[int, int] | int | None = None,
+    tile_size: tuple[float, float] | float | None = None,
+    axis_oriented: bool = False,
+) -> Polygon | MultiPolygon:
     """Split a polygon into tiles by intersecting it with a grid defined by tile count or size.
 
     Args:
@@ -31,20 +30,27 @@ def tile_polygon(
         tiling_bbox = shapely.oriented_envelope(polygon)
         angle = atan2(
             tiling_bbox.exterior.coords[1][1] - tiling_bbox.exterior.coords[0][1],
-            tiling_bbox.exterior.coords[1][0] - tiling_bbox.exterior.coords[0][0]
+            tiling_bbox.exterior.coords[1][0] - tiling_bbox.exterior.coords[0][0],
         )
         centroid = tiling_bbox.centroid
-        tiling_bbox = affinity.rotate(tiling_bbox, -angle, origin=centroid, use_radians=True)
+        tiling_bbox = affinity.rotate(
+            tiling_bbox, -angle, origin=centroid, use_radians=True
+        )
     tiles = _tile_box(tiling_bbox, tile_count=tile_count, tile_size=tile_size)
     tile_collection = MultiPolygon(tiles)
     tiled_polygon = polygon.intersection(tile_collection)
     if not axis_oriented:
-        tiled_polygon = affinity.rotate(tiled_polygon, angle, origin=centroid, use_radians=True)
+        tiled_polygon = affinity.rotate(
+            tiled_polygon, angle, origin=centroid, use_radians=True
+        )
     return tiled_polygon
 
 
-def _tile_box(bbox: Polygon, tile_count: Optional[Union[Tuple[int, int], int]] = None,
-              tile_size: Optional[Union[Tuple[float, float], float]] = None) -> List[Polygon]:
+def _tile_box(
+    bbox: Polygon,
+    tile_count: tuple[int, int] | int | None = None,
+    tile_size: tuple[float, float] | float | None = None,
+) -> list[Polygon]:
     minx, miny, maxx, maxy = bbox.bounds
     width = maxx - minx
     height = maxy - miny
@@ -85,5 +91,5 @@ def _tile_box(bbox: Polygon, tile_count: Optional[Union[Tuple[int, int], int]] =
 
 
 __all__ = [
-    'tile_polygon',
+    "tile_polygon",
 ]
