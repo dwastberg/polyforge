@@ -1460,3 +1460,44 @@ class TestRemoveNarrowWedges:
         result = remove_narrow_wedges(poly, angle_threshold=25)
         assert result.is_valid
         assert result.area == pytest.approx(poly.area, rel=1e-6)
+
+    def test_removes_all_narrow_wedges(self):
+        """All narrow wedges should be removed, not just the worst one.
+
+        Polygon has two concave notches of equal width (2 units) but different
+        depths, so that _find_best_join correctly identifies each notch's own
+        neck (the first equal-distance pair wins via strict < comparison) and
+        the higher-ratio wedge (Notch B, deeper) is processed first.
+
+        Index layout (n=10):
+          - Notch A: tip=2, left=1, right=3 — lower ratio, processed second
+          - Notch B: tip=7, left=6, right=8 — higher ratio, processed first
+
+        Because Notch B's splice removes index 7 (high), Notch A's stored
+        indices 1 and 3 remain valid, so both tips are correctly removed.
+        """
+        from polyforge.ops.clearance.protrusions import remove_narrow_wedges
+
+        coords = [
+            (0, 0),
+            (99, 0),       # left boundary of Notch A  (width = 2)
+            (100, 10),     # Notch A tip — angle ~11°, depth ~135
+            (101, 0),      # right boundary of Notch A
+            (200, 0),
+            (200, 100),
+            (6, 100),      # left boundary of Notch B  (width = 2, top edge CCW)
+            (5, 90),       # Notch B tip — angle ~11°, depth ~215 (near far corner)
+            (4, 100),      # right boundary of Notch B
+            (0, 100),
+        ]
+        poly = Polygon(coords)
+        assert poly.is_valid
+        original_n = len(poly.exterior.coords)
+
+        result = remove_narrow_wedges(poly, angle_threshold=20, min_depth=0.5)
+
+        assert result.is_valid
+        result_coords = list(result.exterior.coords)
+        assert (100.0, 10.0) not in result_coords, "Notch A tip should have been removed"
+        assert (5.0, 90.0) not in result_coords, "Notch B tip should have been removed"
+        assert len(result.exterior.coords) <= original_n - 2
