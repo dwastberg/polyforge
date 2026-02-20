@@ -205,7 +205,7 @@ def _point_on_segment(
     closest_point = seg_start + t * seg_vec
 
     # Check distance from point to segment
-    distance = np.linalg.norm(point - closest_point)
+    distance = float(np.linalg.norm(point - closest_point))
 
     return distance < tolerance
 

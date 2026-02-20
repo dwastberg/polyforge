@@ -257,29 +257,7 @@ def _point_to_segment_distance(
 def _point_to_line_perpendicular_distance(
     point: np.ndarray, line_start: np.ndarray, line_end: np.ndarray
 ) -> float:
-    """Calculate perpendicular distance from a point to an infinite line.
-
-    Unlike _point_to_segment_distance which clamps to the segment endpoints,
-    this calculates the perpendicular distance to the infinite line passing
-    through the two points. Useful for aspect ratio calculations.
-
-    Args:
-        point: Point coordinates (2D)
-        line_start: Point on the line (2D)
-        line_end: Another point on the line (2D)
-
-    Returns:
-        Perpendicular distance from point to line (always >= 0)
-
-    Examples:
-        >>> # Point above a horizontal line
-        >>> point = np.array([5.0, 3.0])
-        >>> line_start = np.array([0.0, 0.0])
-        >>> line_end = np.array([10.0, 0.0])
-        >>> dist = _point_to_line_perpendicular_distance(point, line_start, line_end)
-        >>> abs(dist - 3.0) < 0.01  # Distance is 3.0
-        True
-    """
+    """Calculate perpendicular distance from a point to an infinite line."""
     # Vector from line_start to line_end
     line_vec = line_end - line_start
     line_length = np.linalg.norm(line_vec)

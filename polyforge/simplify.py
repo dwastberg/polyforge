@@ -41,10 +41,6 @@ def collapse_short_edges(
 ) -> BaseGeometry:
     """Collapse edges shorter than min_length by snapping vertices together.
 
-    This function cleans up geometries by collapsing very short edges. This is useful
-    for removing noise, fixing numerical issues, or simplifying geometries with
-    unnecessary detail at small scales.
-
     Args:
         geometry: Shapely geometry to process (any type)
         min_length: Minimum edge length threshold. Edges shorter than this will be collapsed.
@@ -55,16 +51,6 @@ def collapse_short_edges(
 
     Returns:
         New Shapely geometry of the same type with short edges removed
-
-    Examples:
-        >>> from polyforge.core.types import CollapseMode
-        >>> poly = Polygon([(0, 0), (10, 0), (10, 0.01), (10, 10), (0, 10)])
-        >>> clean = collapse_short_edges(poly, min_length=0.1)
-        >>> # Edge from (10, 0) to (10, 0.01) is collapsed
-
-        >>> # Using specific mode
-        >>> clean = collapse_short_edges(poly, min_length=0.1, snap_mode=CollapseMode.FIRST)
-
     """
     snap_label = coerce_enum(snap_mode, CollapseMode).value
     return process_geometry(
@@ -80,10 +66,6 @@ def deduplicate_vertices(
 ) -> BaseGeometry:
     """Remove consecutive duplicate vertices within tolerance.
 
-    This removes exact duplicates (within numerical tolerance) without snapping
-    non-duplicate vertices together. For collapsing short edges, use
-    collapse_short_edges() instead.
-
     Args:
         geometry: Shapely geometry to process (any type)
         tolerance: Distance tolerance for considering vertices as duplicates
@@ -91,13 +73,6 @@ def deduplicate_vertices(
 
     Returns:
         New Shapely geometry with duplicates removed
-
-    Examples:
-        >>> coords = [(0, 0), (0, 0), (10, 0), (10, 10), (0, 10)]
-        >>> poly = Polygon(coords)
-        >>> clean = deduplicate_vertices(poly)
-        >>> # Duplicate (0, 0) vertex removed
-
     """
     return process_geometry(geometry, remove_duplicate_vertices, tolerance=tolerance)
 
@@ -178,15 +153,6 @@ def remove_slivers(
 
     Returns:
         Geometry with slivers removed.
-
-    Examples:
-        >>> # Rectangle with a narrow slot cut into it
-        >>> coords = [(0, 0), (10, 0), (10, 4), (5, 4), (5, 4.2),
-        ...           (10, 4.2), (10, 10), (0, 10)]
-        >>> poly = Polygon(coords)
-        >>> fixed = remove_slivers(poly, min_width=1.0)
-        >>> fixed.minimum_clearance >= 1.0
-        True
     """
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise TypeError("Input geometry must be a Polygon or MultiPolygon.")

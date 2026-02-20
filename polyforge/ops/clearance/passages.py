@@ -451,8 +451,7 @@ def fix_near_self_intersection(
     min_clearance: float,
     strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
-    """Fix near self-intersections where edges come very close.
-    """
+    """Fix near self-intersections where edges come very close."""
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     context = _find_self_intersection_vertices(geometry)
     current_clearance = context.clearance if context else geometry.minimum_clearance
@@ -473,8 +472,7 @@ def fix_parallel_close_edges(
     min_clearance: float,
     strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
-    """Fix parallel edges that run too close to each other.
-    """
+    """Fix parallel edges that run too close to each other."""
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     current_clearance = geometry.minimum_clearance
     if current_clearance >= min_clearance:
@@ -672,8 +670,7 @@ def _erode_dilate_fix(
     min_clearance: float,
     min_area_ratio: float = 0.9,
 ) -> Optional[Polygon]:
-    """Remove features narrower than min_clearance using erosion-dilation.
-    """
+    """Remove features narrower than min_clearance using erosion-dilation."""
     original_area = geometry.area
     if original_area <= 0:
         return None

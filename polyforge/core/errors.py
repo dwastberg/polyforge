@@ -46,23 +46,6 @@ class RepairError(PolyforgeError):
 
 
 class OverlapResolutionError(PolyforgeError):
-    """Overlap resolution failed to converge or produced invalid result.
-
-    Raised when overlap removal fails to complete successfully, either due
-    to hitting max iterations or producing invalid geometries.
-
-    Attributes:
-        iterations: Number of iterations completed
-        remaining_overlaps: Number of overlaps still present
-
-    Examples:
-        >>> try:
-        ...     result = remove_overlaps(polygons, max_iterations=10)
-        ... except OverlapResolutionError as e:
-        ...     print(f"Failed after {e.iterations} iterations")
-        ...     print(f"Still have {e.remaining_overlaps} overlaps")
-    """
-
     def __init__(self, message: str, iterations: int = 0, remaining_overlaps: int = 0):
         super().__init__(message)
         self.iterations = iterations
@@ -92,27 +75,6 @@ class MergeError(PolyforgeError):
 
 
 class ClearanceError(PolyforgeError):
-    """Clearance improvement failed to meet target.
-
-    Raised when clearance improvement operations fail to achieve the
-    target minimum clearance value.
-
-    Attributes:
-        geometry: The geometry with low clearance (optional)
-        target_clearance: Target minimum clearance value (optional)
-        achieved_clearance: Best clearance achieved before failure (optional)
-        issue_type: Type of clearance issue detected (optional)
-
-    Examples:
-        >>> try:
-        ...     result = fix_clearance(polygon, target=1.0)
-        ... except ClearanceError as e:
-        ...     print(f"Clearance fix failed: {e}")
-        ...     print(f"Target: {e.target_clearance}")
-        ...     print(f"Achieved: {e.achieved_clearance}")
-        ...     print(f"Issue type: {e.issue_type}")
-    """
-
     def __init__(
         self,
         message: str,

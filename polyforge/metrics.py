@@ -43,16 +43,6 @@ def measure_geometry(
     Returns:
         Dict with keys: is_valid, is_empty, clearance, area, area_ratio
         Note: clearance will be None if skip_clearance=True
-
-    Examples:
-        >>> poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        >>> metrics = measure_geometry(poly)
-        >>> metrics['area']
-        1.0
-
-        >>> # Skip clearance when not needed for better performance
-        >>> metrics = measure_geometry(poly, skip_clearance=True)
-        >>> metrics['clearance']  # Will be None
     """
     area = getattr(geometry, "area", None)
     original_area = getattr(original, "area", None) if original is not None else None
