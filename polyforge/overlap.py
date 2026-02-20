@@ -8,6 +8,7 @@ from shapely.ops import split as shapely_split, unary_union
 from shapely.strtree import STRtree
 
 from .core.geometry_utils import to_single_polygon
+from .core.spatial_utils import build_adjacency_graph, find_connected_components
 from .core.types import OverlapStrategy, coerce_enum
 
 _AREA_EPS = 1e-10
@@ -172,6 +173,33 @@ def find_overlapping_groups(
             groups.append(sorted(component))
 
     return groups
+
+
+def find_close_polygon_groups(
+    polygons: list[Polygon],
+    distance: float,
+) -> list[list[int]]:
+    """Find groups of polygons that are within ``distance`` of each other.
+
+    Parameters
+    ----------
+    polygons:
+        Input polygons.
+    distance:
+        Maximum distance between polygons to be considered a group.
+
+    Returns
+    -------
+    list[list[int]]
+        Groups of polygon indices (2+ members each) where every polygon is
+        within ``distance`` of at least one other polygon in the group.
+        Isolated polygons with no close neighbors are omitted.
+    """
+    if len(polygons) < 2:
+        return []
+    tree = STRtree(polygons)
+    adjacency = build_adjacency_graph(polygons, distance, tree=tree)
+    return [g for g in find_connected_components(adjacency) if len(g) > 1]
 
 
 def _detect_containment(
@@ -407,6 +435,7 @@ def _get_overlap_longest_axis(overlap: Polygon) -> np.ndarray:
 
 __all__ = [
     "count_overlaps",
+    "find_close_polygon_groups",
     "find_overlapping_groups",
     "remove_overlaps",
     "resolve_overlap_pair",

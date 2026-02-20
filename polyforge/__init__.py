@@ -38,6 +38,7 @@ from .clearance import (
 from .overlap import (
     remove_overlaps,
     count_overlaps,
+    find_close_polygon_groups,
     find_overlapping_groups,
     resolve_overlap_pair,
 )
@@ -116,6 +117,7 @@ __all__ = [
     # Overlap handling
     "remove_overlaps",
     "count_overlaps",
+    "find_close_polygon_groups",
     "find_overlapping_groups",
     "resolve_overlap_pair",
     # Merge
