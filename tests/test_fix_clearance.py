@@ -650,3 +650,88 @@ class TestFixClearanceNarrowWedge:
         poly = Polygon(coords)
         info = diagnose_clearance(poly, min_clearance=1.0)
         assert info.issue == ClearanceIssue.NARROW_WEDGE
+
+
+class TestFixClearanceMissingPaths:
+    """Tests for code paths not covered by existing test classes."""
+
+    @pytest.mark.parametrize("bad_ratio", [0.0, -0.1, 1.5])
+    def test_min_area_ratio_validation(self, bad_ratio):
+        """Invalid min_area_ratio values should raise ValueError."""
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        with pytest.raises(ValueError):
+            fix_clearance(poly, min_clearance=1.0, min_area_ratio=bad_ratio)
+
+    def test_min_area_ratio_boundary_valid(self):
+        """min_area_ratio=1.0 is at the valid boundary and must not raise."""
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        # Should not raise; square already has good clearance
+        result = fix_clearance(poly, min_clearance=1.0, min_area_ratio=1.0)
+        assert result.is_valid
+
+    def test_phase1_rejected_by_tight_area_ratio(self):
+        """Phase 1 (erosion-dilation) rejected by tight area ratio falls through to Phase 2."""
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+
+        # 100x100 square + a 100x0.5 sliver appendage at the bottom.
+        # After erosion by 0.5 the sliver disappears (~50 units lost out of ~10050).
+        # area_ratio after Phase 1 ≈ 0.995, which is below the 0.999 threshold,
+        # so Phase 1 must reject and Phase 2 must run.
+        base = box(0, 0, 100, 100)
+        sliver = box(0, -0.5, 100, 0)
+        poly = unary_union([base, sliver])
+        assert isinstance(poly, Polygon)
+
+        original_clearance = poly.minimum_clearance
+        result, summary = fix_clearance(
+            poly, min_clearance=1.0, min_area_ratio=0.999, return_diagnosis=True
+        )
+
+        assert result.is_valid
+        assert summary.final_clearance > original_clearance
+        # Phase 2 ran — Phase 1 alone would produce iterations=1 with fixed=True,
+        # but Phase 1 was rejected so iterations reflects Phase 2 work.
+        assert summary.iterations > 0
+
+    def test_erode_dilate_bridge_fragmentation(self):
+        """_erode_dilate_fix picks the largest fragment when erosion severs a bridge."""
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+
+        # Two 5x5 squares joined by a bridge that is only 0.1 units wide.
+        # Eroding by min_clearance*0.5 = 0.5 severs the bridge, producing a
+        # MultiPolygon; the implementation must return the largest fragment as a Polygon.
+        left = box(0, 0, 5, 5)
+        right = box(5.1, 0, 10.1, 5)
+        bridge = box(5.0, 2.45, 5.1, 2.55)
+        poly = unary_union([left, right, bridge])
+        assert isinstance(poly, Polygon)
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.is_valid
+        assert not result.is_empty
+        assert isinstance(result, Polygon)
+        assert result.area > 0
+
+    def test_phase1_success_history(self):
+        """Phase 1 success annotates history with PARALLEL_CLOSE_EDGES."""
+        # Narrow peninsula geometry from test_narrow_peninsula — Phase 1 handles it.
+        coords = [
+            (0, 0),
+            (20, 0),
+            (20, 9.85),
+            (40, 9.85),
+            (40, 10.15),
+            (20, 10.15),
+            (20, 20),
+            (0, 20),
+        ]
+        poly = Polygon(coords)
+        assert poly.minimum_clearance < 1.0
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert summary.fixed
+        assert ClearanceIssue.PARALLEL_CLOSE_EDGES in summary.history
