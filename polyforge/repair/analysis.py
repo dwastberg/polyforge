@@ -3,7 +3,15 @@ from shapely.validation import explain_validity
 
 
 def analyze_geometry(geometry: BaseGeometry) -> dict:
-    """Analyze geometry validity issues."""
+    """Analyze geometry validity issues.
+
+    Args:
+        geometry: Shapely geometry to analyze.
+
+    Returns:
+        Dict with keys: is_valid, validity_message, geometry_type, is_empty, area,
+        issues (list of issue descriptions), suggestions (list of fix suggestions).
+    """
     metrics = _collect_geometry_metrics(geometry)
     issues, suggestions = _categorize_issues(
         metrics["is_valid"], metrics["validity_message"]

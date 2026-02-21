@@ -18,7 +18,15 @@ def repair_geometry(
     geometry: BaseGeometry,
     method: str = "linework",
 ) -> BaseGeometry:
-    """here for backwards compatibilit"""
+    """Repair an invalid geometry using Shapely's make_valid.
+
+    Args:
+        geometry: Shapely geometry to repair.
+        method: Repair method passed to make_valid (default: "linework").
+
+    Returns:
+        Repaired geometry.
+    """
     return make_valid(geometry, method=method)
 
 
@@ -28,7 +36,18 @@ def batch_repair_geometries(
     on_error: str = "keep",
     verbose: bool = False,
 ) -> tuple[list[BaseGeometry | None], list[int]]:
-    """Repair multiple geometries in batch."""
+    """Repair multiple geometries in batch.
+
+    Args:
+        geometries: List of Shapely geometries to repair.
+        repair_strategy: Repair strategy to use (default: AUTO).
+        on_error: How to handle failures - "keep" (keep original), "skip" (omit),
+            or "raise" (raise exception).
+        verbose: If True, print progress information.
+
+    Returns:
+        Tuple of (repaired_geometries, failed_indices).
+    """
     repaired: list[BaseGeometry | None] = []
     failed_indices: list[int] = []
 

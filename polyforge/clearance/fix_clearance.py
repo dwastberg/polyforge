@@ -123,7 +123,22 @@ def fix_clearance(
     min_area_ratio: float = 0.9,
     return_diagnosis: bool = False,
 ) -> Polygon | tuple[Polygon, ClearanceFixSummary]:
-    """Automatically diagnose and fix low minimum clearance in a polygon."""
+    """Automatically diagnose and fix low minimum clearance in a polygon.
+
+    Args:
+        geometry: Input polygon to fix.
+        min_clearance: Target minimum clearance value.
+        max_iterations: Maximum number of fix passes (default: 10).
+        min_area_ratio: Minimum fraction of original area to retain (default: 0.9).
+        return_diagnosis: If True, return (polygon, ClearanceFixSummary).
+
+    Returns:
+        Fixed polygon, or (polygon, ClearanceFixSummary) if return_diagnosis=True.
+
+    Raises:
+        TypeError: If geometry is not a Polygon.
+        ValueError: If min_area_ratio is not in (0, 1].
+    """
     if not isinstance(geometry, Polygon):
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
 
@@ -790,7 +805,18 @@ def _default_clearance_issue(_: ClearanceContext, __: float) -> ClearanceIssue:
 
 
 def diagnose_clearance(geometry: Polygon, min_clearance: float) -> ClearanceDiagnosis:
-    """Diagnose clearance issues without fixing them."""
+    """Diagnose clearance issues in a polygon without modifying it.
+
+    Args:
+        geometry: Input polygon to diagnose.
+        min_clearance: Target minimum clearance value.
+
+    Returns:
+        ClearanceDiagnosis with issue type, current clearance, and recommended fix.
+
+    Raises:
+        TypeError: If geometry is not a Polygon.
+    """
     if not isinstance(geometry, Polygon):
         raise TypeError(f"Expected Polygon, got {type(geometry).__name__}")
 

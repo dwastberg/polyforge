@@ -80,19 +80,13 @@ def deduplicate_vertices(
 def simplify_rdp(geometry: BaseGeometry, epsilon: float) -> BaseGeometry:
     """Simplify geometry using the Ramer-Douglas-Peucker algorithm.
 
-    RDP is a classic line simplification algorithm that recursively removes vertices
-    that are within epsilon distance from the line connecting their neighbors. It's
-    fast and produces good results for most use cases.
-
     Args:
         geometry: Shapely geometry to simplify (any type)
         epsilon: Tolerance value - vertices within this distance from simplified
             line segments will be removed. Larger values = more simplification.
-            Suggested starting value: 1.0, or try 0.01-0.001 for fine-tuning.
 
     Returns:
-        New Shapely geometry of the same type with fewer vertices
-
+        New Shapely geometry of the same type with fewer vertices.
     """
     return process_geometry(geometry, simplify_rdp_coords, epsilon=epsilon)
 
@@ -100,18 +94,13 @@ def simplify_rdp(geometry: BaseGeometry, epsilon: float) -> BaseGeometry:
 def simplify_vw(geometry: BaseGeometry, threshold: float) -> BaseGeometry:
     """Simplify geometry using the Visvalingam-Whyatt algorithm.
 
-    VW progressively removes vertices with the smallest effective area until
-    the threshold is reached. This often produces more visually pleasing results
-    than RDP for certain datasets.
-
     Args:
         geometry: Shapely geometry to simplify (any type)
         threshold: Area threshold - vertices contributing less than this area
             will be removed. Larger values = more simplification.
 
     Returns:
-        New Shapely geometry of the same type with fewer vertices
-
+        New Shapely geometry of the same type with fewer vertices.
     """
     return process_geometry(geometry, simplify_vw_coords, threshold=threshold)
 
@@ -119,19 +108,13 @@ def simplify_vw(geometry: BaseGeometry, threshold: float) -> BaseGeometry:
 def simplify_vwp(geometry: BaseGeometry, threshold: float) -> BaseGeometry:
     """Simplify geometry using topology-preserving Visvalingam-Whyatt.
 
-    This is a slower but more robust variant of VW that ensures the output
-    geometry remains topologically valid. Recommended when validity is critical.
-
     Args:
         geometry: Shapely geometry to simplify (any type)
         threshold: Area threshold - vertices contributing less than this area
             will be removed. Larger values = more simplification.
 
     Returns:
-        New Shapely geometry of the same type with fewer vertices, guaranteed
-        to be topologically valid
-
-
+        New Shapely geometry of the same type with fewer vertices.
     """
     return process_geometry(geometry, simplify_vwp_coords, threshold=threshold)
 

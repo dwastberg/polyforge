@@ -28,7 +28,16 @@ def resolve_overlap_pair(
     poly2: Polygon,
     overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
 ) -> tuple[Polygon, Polygon]:
-    """Resolve an overlap between two polygons using the requested strategy."""
+    """Resolve an overlap between two polygons using the requested strategy.
+
+    Args:
+        poly1: First input polygon.
+        poly2: Second input polygon.
+        overlap_strategy: How to resolve the overlap (default: SPLIT).
+
+    Returns:
+        Tuple of (poly1_result, poly2_result) with the overlap resolved.
+    """
     overlap_strategy = coerce_enum(overlap_strategy, OverlapStrategy)
 
     # Handle full containment separately so we don't loop forever with an unchanged pair.
@@ -55,7 +64,16 @@ def remove_overlaps(
     overlap_strategy: OverlapStrategy = OverlapStrategy.SPLIT,
     max_iterations: int = 100,
 ) -> list[Polygon]:
-    """Remove overlaps from a list of polygons using the shared overlap engine."""
+    """Remove overlaps from a list of polygons using the shared overlap engine.
+
+    Args:
+        polygons: List of input polygons.
+        overlap_strategy: How to resolve each overlapping pair (default: SPLIT).
+        max_iterations: Maximum number of resolution passes (default: 100).
+
+    Returns:
+        List of polygons with overlaps resolved.
+    """
     if not polygons:
         return []
 
@@ -116,7 +134,15 @@ def remove_overlaps(
 
 
 def count_overlaps(polygons: list[Polygon], min_area_threshold: float = 1e-10) -> int:
-    """Count the number of overlapping polygon pairs."""
+    """Count the number of overlapping polygon pairs.
+
+    Args:
+        polygons: List of input polygons.
+        min_area_threshold: Minimum overlap area to count as an overlap (default: 1e-10).
+
+    Returns:
+        Number of overlapping pairs.
+    """
     if not polygons:
         return 0
 
@@ -140,7 +166,15 @@ def find_overlapping_groups(
     polygons: list[Polygon],
     min_area_threshold: float = 1e-10,
 ) -> list[list[int]]:
-    """Return components of polygons where overlaps are present."""
+    """Return connected components of polygons that overlap each other.
+
+    Args:
+        polygons: List of input polygons.
+        min_area_threshold: Minimum overlap area to consider as connected (default: 1e-10).
+
+    Returns:
+        List of groups, each group is a sorted list of polygon indices that overlap.
+    """
     if not polygons:
         return []
 
@@ -179,20 +213,15 @@ def find_close_polygon_groups(
     polygons: list[Polygon],
     distance: float,
 ) -> list[list[int]]:
-    """Find groups of polygons that are within ``distance`` of each other.
+    """Find groups of polygons that are within distance of each other.
 
-    Parameters
-    ----------
-    polygons:
-        Input polygons.
-    distance:
-        Maximum distance between polygons to be considered a group.
+    Args:
+        polygons: Input polygons.
+        distance: Maximum distance between polygons to be considered a group.
 
-    Returns
-    -------
-    list[list[int]]
+    Returns:
         Groups of polygon indices (2+ members each) where every polygon is
-        within ``distance`` of at least one other polygon in the group.
+        within distance of at least one other polygon in the group.
         Isolated polygons with no close neighbors are omitted.
     """
     if len(polygons) < 2:

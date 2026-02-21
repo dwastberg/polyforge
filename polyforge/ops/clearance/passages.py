@@ -423,16 +423,16 @@ def fix_narrow_passage(
 ) -> Polygon | MultiPolygon:
     """Fix narrow passages (hourglass/neck shapes) that cause low clearance.
 
-      Args:
-        geometry: Input polygon
-        min_clearance: Target minimum clearance
+    Args:
+        geometry: Input polygon.
+        min_clearance: Target minimum clearance.
         strategy: How to fix the passage:
             - PassageStrategy.WIDEN: Move vertices apart at narrow point (default)
             - PassageStrategy.SPLIT: Split into separate polygons at narrow point
-            - PassgaeStrategy.ARAP: Use ARAP-based offsetting to widen passage
+            - PassageStrategy.ARAP: Use ARAP-based offsetting to widen passage
 
     Returns:
-        Fixed geometry (Polygon if widened, MultiPolygon if split)
+        Fixed geometry (Polygon if widened, MultiPolygon if split).
     """
     strategy_enum = coerce_enum(strategy, PassageStrategy)
 
@@ -451,7 +451,16 @@ def fix_near_self_intersection(
     min_clearance: float,
     strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
-    """Fix near self-intersections where edges come very close."""
+    """Fix near self-intersections where edges come very close.
+
+    Args:
+        geometry: Input polygon.
+        min_clearance: Target minimum clearance.
+        strategy: Fixing strategy (default: SIMPLIFY).
+
+    Returns:
+        Fixed polygon.
+    """
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     context = _find_self_intersection_vertices(geometry)
     current_clearance = context.clearance if context else geometry.minimum_clearance
@@ -472,7 +481,16 @@ def fix_parallel_close_edges(
     min_clearance: float,
     strategy: IntersectionStrategy | str = IntersectionStrategy.SIMPLIFY,
 ) -> Polygon:
-    """Fix parallel edges that run too close to each other."""
+    """Fix parallel edges that run too close to each other.
+
+    Args:
+        geometry: Input polygon.
+        min_clearance: Target minimum clearance.
+        strategy: Fixing strategy (default: SIMPLIFY).
+
+    Returns:
+        Fixed polygon.
+    """
     strategy_enum = coerce_enum(strategy, IntersectionStrategy)
     current_clearance = geometry.minimum_clearance
     if current_clearance >= min_clearance:

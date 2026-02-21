@@ -35,7 +35,19 @@ def robust_fix_geometry(
     merge_constraints: MergeConstraints | None = None,
     verbose: bool = False,
 ) -> tuple[BaseGeometry, FixWarning | None]:
-    """Fix a single geometry using the lightweight pipeline."""
+    """Fix a single geometry iteratively until all constraints are satisfied.
+
+    Args:
+        geometry: Shapely geometry to fix.
+        constraints: Quality requirements that must be satisfied.
+        max_iterations: Maximum number of fix passes (default: 20).
+        raise_on_failure: If True, raise FixWarning instead of returning it.
+        merge_constraints: Optional merge configuration for multi-component geometries.
+        verbose: If True, print progress information.
+
+    Returns:
+        Tuple of (fixed_geometry, warning_or_None).
+    """
     original_input = geometry
     prepared = _prepare_geometry(geometry)
     config = config_from_constraints(constraints)
@@ -78,7 +90,20 @@ def robust_fix_batch(
     properties: list[dict[str, Any]] | None = None,
     verbose: bool = False,
 ) -> tuple[list[BaseGeometry], list[FixWarning | None], list[dict[str, Any]] | None]:
-    """Apply :func:`robust_fix_geometry` to multiple geometries."""
+    """Apply robust_fix_geometry to a batch of geometries with overlap resolution.
+
+    Args:
+        geometries: List of Shapely geometries to fix.
+        constraints: Quality requirements that must be satisfied.
+        max_iterations: Maximum fix passes per geometry (default: 20).
+        handle_overlaps: If True, resolve overlaps between geometries after fixing.
+        merge_constraints: Optional merge configuration for multi-component geometries.
+        properties: Optional list of property dicts aligned with geometries.
+        verbose: If True, print progress information.
+
+    Returns:
+        Tuple of (fixed_geometries, warnings_list, properties_or_None).
+    """
     if not geometries:
         return ([], [], None) if properties is None else ([], [], [])
 

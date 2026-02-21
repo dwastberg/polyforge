@@ -25,25 +25,18 @@ def merge_close_polygons(
     insert_vertices: bool = False,
 ) -> list[Polygon] | tuple[list[Polygon], list[list[int]]]:
     """Merge polygons that overlap or are within margin distance.
+
     Args:
-        polygons: List of input polygons
-        margin: Maximum distance for merging (0.0 = only overlapping polygons)
-        merge_strategy: Merging strategy (enum or string literal):
-            - MergeStrategy.SIMPLE_BUFFER: Classic expand-contract (fast, changes shape)
-            - MergeStrategy.SELECTIVE_BUFFER: Only buffer near gaps (good balance, default)
-            - MergeStrategy.VERTEX_MOVEMENT: Move vertices toward each other (precise)
-            - MergeStrategy.BOUNDARY_EXTENSION: Extend parallel edges (best for buildings)
-            - MergeStrategy.CONVEX_BRIDGES: Use convex hull bridges (smooth connections)
-          String values should match the enum value names (e.g., ``"selective_buffer"``).
-        preserve_holes: Whether to preserve interior holes when merging
+        polygons: List of input polygons.
+        margin: Maximum distance for merging (0.0 = only overlapping polygons).
+        merge_strategy: Merging strategy enum or string (default: SELECTIVE_BUFFER).
+        preserve_holes: Whether to preserve interior holes when merging.
         return_mapping: If True, return (merged_polygons, groups) where groups[i]
-                       contains indices of original polygons that were merged
-        insert_vertices: If True, insert vertices at optimal connection points
-                        before merging. This improves bridge precision for all
-                        strategies by providing exact anchor points at gaps.
+            contains indices of original polygons that were merged.
+        insert_vertices: If True, insert vertices at connection points before merging.
 
     Returns:
-        List of merged polygons, or (polygons, groups) if return_mapping=True
+        List of merged polygons, or (polygons, groups) if return_mapping=True.
     """
     if not polygons:
         return ([], []) if return_mapping else []
