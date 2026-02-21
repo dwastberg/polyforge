@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 

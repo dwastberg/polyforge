@@ -1,10 +1,4 @@
-"""Shared measurement helpers for polyforge geometries.
-
-The high-level pipeline only needs a handful of scalar metrics to decide
-whether a given geometry is getting better or worse. Centralizing the logic
-here keeps the rest of the codebase free from ad-hoc ``minimum_clearance`` or
-area checks.
-"""
+from __future__ import annotations
 
 from collections.abc import Iterable
 

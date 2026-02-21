@@ -1,14 +1,4 @@
-"""Geometry simplification functions.
-
-This module provides high-level functions for simplifying Shapely geometries
-by removing or snapping vertices based on various criteria. All public functions
-accept and return Shapely geometry objects.
-
-Includes wrappers for the high-performance simplification library algorithms:
-- Ramer-Douglas-Peucker (RDP)
-- Visvalingam-Whyatt (VW)
-- Topology-preserving Visvalingam-Whyatt (VWP)
-"""
+from __future__ import annotations
 
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry import Polygon, MultiPolygon

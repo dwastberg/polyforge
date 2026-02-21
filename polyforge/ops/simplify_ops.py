@@ -1,10 +1,4 @@
-"""Coordinate-level simplification helpers.
-
-These functions operate purely on NumPy arrays so they can be reused by any
-geometry wrapper (process_geometry, pipeline steps, etc.) without pulling in
-the heavy orchestration layers. They contain the logic that used to live inside
-``polyforge.simplify``.
-"""
+from __future__ import annotations
 
 from typing import Literal
 

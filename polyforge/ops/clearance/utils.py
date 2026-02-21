@@ -1,7 +1,4 @@
-"""Utility functions for clearance operations.
-
-This module provides geometric utility functions used by clearance fix functions.
-"""
+from __future__ import annotations
 
 import numpy as np
 from shapely.geometry import Point

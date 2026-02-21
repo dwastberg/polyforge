@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import shapely
 from shapely.geometry import Polygon, MultiPolygon, box
 from shapely import affinity

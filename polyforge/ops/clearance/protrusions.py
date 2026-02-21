@@ -1,8 +1,4 @@
-"""Functions for fixing narrow protrusions and sharp intrusions.
-
-This module provides functions to handle thin spikes, peninsulas, and
-sharp indentations that create low minimum clearance.
-"""
+from __future__ import annotations
 
 import numpy as np
 from shapely.geometry import Polygon, Point

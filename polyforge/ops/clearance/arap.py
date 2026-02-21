@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import shapely
 from scipy.sparse import lil_matrix, csc_matrix

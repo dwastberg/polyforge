@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.strtree import STRtree
 from shapely.ops import unary_union

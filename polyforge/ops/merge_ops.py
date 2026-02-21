@@ -1,5 +1,7 @@
 """Merge-related geometry helpers shared across strategies."""
 
+from __future__ import annotations
+
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points

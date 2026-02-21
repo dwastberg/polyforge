@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, Point
 from shapely.geometry.base import BaseGeometry
