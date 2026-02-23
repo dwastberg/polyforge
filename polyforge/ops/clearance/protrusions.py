@@ -277,6 +277,54 @@ def _make_intrusion_candidate_builder(
     return _builder
 
 
+def _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth):
+    """Detect wedge candidates in a coordinate list.
+
+    Returns list of dicts with keys: tip, left, right, depth, width, ratio.
+    """
+    n = len(coords)
+    wedges = []
+    for i in range(n):
+        prev = coords[(i - 1) % n]
+        curr = coords[i]
+        nxt = coords[(i + 1) % n]
+
+        ang = _angle(prev, curr, nxt)
+        if ang > angle_threshold:
+            continue
+
+        if not _is_concave(prev, curr, nxt, orientation=1):
+            continue
+
+        left_chain, right_chain = _trace_wedge(coords, i, 1)
+
+        join = _find_best_join(coords, left_chain, right_chain)
+        if not join:
+            continue
+
+        li, ri, width = join
+
+        depth = _compute_depth(coords, i, left_chain, right_chain)
+        if depth < min_depth or width <= 0:
+            continue
+
+        ratio = depth / width
+        if ratio < depth_width_ratio:
+            continue
+
+        wedges.append(
+            {
+                "tip": i,
+                "left": li,
+                "right": ri,
+                "depth": depth,
+                "width": width,
+                "ratio": ratio,
+            }
+        )
+    return wedges
+
+
 def remove_narrow_wedges(
     polygon: Polygon,
     angle_threshold=20,
@@ -307,75 +355,21 @@ def remove_narrow_wedges(
     polygon = orient(polygon, sign=1.0)  # CCW
 
     coords = list(polygon.exterior.coords[:-1])  # drop closing dup
-    n = len(coords)
-
-    wedges = []
 
     # --------------------------------------------------
-    # find candidate wedge tips
+    # iteratively detect and remove wedges
     # --------------------------------------------------
-    for i in range(n):
-        prev = coords[(i - 1) % n]
-        curr = coords[i]
-        nxt = coords[(i + 1) % n]
+    max_removals = len(coords)  # safety bound
+    for _ in range(max_removals):
+        wedges = _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth)
+        if not wedges:
+            break
 
-        ang = _angle(prev, curr, nxt)
+        # take the worst wedge (highest depth/width ratio)
+        worst = max(wedges, key=lambda w: w["ratio"])
+        coords = _splice_polygon(coords, worst["left"], worst["right"])
 
-        if ang > angle_threshold:
-            continue
-
-        if not _is_concave(prev, curr, nxt, orientation=1):
-            continue
-
-        # trace wedge
-        left_chain, right_chain = _trace_wedge(coords, i, 1)
-
-        join = _find_best_join(coords, left_chain, right_chain)
-        if not join:
-            continue
-
-        li, ri, width = join
-
-        depth = _compute_depth(coords, i, left_chain, right_chain)
-
-        if depth < min_depth:
-            continue
-
-        if width <= 0:
-            continue
-
-        ratio = depth / width
-
-        if ratio < depth_width_ratio:
-            continue
-
-        wedges.append(
-            {
-                "tip": i,
-                "left": li,
-                "right": ri,
-                "depth": depth,
-                "width": width,
-                "ratio": ratio,
-            }
-        )
-
-    if not wedges:
-        return polygon
-
-    # sort by severity
-    wedges.sort(key=lambda w: w["ratio"], reverse=True)
-
-    if not remove_multiple:
-        wedges = [wedges[0]]
-
-    # --------------------------------------------------
-    # remove wedges
-    # --------------------------------------------------
-    for w in wedges:
-        coords = _splice_polygon(coords, w["left"], w["right"])
-
-        # reset polygon after each splice
+        # rebuild polygon after splice
         if coords[0] != coords[-1]:
             coords.append(coords[0])
 
@@ -383,8 +377,14 @@ def remove_narrow_wedges(
 
         if not polygon.is_valid:
             polygon = make_valid(polygon)
-
+        if polygon.geom_type == "MultiPolygon":
+            polygon = max(polygon.geoms, key=lambda p: p.area)
+        if not hasattr(polygon, "exterior"):
+            break
         coords = list(polygon.exterior.coords[:-1])
+
+        if not remove_multiple:
+            break
 
     return polygon
 

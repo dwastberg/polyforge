@@ -108,6 +108,10 @@ def process_geometry(
             exterior_coords, process_function, *args, **kwargs
         )
 
+        if len(processed_exterior) < 4:
+            # Invalid polygon, return original geometry
+            return geometry
+
         # Process interior rings (holes)
         processed_interiors = []
         for interior in geometry.interiors:
@@ -117,7 +121,6 @@ def process_geometry(
             )
             if len(processed_interior) >= 4:  # Valid ring must have at least 4 points
                 processed_interiors.append(processed_interior)
-
         return Polygon(processed_exterior, holes=processed_interiors)
 
     elif geom_type == "MultiLineString":
