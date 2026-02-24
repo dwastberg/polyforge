@@ -64,6 +64,10 @@ _ACUTE_TIP_ANGLE = 20.0
 # geometrically 1.0.
 _CLEARANCE_TOLERANCE = 1e-9
 
+# Maximum allowed area growth factor. Clearance fixes should not significantly
+# increase polygon area (e.g., by filling in concavities).
+_AREA_GROWTH_TOLERANCE = 1.01
+
 
 class ClearanceIssue(Enum):
     """Enumerates the types of clearance problems we can detect."""
@@ -149,6 +153,7 @@ def fix_clearance(
 
     initial_clearance = geometry.minimum_clearance
     original_area = geometry.area
+    original_exterior_area = Polygon(geometry.exterior).area
     summary = ClearanceFixSummary(
         initial_clearance=initial_clearance,
         final_clearance=initial_clearance,
@@ -162,6 +167,34 @@ def fix_clearance(
 
     if summary.fixed:
         return (geometry, summary) if return_diagnosis else geometry
+
+    # --- Phase 0: Deduplicate near-duplicate vertices ---
+    # Near-duplicate vertices on any ring are a data quality issue that causes
+    # Shapely's minimum_clearance to report tiny values.  Deduplicating them
+    # first often resolves the bottleneck entirely, avoiding misdiagnosis
+    # (e.g., hole-ring self-clearance mistaken for hole-too-close).
+    dedup_tolerance = min_clearance * 0.1
+    dedup_candidate = _dedup_ring_vertices(geometry, dedup_tolerance)
+    if dedup_candidate is not None and dedup_candidate.is_valid and not dedup_candidate.is_empty:
+        dedup_clearance = _safe_clearance(dedup_candidate) or 0.0
+        if dedup_clearance >= min_clearance:
+            final_area_ratio = (
+                dedup_candidate.area / original_area if original_area > 0 else float("inf")
+            )
+            summary = ClearanceFixSummary(
+                initial_clearance=initial_clearance,
+                final_clearance=dedup_clearance,
+                area_ratio=final_area_ratio,
+                iterations=1,
+                issue=ClearanceIssue.NONE,
+                fixed=True,
+                valid=dedup_candidate.is_valid,
+                history=[ClearanceIssue.NONE],
+            )
+            return (dedup_candidate, summary) if return_diagnosis else dedup_candidate
+        # Continue with deduplicated geometry even if clearance not yet met
+        geometry = dedup_candidate
+        original_exterior_area = Polygon(geometry.exterior).area
 
     issue_history: list[ClearanceIssue] = []
 
@@ -200,14 +233,19 @@ def fix_clearance(
         if diagnosis.issue == ClearanceIssue.NONE:
             return None
         candidate = _apply_clearance_strategy(poly, target, diagnosis)
+        # If standard strategy failed, try hole ring simplification for
+        # same-hole self-clearance issues.
+        if candidate is None or not candidate.is_valid or candidate.is_empty:
+            candidate = _try_hole_ring_fix(poly, target)
         if candidate is None or not candidate.is_valid or candidate.is_empty:
             return None
         nonlocal best_valid
         if candidate.area < min_area_ratio * original_area:
             return None
-        # Reject candidates that grow the polygon excessively
-        max_area = original_area / min_area_ratio
-        if candidate.area > max_area:
+        # Reject candidates that grow the exterior ring beyond a small tolerance.
+        # We check exterior area (not polygon area) so that hole fixes—which
+        # legitimately increase polygon area by shrinking holes—are not blocked.
+        if Polygon(candidate.exterior).area > original_exterior_area * _AREA_GROWTH_TOLERANCE:
             return None
         cand_clearance = _safe_clearance(candidate) or 0.0
         best_clearance = _safe_clearance(best_valid) or 0.0
@@ -269,7 +307,7 @@ StrategyFunc = Callable[[Polygon, float, ClearanceDiagnosis], Polygon | None]
 RECOMMENDED_FIXES: dict[ClearanceIssue, str] = {
     ClearanceIssue.NONE: "none",
     ClearanceIssue.HOLE_TOO_CLOSE: "fix_hole_too_close",
-    ClearanceIssue.NARROW_PROTRUSION: "remove_narrow_protrusions",
+    ClearanceIssue.NARROW_PROTRUSION: "fix_narrow_protrusion",
     ClearanceIssue.NARROW_WEDGE: "fill_narrow_wedge",
     ClearanceIssue.NARROW_PASSAGE: "fix_narrow_passage",
     ClearanceIssue.NEAR_SELF_INTERSECTION: "fix_near_self_intersection",
@@ -363,10 +401,19 @@ def _strategy_narrow_protrusion(
     diagnosis: ClearanceDiagnosis,
 ) -> Polygon | None:
     baseline = diagnosis.current_clearance
-    first_pass = remove_narrow_protrusions(geometry, aspect_ratio_threshold=6.0)
-    if first_pass.is_valid and (_safe_clearance(first_pass) or 0.0) > baseline:
-        return first_pass
-    return fix_narrow_protrusion(geometry, min_clearance)
+    # Try targeted fix first — moves vertices apart at the clearance bottleneck
+    result = fix_narrow_protrusion(geometry, min_clearance)
+    if result is not None and result.is_valid and (_safe_clearance(result) or 0.0) > baseline:
+        return result
+    # Fallback: blunt vertex removal for micro-features that targeted fix can't resolve
+    fallback = remove_narrow_protrusions(geometry, aspect_ratio_threshold=6.0)
+    if (
+        fallback.is_valid
+        and fallback.area <= geometry.area * _AREA_GROWTH_TOLERANCE
+        and (_safe_clearance(fallback) or 0.0) > baseline
+    ):
+        return fallback
+    return None
 
 
 @_register_strategy(ClearanceIssue.NARROW_WEDGE)
@@ -426,6 +473,127 @@ def _strategy_default(
     return fix_narrow_passage(geometry, min_clearance, strategy=PassageStrategy.WIDEN)
 
 
+def _dedup_ring_coords(coords: np.ndarray, tolerance: float) -> np.ndarray | None:
+    """Remove near-duplicate vertices from a closed ring, including across the seam.
+
+    Returns deduplicated coordinates (closed ring) or None if the ring would
+    become degenerate (< 4 coords including closing vertex).
+    """
+    n = len(coords) - 1  # exclude closing vertex
+    if n < 3:
+        return None
+
+    # Mark vertices to keep (all True initially)
+    keep = [True] * n
+    prev_kept = 0
+    for i in range(1, n):
+        dist = float(np.linalg.norm(coords[i][:2] - coords[prev_kept][:2]))
+        if dist <= tolerance:
+            keep[i] = False
+        else:
+            prev_kept = i
+
+    # Check seam: if last kept vertex is near-duplicate of first kept vertex
+    last_kept = max(i for i in range(n) if keep[i])
+    first_kept = min(i for i in range(n) if keep[i])
+    if last_kept != first_kept:
+        seam_dist = float(np.linalg.norm(coords[last_kept][:2] - coords[first_kept][:2]))
+        if seam_dist <= tolerance:
+            keep[last_kept] = False
+
+    result = [coords[i] for i in range(n) if keep[i]]
+    if len(result) < 3:
+        return None
+
+    # Close the ring
+    result.append(result[0].copy())
+    return np.array(result)
+
+
+def _dedup_ring_vertices(geometry: Polygon, tolerance: float) -> Polygon | None:
+    """Deduplicate near-duplicate vertices on all rings of a polygon.
+
+    Handles the ring seam correctly (where last unique vertex meets first).
+    Returns None if deduplication would create a degenerate geometry.
+    """
+    ext_coords = np.array(geometry.exterior.coords)
+    new_ext = _dedup_ring_coords(ext_coords, tolerance)
+    if new_ext is None or len(new_ext) < 4:
+        return None
+
+    new_holes = []
+    for hole in geometry.interiors:
+        hole_coords = np.array(hole.coords)
+        new_hole = _dedup_ring_coords(hole_coords, tolerance)
+        if new_hole is not None and len(new_hole) >= 4:
+            new_holes.append(new_hole)
+        # If a hole becomes degenerate, drop it (this is acceptable)
+
+    try:
+        result = Polygon(new_ext, new_holes)
+        if result.is_valid and not result.is_empty:
+            return result
+    except (GEOSException, ValueError):
+        pass
+    return None
+
+
+def _try_hole_ring_fix(geometry: Polygon, min_clearance: float) -> Polygon | None:
+    """Try to fix clearance by simplifying the offending hole ring.
+
+    Checks if the minimum_clearance bottleneck is on a single hole ring.
+    If so, simplifies that hole to resolve the issue.
+    """
+    context = _build_clearance_context(geometry, min_clearance)
+    if context is None:
+        return None
+    # Only applies to same-hole self-clearance
+    if not (
+        context.ring_types == ("hole", "hole")
+        and context.hole_indices[0] is not None
+        and context.hole_indices[0] == context.hole_indices[1]
+    ):
+        return None
+
+    current_clearance = _safe_clearance(geometry) or 0.0
+    candidate = _simplify_hole_ring(geometry, context.hole_indices[0], min_clearance)
+    if candidate is not None and candidate.is_valid:
+        new_clearance = _safe_clearance(candidate) or 0.0
+        if new_clearance > current_clearance:
+            return candidate
+    return None
+
+
+def _simplify_hole_ring(
+    geometry: Polygon, hole_index: int, min_clearance: float
+) -> Polygon | None:
+    """Simplify a specific hole ring to resolve self-clearance issues.
+
+    Uses Shapely's simplify on the offending hole ring with a tolerance
+    derived from min_clearance, then reconstructs the polygon.
+    """
+    holes = list(geometry.interiors)
+    if hole_index < 0 or hole_index >= len(holes):
+        return None
+
+    hole_ring = holes[hole_index]
+    simplified = Polygon(hole_ring).simplify(min_clearance * 0.5)
+    if simplified.is_empty or not simplified.is_valid:
+        # If simplification destroys the hole, remove it
+        new_holes = [h for i, h in enumerate(holes) if i != hole_index]
+    else:
+        new_holes = list(holes)
+        new_holes[hole_index] = simplified.exterior
+
+    try:
+        result = Polygon(geometry.exterior, new_holes)
+        if result.is_valid and not result.is_empty:
+            return result
+    except (GEOSException, ValueError):
+        pass
+    return None
+
+
 def _normalize_polygon(candidate: BaseGeometry | None) -> Polygon | None:
     if candidate is None:
         return None
@@ -458,7 +626,17 @@ def _diagnose_clearance_issue(
         return ClearanceIssue.UNKNOWN
 
     if "hole" in context.ring_types:
-        return ClearanceIssue.HOLE_TOO_CLOSE
+        # Distinguish same-hole self-clearance from genuine hole proximity.
+        # If both endpoints are on the *same* hole ring, it's a ring geometry
+        # issue (e.g., near-duplicate vertices, pinch) — let the heuristic
+        # chain diagnose it.  Otherwise it's genuine hole-too-close.
+        same_hole = (
+            context.ring_types == ("hole", "hole")
+            and context.hole_indices[0] is not None
+            and context.hole_indices[0] == context.hole_indices[1]
+        )
+        if not same_hole:
+            return ClearanceIssue.HOLE_TOO_CLOSE
 
     for heuristic in (
         _looks_like_narrow_wedge,
@@ -475,8 +653,12 @@ def _diagnose_clearance_issue(
 
 def _classify_ring_types(
     geometry: Polygon, pt1: tuple[float, float], pt2: tuple[float, float]
-) -> tuple[str, str]:
-    """Return ring type ('exterior' or 'hole') for each endpoint of the clearance line."""
+) -> tuple[tuple[str, int | None], tuple[str, int | None]]:
+    """Return (ring_type, hole_index) for each endpoint of the clearance line.
+
+    ring_type is 'exterior' or 'hole'. hole_index is the index into
+    geometry.interiors when ring_type == 'hole', else None.
+    """
 
     def classify(point: tuple[float, float]) -> tuple[str, int | None]:
         p = Point(point)
@@ -495,12 +677,14 @@ def _classify_ring_types(
             return "hole", hole_idx
         return "exterior", None
 
-    t1, _ = classify(pt1)
-    t2, _ = classify(pt2)
-    return t1, t2
+    c1 = classify(pt1)
+    c2 = classify(pt2)
+    return c1, c2
+
 
 
 def _has_close_hole(geometry: Polygon, min_clearance: float) -> bool:
+    """Check if any hole is closer than *min_clearance* to the exterior ring."""
     if not geometry.interiors:
         return False
     exterior_ring = LinearRing(geometry.exterior.coords)
@@ -573,11 +757,13 @@ def _build_clearance_context(
         return None
 
     pt1, pt2 = coords_2d[:2]
-    ring_types = _classify_ring_types(geometry, pt1, pt2)
+    classified = _classify_ring_types(geometry, pt1, pt2)
+    (ring_type1, hole_idx1), (ring_type2, hole_idx2) = classified
+    ring_types = (ring_type1, ring_type2)
 
     # Map endpoints to the correct ring for curvature analysis
-    ring1_coords = _get_ring_coords_for_point(geometry, pt1, ring_types[0])
-    ring2_coords = _get_ring_coords_for_point(geometry, pt2, ring_types[1])
+    ring1_coords = _get_ring_coords_for_point(geometry, pt1, ring_type1)
+    ring2_coords = _get_ring_coords_for_point(geometry, pt2, ring_type2)
 
     idx1 = _find_nearest_vertex_index(ring1_coords, pt1)
     idx2 = _find_nearest_vertex_index(ring2_coords, pt2)
@@ -587,37 +773,62 @@ def _build_clearance_context(
 
     # Separation and edge angle only meaningful when both on the same ring
     exterior_coords = np.array(geometry.exterior.coords)
-    n = len(exterior_coords) - 1
+    n_exterior = len(exterior_coords) - 1
 
-    if ring_types[0] == ring_types[1] == "exterior":
-        separation = min(abs(idx2 - idx1), n - abs(idx2 - idx1))
+    # Check if both endpoints are on the same ring (exterior or same hole)
+    same_ring = False
+    shared_ring_coords = None
+    if ring_type1 == ring_type2 == "exterior":
+        same_ring = True
+        shared_ring_coords = exterior_coords
+    elif (
+        ring_type1 == ring_type2 == "hole"
+        and hole_idx1 is not None
+        and hole_idx1 == hole_idx2
+    ):
+        # Both on the same hole ring — treat like same-ring analysis
+        same_ring = True
+        shared_ring_coords = ring1_coords
+
+    if same_ring and shared_ring_coords is not None:
+        n_ring = len(shared_ring_coords) - 1
+        # Recompute indices on the shared ring
+        ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
+        ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
+        separation = min(abs(ring_idx2 - ring_idx1), n_ring - abs(ring_idx2 - ring_idx1))
         edge_angle_similarity = _compute_edge_angle_similarity(
-            exterior_coords, idx1, idx2
+            shared_ring_coords, ring_idx1, ring_idx2
         )
     else:
         # Points on different rings: use large separation to avoid
         # misclassifying as protrusion or near-self-intersection
-        separation = max(n, 10)
+        n_ring = n_exterior
+        separation = max(n_exterior, 10)
         edge_angle_similarity = None
 
     narrow_extent = 0
-    if ring_types[0] == ring_types[1] == "exterior" and min_clearance > 0:
+    if same_ring and shared_ring_coords is not None and min_clearance > 0:
+        ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
+        ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
         narrow_extent = _compute_narrow_extent(
-            exterior_coords, idx1, idx2, separation, min_clearance
+            shared_ring_coords, ring_idx1, ring_idx2, separation, min_clearance
         )
 
     tip_angle = None
-    if ring_types[0] == ring_types[1] == "exterior" and separation >= 2:
-        tip_angle = _compute_wedge_tip_angle(exterior_coords, idx1, idx2, separation)
+    if same_ring and shared_ring_coords is not None and separation >= 2:
+        ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
+        ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
+        tip_angle = _compute_wedge_tip_angle(shared_ring_coords, ring_idx1, ring_idx2, separation)
 
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
-        vertex_count=n,
+        vertex_count=n_exterior,
         ring_types=ring_types,
         edge_angle_similarity=edge_angle_similarity,
         narrow_extent=narrow_extent,
         tip_angle=tip_angle,
+        hole_indices=(hole_idx1, hole_idx2),
     )
 
 
@@ -630,6 +841,26 @@ class ClearanceContext:
     edge_angle_similarity: float | None = None
     narrow_extent: int = 0
     tip_angle: float | None = None
+    hole_indices: tuple[int | None, int | None] = (None, None)
+
+
+def _is_cross_ring(context: ClearanceContext) -> bool:
+    """Return True if the clearance endpoints are on different rings.
+
+    Same-ring cases (both exterior, or both on the *same* hole) return False
+    so that the normal heuristic chain can diagnose them.  Cross-ring cases
+    (exterior-to-hole, or different holes) return True.
+    """
+    if context.ring_types[0] == context.ring_types[1] == "exterior":
+        return False
+    if (
+        context.ring_types[0] == context.ring_types[1] == "hole"
+        and context.hole_indices[0] is not None
+        and context.hole_indices[0] == context.hole_indices[1]
+    ):
+        return False
+    # Different rings
+    return True
 
 
 # Minimum number of narrow vertex pairs beyond the clearance endpoints
@@ -696,7 +927,9 @@ def _looks_like_narrow_wedge(
     2. Angle-based: acute tip angle, even when the opening is wider than
        min_clearance.  Catches long, gradually tapered features.
     """
-    if "hole" in context.ring_types:
+    # Skip when endpoints are on different rings (cross-ring issues are
+    # handled elsewhere). Same-hole cases are allowed through.
+    if _is_cross_ring(context):
         return None
 
     # Path 1: Width-based detection (original)
@@ -729,7 +962,7 @@ def _looks_like_protrusion(
     moderate turns (>90 degrees) when the two endpoints are very close along
     the ring, which is typical of narrow fingers.
     """
-    if "hole" in context.ring_types:
+    if _is_cross_ring(context):
         return None
     curvature1, curvature2 = context.curvature
     if curvature1 > _PROTRUSION_SHARP_ANGLE or curvature2 > _PROTRUSION_SHARP_ANGLE:
@@ -753,7 +986,7 @@ def _looks_like_near_self_intersection(
     back on itself without forming a sharp spike.  This differs from a
     protrusion, where at least one vertex has a sharp turn.
     """
-    if "hole" in context.ring_types:
+    if _is_cross_ring(context):
         return None
     if context.separation <= _CLOSE_VERTEX_SEPARATION:
         curvature1, curvature2 = context.curvature
@@ -779,7 +1012,7 @@ def _looks_like_parallel_edges(
     ``_PARALLEL_EDGE_MAX_ANGLE`` degrees of each other.  Otherwise, falls back
     to a large ring-separation heuristic.
     """
-    if "hole" in context.ring_types:
+    if _is_cross_ring(context):
         return None
     if context.vertex_count <= 0:
         return None

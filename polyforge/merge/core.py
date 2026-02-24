@@ -7,7 +7,7 @@ from shapely.errors import GEOSException, TopologicalError
 
 from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
-from ..core.geometry_utils import remove_holes
+from ..core.geometry_utils import remove_holes, to_single_polygon
 from polyforge.ops.merge import (
     merge_simple_buffer,
     merge_selective_buffer,
@@ -25,6 +25,7 @@ def merge_close_polygons(
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False,
+    buffer_cleaning: bool = True,
 ) -> list[Polygon] | tuple[list[Polygon], list[list[int]]]:
     """Merge polygons that overlap or are within margin distance.
 
@@ -36,6 +37,7 @@ def merge_close_polygons(
         return_mapping: If True, return (merged_polygons, groups) where groups[i]
             contains indices of original polygons that were merged.
         insert_vertices: If True, insert vertices at connection points before merging.
+        buffer_cleaning: If True, apply a small buffering to clean up geometry after merging.
 
     Returns:
         List of merged polygons, or (polygons, groups) if return_mapping=True.
@@ -91,7 +93,18 @@ def merge_close_polygons(
             result.append(merged_group)
             if return_mapping:
                 mapping.append(group_indices)
-
+    if buffer_cleaning:
+        for idx, poly in enumerate(result):
+            if poly.is_empty:
+                continue
+            # Apply a tiny buffer to clean up geometry (fixes minor artifacts and internaL edges)
+            cleaned = poly.buffer(margin / 10, cap_style= 'flat', join_style= 'mitre' ).buffer(-margin / 100, cap_style= 'flat', join_style= 'mitre')
+            if cleaned.is_empty:
+                continue
+            if isinstance(cleaned, Polygon):
+                result[idx] = cleaned
+            elif isinstance(cleaned, MultiPolygon) and len(cleaned.geoms) == 1:
+                result[idx] = to_single_polygon(cleaned)
     return (result, mapping) if return_mapping else result
 
 

@@ -49,7 +49,7 @@ def fix_narrow_protrusion(
         min_clearance,
         max_iterations,
         candidate_builder,
-        min_area_ratio=0.5,
+        min_area_ratio=0.9,
     )
     return result
 

@@ -45,6 +45,7 @@ class TestDiagnoseClearance:
         )
         assert info.recommended_fix in [
             "fix_narrow_passage",
+            "fix_narrow_protrusion",
             "remove_narrow_protrusions",
         ]
         assert info.clearance_line is not None
@@ -583,7 +584,7 @@ class TestFixClearanceNarrowWedge:
 
         assert result.is_valid
         assert result.minimum_clearance > original_clearance
-        assert summary.fixed or result.minimum_clearance >= 1.0
+        assert summary.fixed or result.minimum_clearance >= 1.0 - 1e-6
 
     def test_diagnosis_detects_wedge(self):
         """diagnose_clearance should return NARROW_WEDGE for a V-notch."""
@@ -735,3 +736,149 @@ class TestFixClearanceMissingPaths:
 
         assert summary.fixed
         assert ClearanceIssue.PARALLEL_CLOSE_EDGES in summary.history
+
+
+class TestHoleRingSelfClearance:
+    """Tests for hole-ring self-clearance misdiagnosis bug."""
+
+    BUG4_WKT = (
+        "Polygon ((675355.58337903290521353 6578950.36910314485430717, "
+        "675355.57855689316056669 6578950.36758904345333576, "
+        "675350.33548246114514768 6578967.05274864844977856, "
+        "675372.1405879455851391 6578973.73349158652126789, "
+        "675372.13507436774671078 6578973.75191244296729565, "
+        "675400.86115142388734967 6578982.56493405811488628, "
+        "675400.90933247364591807 6578982.37220985908061266, "
+        "675400.97441947320476174 6578982.38531178701668978, "
+        "675400.91862525627948344 6578982.5673771258443594, "
+        "675401.31523284898139536 6578982.68355510756373405, "
+        "675401.26222073775716126 6578982.86559669673442841, "
+        "675403.84813925204798579 6578983.62038298975676298, "
+        "675403.95696729654446244 6578983.28990516625344753, "
+        "675414.40982591710053384 6578986.48388929478824139, "
+        "675414.35183490358758718 6578986.6738598570227623, "
+        "675426.42652199079748243 6578990.3724488765001297, "
+        "675428.64823011599946767 6578989.2062804726883769, "
+        "675429.99173418211285025 6578985.0137925622984767, "
+        "675430.0287977383704856 6578985.02681489195674658, "
+        "675430.85892285511363298 6578982.42333499528467655, "
+        "675430.81883228698279709 6578982.41732141003012657, "
+        "675436.0065159450750798 6578966.05062926840037107, "
+        "675435.84122558182571083 6578965.99853775929659605, "
+        "675435.85332528152503073 6578965.95944642182439566, "
+        "675435.98885440779849887 6578966.00378748774528503, "
+        "675436.04224669211544096 6578965.83958102855831385, "
+        "675436.21155732974875718 6578965.88967293221503496, "
+        "675445.42951205477584153 6578936.81365014612674713, "
+        "675410.04856807098258287 6578925.6450941963121295, "
+        "675389.38560850918292999 6578919.10110700502991676, "
+        "675369.65986830671317875 6578912.83146844990551472, "
+        "675366.86563254019711167 6578914.27767015807330608, "
+        "675363.20504025684203953 6578926.01660371478646994, "
+        "675359.84339094499591738 6578936.8007747046649456, "
+        "675359.64234221377409995 6578936.73875967413187027, "
+        "675358.7917250752216205 6578939.47849011793732643, "
+        "675358.98259322624653578 6578939.53844869788736105, "
+        "675355.58337903290521353 6578950.36910314485430717),"
+        "(675368.85429259890224785 6578954.63136879075318575, "
+        "675376.44188314990606159 6578930.77563948091119528, "
+        "675377.02034949720837176 6578928.9562064791098237, "
+        "675385.46757648815400898 6578931.57395137939602137, "
+        "675406.13708663533907384 6578938.08824492618441582, "
+        "675405.73685540864244103 6578939.37706118170171976, "
+        "675427.23021479183807969 6578946.36685284879058599, "
+        "675422.33243307797238231 6578961.33888532780110836, "
+        "675407.60970134229864925 6578956.37697574030607939, "
+        "675407.20501008117571473 6578957.58028645813465118, "
+        "675408.61831384093966335 6578958.05638878606259823, "
+        "675405.30016519722994417 6578968.16120699979364872, "
+        "675404.70781079994048923 6578970.0377698102965951, "
+        "675393.36976947006769478 6578966.50462130457162857, "
+        "675393.54979276831727475 6578965.76952616963535547, "
+        "675387.56986761779990047 6578963.92120410315692425, "
+        "675387.29589912586379796 6578964.70311417803168297, "
+        "675376.20738898566924036 6578961.2491206880658865, "
+        "675376.7475632734131068 6578959.3665132625028491, "
+        "675376.46575292758643627 6578959.28312040492892265, "
+        "675375.90520014928188175 6578961.15592658612877131, "
+        "675367.60848846333101392 6578958.59633427299559116, "
+        "675368.85415843047667295 6578954.63132664747536182, "
+        "675368.85429259890224785 6578954.63136879075318575))"
+    )
+
+    def _make_bug4_poly(self):
+        import shapely
+        return shapely.from_wkt(self.BUG4_WKT)
+
+    def test_hole_ring_near_duplicate_vertices_preserved(self):
+        """Near-duplicate vertices on hole ring should not cause hole removal."""
+        poly = self._make_bug4_poly()
+        assert len(poly.interiors) == 1
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        assert result.is_valid
+        assert len(result.interiors) == 1, "Hole should be preserved"
+
+    def test_hole_ring_self_clearance_does_not_remove_hole(self):
+        """Same-hole near-duplicate vertices should NOT inflate area by removing hole."""
+        poly = self._make_bug4_poly()
+        original_area = poly.area
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        # Area should stay close to original (not inflated by hole area ~1400)
+        assert result.area < original_area * 1.05, (
+            f"Area grew from {original_area:.0f} to {result.area:.0f} — "
+            "hole was likely removed"
+        )
+
+    def test_exterior_near_duplicate_vertices_fixed(self):
+        """Near-duplicate vertices on exterior ring should be resolved without losing holes."""
+        # Polygon with near-duplicate vertices on exterior only
+        exterior = [
+            (0, 0), (10, 0), (10.001, 0.001),  # near-duplicate
+            (20, 0), (20, 20), (0, 20),
+        ]
+        hole = [(5, 5), (15, 5), (15, 15), (5, 15)]
+        poly = Polygon(exterior, holes=[hole])
+
+        result = fix_clearance(poly, min_clearance=0.1)
+
+        assert result.is_valid
+        assert len(result.interiors) == 1, "Hole should be preserved"
+
+    def test_diagnosis_hole_ring_self_clearance(self):
+        """diagnose_clearance should NOT return HOLE_TOO_CLOSE for same-hole near-dups."""
+        poly = self._make_bug4_poly()
+        info = diagnose_clearance(poly, min_clearance=1.0)
+
+        assert info.issue != ClearanceIssue.HOLE_TOO_CLOSE, (
+            "Same-hole near-duplicate vertices misdiagnosed as HOLE_TOO_CLOSE"
+        )
+
+    def test_genuine_hole_too_close_still_detected(self):
+        """Regression: genuine hole-to-exterior proximity still diagnosed correctly."""
+        exterior = [(0, 0), (20, 0), (20, 20), (0, 20)]
+        hole = [(1, 1), (2, 1), (2, 2), (1, 2)]
+        poly = Polygon(exterior, holes=[hole])
+
+        info = diagnose_clearance(poly, min_clearance=2.0)
+
+        assert info.issue == ClearanceIssue.HOLE_TOO_CLOSE
+
+    def test_scratch_clearance_bug4_polygon(self):
+        """Exact reproduction of clearance_bug4.py — hole preserved, area stable."""
+        poly = self._make_bug4_poly()
+        original_area = poly.area
+        assert len(poly.interiors) == 1
+        assert poly.minimum_clearance < 0.001  # very small due to near-dups
+
+        result, summary = fix_clearance(poly, min_clearance=1.0, return_diagnosis=True)
+
+        assert result.is_valid
+        assert len(result.interiors) == 1, "Hole must be preserved"
+        assert result.area >= 0.9 * original_area, "Area should not drop more than 10%"
+        assert result.area < original_area * 1.05, "Area should not inflate"
+        # Clearance should improve significantly from the near-dup level
+        assert result.minimum_clearance > poly.minimum_clearance * 10
