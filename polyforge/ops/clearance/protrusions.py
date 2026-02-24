@@ -277,10 +277,15 @@ def _make_intrusion_candidate_builder(
     return _builder
 
 
-def _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth):
+def _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth, orientation=1):
     """Detect wedge candidates in a coordinate list.
 
     Returns list of dicts with keys: tip, left, right, depth, width, ratio.
+
+    Parameters
+    ----------
+    orientation : int
+        1 for CCW rings (exterior), -1 for CW rings (holes).
     """
     n = len(coords)
     wedges = []
@@ -293,10 +298,10 @@ def _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth):
         if ang > angle_threshold:
             continue
 
-        if not _is_concave(prev, curr, nxt, orientation=1):
+        if not _is_concave(prev, curr, nxt, orientation=orientation):
             continue
 
-        left_chain, right_chain = _trace_wedge(coords, i, 1)
+        left_chain, right_chain = _trace_wedge(coords, i, orientation)
 
         join = _find_best_join(coords, left_chain, right_chain)
         if not join:
@@ -323,6 +328,94 @@ def _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth):
             }
         )
     return wedges
+
+
+def _collapse_near_coincident(coords, tolerance):
+    """Merge consecutive vertices closer than tolerance into their midpoint.
+
+    Works on an open coordinate list (no closing duplicate).
+    Handles the wraparound case (last vertex near first vertex).
+    Returns a new list; unchanged if no merges needed.
+    """
+    if len(coords) < 3:
+        return coords
+    n = len(coords)
+    tol_sq = tolerance * tolerance
+
+    # Check wraparound: last vertex near first vertex
+    dx = coords[-1][0] - coords[0][0]
+    dy = coords[-1][1] - coords[0][1]
+    if (dx * dx + dy * dy) < tol_sq:
+        mid = ((coords[-1][0] + coords[0][0]) / 2,
+               (coords[-1][1] + coords[0][1]) / 2)
+        # Replace first with midpoint, drop last
+        coords = [mid] + list(coords[1:-1])
+        n = len(coords)
+
+    # Check interior consecutive pairs
+    result = []
+    skip = set()
+    for i in range(n):
+        if i in skip:
+            continue
+        if i + 1 < n:
+            dx = coords[i][0] - coords[i + 1][0]
+            dy = coords[i][1] - coords[i + 1][1]
+            if (dx * dx + dy * dy) < tol_sq:
+                mid = ((coords[i][0] + coords[i + 1][0]) / 2,
+                       (coords[i][1] + coords[i + 1][1]) / 2)
+                result.append(mid)
+                skip.add(i + 1)
+                continue
+        result.append(coords[i])
+    return result
+
+
+def _remove_wedges_from_ring(coords, angle_threshold, depth_width_ratio,
+                             min_depth, remove_multiple, orientation=1):
+    """Remove narrow wedges from a single coordinate ring.
+
+    Parameters
+    ----------
+    coords : list
+        Open coordinate list (no closing duplicate).
+    orientation : int
+        1 for CCW (exterior), -1 for CW (holes).
+
+    Returns
+    -------
+    list or None
+        New open coordinate list, or None if no changes were made.
+    """
+    changed = False
+    max_removals = len(coords)
+    for _ in range(max_removals):
+        wedges = _find_wedges(
+            coords, angle_threshold, depth_width_ratio, min_depth,
+            orientation=orientation,
+        )
+        if not wedges:
+            break
+
+        worst = max(wedges, key=lambda w: w["ratio"])
+        neck_width = worst["width"]
+        coords = _splice_polygon(coords, worst["left"], worst["right"], worst["tip"])
+
+        # ensure open ring (drop closing dup if splice added one)
+        if len(coords) > 1 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+
+        # After splice, the two neck vertices remain and may be near-coincident.
+        # Collapse them to avoid leaving a near-zero clearance slit.
+        if neck_width > 0:
+            coords = _collapse_near_coincident(coords, neck_width * 1.5)
+
+        changed = True
+
+        if not remove_multiple:
+            break
+
+    return coords if changed else None
 
 
 def remove_narrow_wedges(
@@ -352,39 +445,47 @@ def remove_narrow_wedges(
     if not polygon.is_valid:
         polygon = make_valid(polygon)
 
-    polygon = orient(polygon, sign=1.0)  # CCW
+    polygon = orient(polygon, sign=1.0)  # CCW exterior, CW holes
 
-    coords = list(polygon.exterior.coords[:-1])  # drop closing dup
+    # --- Process exterior ring (orientation=1, CCW) ---
+    ext_coords = list(polygon.exterior.coords[:-1])
+    holes = [list(h.coords[:-1]) for h in polygon.interiors]
 
-    # --------------------------------------------------
-    # iteratively detect and remove wedges
-    # --------------------------------------------------
-    max_removals = len(coords)  # safety bound
-    for _ in range(max_removals):
-        wedges = _find_wedges(coords, angle_threshold, depth_width_ratio, min_depth)
-        if not wedges:
-            break
+    new_ext = _remove_wedges_from_ring(
+        ext_coords, angle_threshold, depth_width_ratio,
+        min_depth, remove_multiple, orientation=1,
+    )
+    if new_ext is not None:
+        ext_coords = new_ext
 
-        # take the worst wedge (highest depth/width ratio)
-        worst = max(wedges, key=lambda w: w["ratio"])
-        coords = _splice_polygon(coords, worst["left"], worst["right"])
+    # --- Process each hole ring ---
+    # After orient(sign=1.0), holes are CW. A wedge spike on a hole pokes
+    # into the polygon body — its tip is concave in the CCW sense
+    # (negative cross product), so we use orientation=1 same as exterior.
+    new_holes = []
+    for hole_coords in holes:
+        new_hole = _remove_wedges_from_ring(
+            hole_coords, angle_threshold, depth_width_ratio,
+            min_depth, remove_multiple, orientation=1,
+        )
+        if new_hole is not None:
+            # Only keep hole if it still has enough vertices for a polygon
+            if len(new_hole) >= 3:
+                new_holes.append(new_hole)
+        else:
+            new_holes.append(hole_coords)
 
-        # rebuild polygon after splice
-        if coords[0] != coords[-1]:
-            coords.append(coords[0])
+    # --- Rebuild polygon ---
+    # Close rings for Shapely
+    ext_closed = ext_coords + [ext_coords[0]]
+    holes_closed = [h + [h[0]] for h in new_holes]
 
-        polygon = Polygon(coords)
+    polygon = Polygon(ext_closed, holes_closed) if holes_closed else Polygon(ext_closed)
 
-        if not polygon.is_valid:
-            polygon = make_valid(polygon)
-        if polygon.geom_type == "MultiPolygon":
-            polygon = max(polygon.geoms, key=lambda p: p.area)
-        if not hasattr(polygon, "exterior"):
-            break
-        coords = list(polygon.exterior.coords[:-1])
-
-        if not remove_multiple:
-            break
+    if not polygon.is_valid:
+        polygon = make_valid(polygon)
+    if polygon.geom_type == "MultiPolygon":
+        polygon = max(polygon.geoms, key=lambda p: p.area)
 
     return polygon
 
@@ -392,5 +493,5 @@ def remove_narrow_wedges(
 __all__ = [
     "fix_narrow_protrusion",
     "fix_sharp_intrusion",
-    "fill_narrow_wedge",
+    "remove_narrow_wedges",
 ]

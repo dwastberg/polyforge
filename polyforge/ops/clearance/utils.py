@@ -168,8 +168,12 @@ def _find_best_join(coords, left_chain, right_chain):
 
     for a, li in enumerate(left_chain):
         for b, ri in enumerate(right_chain):
-            remaining_edges = n - (a + b + 2)
+            wedge_edges = a + b + 2
+            remaining_edges = n - wedge_edges
             if remaining_edges < 2:
+                continue
+            # Wedge must be the minority — fewer edges than the body
+            if wedge_edges >= remaining_edges:
                 continue
             d = _dist(coords[li], coords[ri])
             if d < best_dist:
@@ -200,19 +204,46 @@ def _compute_depth(coords, tip_idx, left_chain, right_chain):
 # ------------------------------------------------------------
 
 
-def _splice_polygon(coords, left_idx, right_idx):
+def _splice_polygon(coords, left_idx, right_idx, tip_idx):
     """
     Remove wedge region between left_idx and right_idx.
-    Keeps shortest boundary path.
+    Keeps the arc that does NOT contain the tip vertex.
+
+    Args:
+        coords: Open coordinate list (no closing duplicate).
+        left_idx: Index of left neck vertex.
+        right_idx: Index of right neck vertex.
+        tip_idx: Index of the wedge tip vertex (determines which side is the wedge).
     """
 
     n = len(coords)
 
-    if left_idx < right_idx:
-        new = coords[: left_idx + 1] + coords[right_idx:]
+    # Path A: left_idx → left_idx+1 → ... → right_idx (forward, wrapping)
+    # Path B: right_idx → right_idx+1 → ... → left_idx (forward, wrapping)
+    # Check which path contains tip_idx; keep the other one.
+
+    def _arc_contains(start, end, idx):
+        """Check if idx lies on the forward arc from start to end (exclusive of endpoints)."""
+        if start == end:
+            return False
+        if start < end:
+            return start < idx < end
+        else:
+            # wraps around
+            return idx > start or idx < end
+
+    if _arc_contains(left_idx, right_idx, tip_idx):
+        # Tip is on path A (left→right forward), keep path B (right→left forward)
+        if right_idx <= left_idx:
+            new = coords[right_idx : left_idx + 1]
+        else:
+            new = coords[right_idx:] + coords[: left_idx + 1]
     else:
-        # wrap case
-        new = coords[right_idx : left_idx + 1]
+        # Tip is on path B (right→left forward), keep path A (left→right forward)
+        if left_idx <= right_idx:
+            new = coords[left_idx : right_idx + 1]
+        else:
+            new = coords[left_idx:] + coords[: right_idx + 1]
 
     # ensure closed
     if new[0] != new[-1]:
