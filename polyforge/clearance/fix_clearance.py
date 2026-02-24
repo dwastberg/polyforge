@@ -65,8 +65,11 @@ _ACUTE_TIP_ANGLE = 20.0
 _CLEARANCE_TOLERANCE = 1e-9
 
 # Maximum allowed area growth factor. Clearance fixes should not significantly
-# increase polygon area (e.g., by filling in concavities).
-_AREA_GROWTH_TOLERANCE = 1.01
+# increase polygon area (e.g., by filling in concavities).  Set to 2% to allow
+# minor growth from removing concave vertices at clearance bottlenecks (e.g.,
+# vertex-to-edge issues where a single concave vertex is removed, slightly
+# expanding the exterior).
+_AREA_GROWTH_TOLERANCE = 1.02
 
 
 class ClearanceIssue(Enum):
@@ -405,7 +408,22 @@ def _strategy_narrow_protrusion(
     result = fix_narrow_protrusion(geometry, min_clearance)
     if result is not None and result.is_valid and (_safe_clearance(result) or 0.0) > baseline:
         return result
-    # Fallback: blunt vertex removal for micro-features that targeted fix can't resolve
+    # Fallback: blunt vertex removal for micro-features that targeted fix can't resolve.
+    # When separation=0 (vertex-to-edge bottleneck), use targeted removal of
+    # vertices on the offending edge rather than blunt aspect-ratio removal.
+    # remove_narrow_protrusions picks the highest aspect-ratio vertex globally,
+    # which is often a nearly-collinear vertex far from the bottleneck — removing
+    # it cascades into destructive removal of structural vertices.
+    context = _build_clearance_context(geometry, min_clearance)
+    if context is not None and context.separation == 0:
+        targeted = _try_remove_bottleneck_edge_vertex(geometry, min_clearance)
+        if (
+            targeted is not None
+            and targeted.is_valid
+            and (_safe_clearance(targeted) or 0.0) > baseline
+        ):
+            return targeted
+        return None
     fallback = remove_narrow_protrusions(geometry, aspect_ratio_threshold=6.0)
     if (
         fallback.is_valid
@@ -592,6 +610,70 @@ def _simplify_hole_ring(
     except (GEOSException, ValueError):
         pass
     return None
+
+
+def _try_remove_bottleneck_edge_vertex(
+    geometry: Polygon, min_clearance: float
+) -> Polygon | None:
+    """Try removing a vertex on the edge causing a vertex-to-edge clearance bottleneck.
+
+    When separation=0, both clearance endpoints map to the same vertex, and the
+    second endpoint lies on a non-adjacent edge.  Removing a vertex on that edge
+    changes its position, potentially resolving the bottleneck without touching
+    unrelated parts of the polygon.
+    """
+    try:
+        clearance_line = shapely.minimum_clearance_line(geometry)
+    except (GEOSException, ValueError):
+        return None
+    if clearance_line.is_empty:
+        return None
+
+    pts = np.array(clearance_line.coords)
+    if len(pts) < 2:
+        return None
+
+    coords = np.array(geometry.exterior.coords)
+    n = len(coords) - 1
+    if n < 5:  # need at least 4 vertices after removal
+        return None
+
+    # Find the edge that the second clearance endpoint lies on
+    best_candidate: Polygon | None = None
+    best_clearance = _safe_clearance(geometry) or 0.0
+
+    for endpoint in pts:
+        # Find the edge closest to this endpoint
+        min_edge_dist = float("inf")
+        edge_verts: list[int] = []
+        for i in range(n):
+            j = (i + 1) % n
+            edge = LineString([coords[i], coords[j]])
+            d = Point(endpoint).distance(edge)
+            if d < min_edge_dist:
+                min_edge_dist = d
+                edge_verts = [i, j]
+
+        # Try removing each endpoint of the closest edge
+        for vi in edge_verts:
+            new_coords = np.delete(coords, vi, axis=0)
+            if len(new_coords) < 4:
+                continue
+            if not np.allclose(new_coords[0], new_coords[-1]):
+                new_coords[-1] = new_coords[0]
+            holes = [list(h.coords) for h in geometry.interiors]
+            try:
+                candidate = Polygon(new_coords, holes=holes) if holes else Polygon(new_coords)
+            except (GEOSException, ValueError):
+                continue
+            if not candidate.is_valid or candidate.is_empty:
+                continue
+            cand_clearance = _safe_clearance(candidate) or 0.0
+            if cand_clearance > best_clearance:
+                best_clearance = cand_clearance
+                best_candidate = candidate
+
+    return best_candidate
 
 
 def _normalize_polygon(candidate: BaseGeometry | None) -> Polygon | None:

@@ -882,3 +882,122 @@ class TestHoleRingSelfClearance:
         assert result.area < original_area * 1.05, "Area should not inflate"
         # Clearance should improve significantly from the near-dup level
         assert result.minimum_clearance > poly.minimum_clearance * 10
+
+
+class TestFixClearancePreservesShape:
+    """Tests for fix_clearance not deforming structurally important polygons."""
+
+    BUG5_WKT = (
+        "Polygon ((675957.54357741132844239 6579166.28348589781671762, "
+        "675970.27878662315197289 6579166.14495059289038181, "
+        "675977.47308820637408644 6579164.67688794806599617, "
+        "675977.549256956204772 6579168.4872784810140729, "
+        "675973.26474948704708368 6579168.83048056345432997, "
+        "675973.30124685016926378 6579174.89918101020157337, "
+        "675980.28144246782176197 6579175.52278707455843687, "
+        "675980.28145694779232144 6579175.52822818420827389, "
+        "675977.10110634635202587 6579175.82942920364439487, "
+        "675977.29629726440180093 6579177.96609128452837467, "
+        "675981.3927035448141396 6579177.57493605930358171, "
+        "675981.40836108312942088 6579175.42150263302028179, "
+        "675981.38550786627456546 6579175.42366699036210775, "
+        "675981.50630275101866573 6579168.26072514895349741, "
+        "675981.5079885721206665 6579168.26059221755713224, "
+        "675981.51001297065522522 6579160.89380593318492174, "
+        "675970.20498298422899097 6579161.43204505834728479, "
+        "675957.48844546417240053 6579161.96787959150969982, "
+        "675957.54357741132844239 6579166.28348589781671762))"
+    )
+
+    def _make_bug5_poly(self):
+        import shapely
+        return shapely.from_wkt(self.BUG5_WKT)
+
+    def test_fix_clearance_preserves_l_shape(self):
+        """fix_clearance should not deform an L-shaped building footprint.
+
+        The polygon has near-duplicate vertices (common in surveyed data) that
+        cause low clearance, but the structural shape must be preserved.
+        """
+        poly = self._make_bug5_poly()
+        original_area = poly.area
+        original_vertex_count = len(poly.exterior.coords) - 1  # 18
+
+        result = fix_clearance(poly, min_clearance=1.0)
+
+        assert result.is_valid
+
+        # Area loss should be small
+        assert result.area >= 0.95 * original_area, (
+            f"Area dropped from {original_area:.1f} to {result.area:.1f} "
+            f"({result.area / original_area:.1%})"
+        )
+
+        # Should not lose too many structural vertices
+        result_vertex_count = len(result.exterior.coords) - 1
+        assert result_vertex_count >= 13, (
+            f"Too many vertices removed: {original_vertex_count} -> {result_vertex_count}"
+        )
+
+        # Clearance should improve from the original ~0.002
+        assert result.minimum_clearance > poly.minimum_clearance
+
+        # Shape preservation: symmetric containment check
+        intersection_area = result.intersection(poly).area
+        assert intersection_area >= 0.95 * original_area, (
+            "Fixed polygon deviates significantly from original shape"
+        )
+        assert intersection_area >= 0.90 * result.area, (
+            "Fixed polygon extends far outside original shape"
+        )
+
+
+class TestRemoveNarrowProtrusionsMinHeight:
+    """Tests for the min_height parameter in remove_narrow_protrusions."""
+
+    def test_spike_above_min_height_still_removed(self):
+        """A genuine spike with height > min_height should still be removed."""
+        from polyforge.ops.clearance.remove_protrusions import remove_narrow_protrusions
+
+        # Rectangle with a spike: height of spike ~2.0
+        coords = [(0, 0), (10, 0), (10, 4), (12, 5), (10, 6), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+
+        result = remove_narrow_protrusions(poly, aspect_ratio_threshold=3.0, min_height=0.5)
+
+        # Spike should be removed (fewer vertices)
+        assert len(result.exterior.coords) < len(poly.exterior.coords)
+        assert result.is_valid
+
+    def test_collinear_vertex_below_min_height_not_removed(self):
+        """A nearly-collinear vertex with height < min_height should NOT be removed."""
+        from polyforge.ops.clearance.remove_protrusions import remove_narrow_protrusions
+
+        # Rectangle with a nearly-collinear vertex on the right edge
+        # Vertex at (10.01, 5) is barely off the line from (10, 0) to (10, 10)
+        coords = [(0, 0), (10, 0), (10.01, 5), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+
+        result = remove_narrow_protrusions(
+            poly, aspect_ratio_threshold=3.0, min_height=0.5
+        )
+
+        # Vertex should NOT be removed — its height (0.01) is below min_height (0.5)
+        assert len(result.exterior.coords) == len(poly.exterior.coords)
+        assert result.is_valid
+
+    def test_default_min_height_unchanged(self):
+        """Default min_height=0.0 should behave identically to before."""
+        from polyforge.ops.clearance.remove_protrusions import remove_narrow_protrusions
+
+        # Rectangle with a nearly-collinear vertex — should be removable with default
+        coords = [(0, 0), (10, 0), (10.01, 5), (10, 10), (0, 10)]
+        poly = Polygon(coords)
+
+        result = remove_narrow_protrusions(poly, aspect_ratio_threshold=3.0)
+
+        # With default min_height=0.0, the collinear vertex CAN be removed
+        # (this was the old behavior)
+        assert result.is_valid
+        # The vertex has a very high aspect ratio, so it should be a candidate
+        assert len(result.exterior.coords) <= len(poly.exterior.coords)

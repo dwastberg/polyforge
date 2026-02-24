@@ -18,6 +18,7 @@ def remove_narrow_protrusions(
     aspect_ratio_threshold: float = 5.0,
     min_iterations: int = 1,
     max_iterations: int = 10,
+    min_height: float = 0.0,
 ) -> Polygon:
     """Remove narrow protrusions by identifying high aspect ratio triangles.
     Args:
@@ -27,6 +28,10 @@ def remove_narrow_protrusions(
         min_iterations: Minimum number of iterations even if no protrusions found
             (default: 1)
         max_iterations: Maximum iterations to prevent infinite loops (default: 10)
+        min_height: Minimum perpendicular distance from a vertex to the line
+            between its neighbors for it to be considered a protrusion candidate
+            (default: 0.0). Vertices closer than this to their neighbor baseline
+            are nearly collinear and skipped.
 
     Returns:
         Polygon with narrow protrusions removed
@@ -42,7 +47,7 @@ def remove_narrow_protrusions(
         if len(coords) - 1 < 4:
             break
 
-        candidate = _collect_protrusion_candidate(coords, aspect_ratio_threshold)
+        candidate = _collect_protrusion_candidate(coords, aspect_ratio_threshold, min_height)
         if candidate is None:
             if iteration >= min_iterations:
                 break
@@ -62,6 +67,7 @@ def remove_narrow_protrusions(
 def _collect_protrusion_candidate(
     coords: np.ndarray,
     threshold: float,
+    min_height: float = 0.0,
 ) -> tuple[int, float] | None:
     """Return the vertex index with highest aspect ratio beyond the threshold."""
     n = len(coords) - 1
@@ -74,6 +80,15 @@ def _collect_protrusion_candidate(
         prev_pt = coords[prev_idx][:2]
         curr_pt = coords[i][:2]
         next_pt = coords[next_idx][:2]
+
+        # Skip nearly-collinear vertices: their perpendicular distance to
+        # the neighbor baseline is below min_height, so they are not true
+        # protrusions.  Removing them can cascade into destructive removal
+        # of structural vertices.
+        if min_height > 0:
+            height = _point_to_line_perpendicular_distance(curr_pt, prev_pt, next_pt)
+            if height < min_height:
+                continue
 
         aspect_ratio = _calculate_triangle_aspect_ratio(prev_pt, curr_pt, next_pt)
         if aspect_ratio > best_ratio:
