@@ -25,7 +25,7 @@ def merge_close_polygons(
     preserve_holes: bool = True,
     return_mapping: bool = False,
     insert_vertices: bool = False,
-    buffer_cleaning: bool = True,
+    buffer_cleaning: bool = False,
 ) -> list[Polygon] | tuple[list[Polygon], list[list[int]]]:
     """Merge polygons that overlap or are within margin distance.
 
@@ -98,7 +98,8 @@ def merge_close_polygons(
             if poly.is_empty:
                 continue
             # Apply a tiny buffer to clean up geometry (fixes minor artifacts and internaL edges)
-            cleaned = poly.buffer(margin / 10, cap_style= 'flat', join_style= 'mitre' ).buffer(-margin / 100, cap_style= 'flat', join_style= 'mitre')
+            buffer_ammout = margin / 10
+            cleaned = poly.buffer(buffer_ammout, cap_style= 'flat', join_style= 'mitre' ).buffer(-buffer_ammout, cap_style= 'flat', join_style= 'mitre')
             if cleaned.is_empty:
                 continue
             if isinstance(cleaned, Polygon):

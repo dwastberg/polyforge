@@ -10,9 +10,6 @@ from shapely.geometry import Polygon
 from .utils import _point_to_line_perpendicular_distance
 
 
-class _ProtrusionCandidate(tuple[int, float]): ...
-
-
 def remove_narrow_protrusions(
     geometry: Polygon,
     aspect_ratio_threshold: float = 5.0,

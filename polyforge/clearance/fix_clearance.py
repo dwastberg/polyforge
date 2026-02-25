@@ -19,6 +19,7 @@ from polyforge.ops.clearance import (
 )
 from polyforge.ops.clearance.utils import (
     _find_nearest_vertex_index,
+    _find_nearest_edge_index,
     _calculate_curvature_at_vertex,
     _compute_wedge_tip_angle,
 )
@@ -86,6 +87,20 @@ class ClearanceIssue(Enum):
 
 
 @dataclass
+class ClearanceContext:
+    """Geometric context around a clearance bottleneck."""
+
+    curvature: tuple[float, float]
+    separation: int
+    vertex_count: int
+    ring_types: tuple[str, str]
+    edge_angle_similarity: float | None = None
+    narrow_extent: int = 0
+    tip_angle: float | None = None
+    hole_indices: tuple[int | None, int | None] = (None, None)
+
+
+@dataclass
 class ClearanceDiagnosis:
     """
     Result of analyzing a polygon's clearance.
@@ -97,6 +112,7 @@ class ClearanceDiagnosis:
         clearance_ratio: current_clearance / min_clearance.
         clearance_line: Location of the bottleneck if available.
         recommended_fix: Name of the suggested fix function.
+        context: Optional clearance context with geometric details of the bottleneck.
     """
 
     issue: ClearanceIssue
@@ -105,6 +121,7 @@ class ClearanceDiagnosis:
     clearance_ratio: float
     clearance_line: LineString | None
     recommended_fix: str
+    context: ClearanceContext | None = None
 
     @property
     def has_issues(self) -> bool:
@@ -228,8 +245,6 @@ def fix_clearance(
     # --- Phase 2: Point-based fixes (diagnosis-driven iteration) ---
     # For cases where erosion-dilation is too aggressive (would lose too much area)
     # or doesn't fully solve the problem (e.g., holes, single protrusions).
-    best_valid = geometry
-
     def improve(poly: Polygon, target: float) -> Polygon | None:
         diagnosis = diagnose_clearance(poly, target)
         issue_history.append(diagnosis.issue)
@@ -239,10 +254,9 @@ def fix_clearance(
         # If standard strategy failed, try hole ring simplification for
         # same-hole self-clearance issues.
         if candidate is None or not candidate.is_valid or candidate.is_empty:
-            candidate = _try_hole_ring_fix(poly, target)
+            candidate = _try_hole_ring_fix(poly, target, context=diagnosis.context)
         if candidate is None or not candidate.is_valid or candidate.is_empty:
             return None
-        nonlocal best_valid
         if candidate.area < min_area_ratio * original_area:
             return None
         # Reject candidates that grow the exterior ring beyond a small tolerance.
@@ -250,10 +264,6 @@ def fix_clearance(
         # legitimately increase polygon area by shrinking holes—are not blocked.
         if Polygon(candidate.exterior).area > original_exterior_area * _AREA_GROWTH_TOLERANCE:
             return None
-        cand_clearance = _safe_clearance(candidate) or 0.0
-        best_clearance = _safe_clearance(best_valid) or 0.0
-        if cand_clearance > best_clearance:
-            best_valid = candidate
         return candidate
 
     metric = lambda poly: _safe_clearance(poly) or 0.0  # noqa: E731
@@ -266,9 +276,9 @@ def fix_clearance(
     )
 
     if improved is None or not improved.is_valid or improved.is_empty:
-        improved = best_valid
+        improved = geometry
     if improved.area < min_area_ratio * original_area:
-        improved = best_valid
+        improved = geometry
 
     # --- Phase 3: Cleanup pass (erosion-dilation on improved geometry) ---
     # Point fixes may have partially resolved slivers, making erosion viable
@@ -414,7 +424,7 @@ def _strategy_narrow_protrusion(
     # remove_narrow_protrusions picks the highest aspect-ratio vertex globally,
     # which is often a nearly-collinear vertex far from the bottleneck — removing
     # it cascades into destructive removal of structural vertices.
-    context = _build_clearance_context(geometry, min_clearance)
+    context = diagnosis.context
     if context is not None and context.separation == 0:
         targeted = _try_remove_bottleneck_edge_vertex(geometry, min_clearance)
         if (
@@ -556,13 +566,18 @@ def _dedup_ring_vertices(geometry: Polygon, tolerance: float) -> Polygon | None:
     return None
 
 
-def _try_hole_ring_fix(geometry: Polygon, min_clearance: float) -> Polygon | None:
+def _try_hole_ring_fix(
+    geometry: Polygon,
+    min_clearance: float,
+    context: ClearanceContext | None = None,
+) -> Polygon | None:
     """Try to fix clearance by simplifying the offending hole ring.
 
     Checks if the minimum_clearance bottleneck is on a single hole ring.
     If so, simplifies that hole to resolve the issue.
     """
-    context = _build_clearance_context(geometry, min_clearance)
+    if context is None:
+        context = _build_clearance_context(geometry, min_clearance)
     if context is None:
         return None
     # Only applies to same-hole self-clearance
@@ -643,16 +658,9 @@ def _try_remove_bottleneck_edge_vertex(
     best_clearance = _safe_clearance(geometry) or 0.0
 
     for endpoint in pts:
-        # Find the edge closest to this endpoint
-        min_edge_dist = float("inf")
-        edge_verts: list[int] = []
-        for i in range(n):
-            j = (i + 1) % n
-            edge = LineString([coords[i], coords[j]])
-            d = Point(endpoint).distance(edge)
-            if d < min_edge_dist:
-                min_edge_dist = d
-                edge_verts = [i, j]
+        # Find the edge closest to this endpoint (vectorized numpy)
+        edge_idx = _find_nearest_edge_index(coords, endpoint)
+        edge_verts = [edge_idx, (edge_idx + 1) % n]
 
         # Try removing each endpoint of the closest edge
         for vi in edge_verts:
@@ -687,7 +695,7 @@ def _normalize_polygon(candidate: BaseGeometry | None) -> Polygon | None:
 
 def _diagnose_clearance_issue(
     geometry: Polygon, min_clearance: float
-) -> ClearanceIssue:
+) -> tuple[ClearanceIssue, ClearanceContext | None]:
     """Diagnose the type of clearance issue in a polygon.
 
     Examines the geometry's minimum_clearance_line and surrounding geometry
@@ -698,14 +706,14 @@ def _diagnose_clearance_issue(
         min_clearance: Target minimum clearance
 
     Returns:
-        A :class:`ClearanceIssue` describing the detected problem.
+        A tuple of (:class:`ClearanceIssue`, optional :class:`ClearanceContext`).
     """
     if _has_close_hole(geometry, min_clearance):
-        return ClearanceIssue.HOLE_TOO_CLOSE
+        return ClearanceIssue.HOLE_TOO_CLOSE, None
 
     context = _build_clearance_context(geometry, min_clearance)
     if context is None:
-        return ClearanceIssue.UNKNOWN
+        return ClearanceIssue.UNKNOWN, None
 
     if "hole" in context.ring_types:
         # Distinguish same-hole self-clearance from genuine hole proximity.
@@ -718,7 +726,7 @@ def _diagnose_clearance_issue(
             and context.hole_indices[0] == context.hole_indices[1]
         )
         if not same_hole:
-            return ClearanceIssue.HOLE_TOO_CLOSE
+            return ClearanceIssue.HOLE_TOO_CLOSE, context
 
     for heuristic in (
         _looks_like_narrow_wedge,
@@ -729,8 +737,8 @@ def _diagnose_clearance_issue(
     ):
         issue = heuristic(context, min_clearance)
         if issue is not None:
-            return issue
-    return ClearanceIssue.UNKNOWN
+            return issue, context
+    return ClearanceIssue.UNKNOWN, context
 
 
 def _classify_ring_types(
@@ -874,7 +882,6 @@ def _build_clearance_context(
 
     if same_ring and shared_ring_coords is not None:
         n_ring = len(shared_ring_coords) - 1
-        # Recompute indices on the shared ring
         ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
         ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
         separation = min(abs(ring_idx2 - ring_idx1), n_ring - abs(ring_idx2 - ring_idx1))
@@ -885,21 +892,18 @@ def _build_clearance_context(
         # Points on different rings: use large separation to avoid
         # misclassifying as protrusion or near-self-intersection
         n_ring = n_exterior
+        ring_idx1 = ring_idx2 = 0  # unused for cross-ring
         separation = max(n_exterior, 10)
         edge_angle_similarity = None
 
     narrow_extent = 0
     if same_ring and shared_ring_coords is not None and min_clearance > 0:
-        ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
-        ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
         narrow_extent = _compute_narrow_extent(
             shared_ring_coords, ring_idx1, ring_idx2, separation, min_clearance
         )
 
     tip_angle = None
     if same_ring and shared_ring_coords is not None and separation >= 2:
-        ring_idx1 = _find_nearest_vertex_index(shared_ring_coords, pt1)
-        ring_idx2 = _find_nearest_vertex_index(shared_ring_coords, pt2)
         tip_angle = _compute_wedge_tip_angle(shared_ring_coords, ring_idx1, ring_idx2, separation)
 
     return ClearanceContext(
@@ -912,18 +916,6 @@ def _build_clearance_context(
         tip_angle=tip_angle,
         hole_indices=(hole_idx1, hole_idx2),
     )
-
-
-@dataclass
-class ClearanceContext:
-    curvature: tuple[float, float]
-    separation: int
-    vertex_count: int
-    ring_types: tuple[str, str]
-    edge_angle_similarity: float | None = None
-    narrow_extent: int = 0
-    tip_angle: float | None = None
-    hole_indices: tuple[int | None, int | None] = (None, None)
 
 
 def _is_cross_ring(context: ClearanceContext) -> bool:
@@ -1156,7 +1148,7 @@ def diagnose_clearance(geometry: Polygon, min_clearance: float) -> ClearanceDiag
             recommended_fix=RECOMMENDED_FIXES[ClearanceIssue.NONE],
         )
 
-    issue = _diagnose_clearance_issue(geometry, min_clearance)
+    issue, context = _diagnose_clearance_issue(geometry, min_clearance)
     recommended = RECOMMENDED_FIXES.get(
         issue, RECOMMENDED_FIXES[ClearanceIssue.UNKNOWN]
     )
@@ -1167,6 +1159,7 @@ def diagnose_clearance(geometry: Polygon, min_clearance: float) -> ClearanceDiag
         clearance_ratio=ratio,
         clearance_line=clearance_line,
         recommended_fix=recommended,
+        context=context,
     )
 
 
