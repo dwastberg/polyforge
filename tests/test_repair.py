@@ -8,7 +8,6 @@ import pytest
 from shapely.geometry import Polygon, MultiPolygon, Point, LineString
 
 from polyforge import repair_geometry, batch_repair_geometries
-from polyforge.core import RepairStrategy
 from polyforge.core.errors import RepairError
 
 

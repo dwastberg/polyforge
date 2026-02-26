@@ -11,6 +11,24 @@ from shapely.geometry import (
 )
 from shapely.geometry.base import BaseGeometry
 
+from .core.errors import ValidationError
+
+
+def _validate_processed_coords(result: np.ndarray, context: str) -> None:
+    """Validate that processed coordinates have the correct shape."""
+    if not isinstance(result, np.ndarray):
+        raise ValidationError(
+            f"process_function must return a numpy array, got {type(result).__name__} ({context})"
+        )
+    if result.ndim != 2:
+        raise ValidationError(
+            f"process_function must return a 2D array (Nx2 or Nx3), got ndim={result.ndim} ({context})"
+        )
+    if len(result) > 0 and result.shape[1] not in (2, 3):
+        raise ValidationError(
+            f"process_function must return coordinates with 2 or 3 columns, got {result.shape[1]} ({context})"
+        )
+
 
 def _process_coords(coords, process_function, *args, **kwargs):
     """Process coordinates, handling Z components if present.
@@ -35,6 +53,7 @@ def _process_coords(coords, process_function, *args, **kwargs):
 
         # Process only the 2D coordinates
         processed_2d = process_function(coords_2d, *args, **kwargs)
+        _validate_processed_coords(processed_2d, "2D portion of 3D processing")
 
         # If the number of vertices hasn't changed, just recombine
         if len(processed_2d) == len(coords_2d):
@@ -60,7 +79,9 @@ def _process_coords(coords, process_function, *args, **kwargs):
         return np.column_stack([processed_2d, interpolated_z])
     else:
         # No Z component, process as-is
-        return process_function(coords_array, *args, **kwargs)
+        result = process_function(coords_array, *args, **kwargs)
+        _validate_processed_coords(result, "2D processing")
+        return result
 
 
 def process_geometry(
@@ -148,7 +169,7 @@ def process_geometry(
         return GeometryCollection(processed_geoms)
 
     else:
-        raise ValueError(f"Unsupported geometry type: {geom_type}")
+        raise ValidationError(f"Unsupported geometry type: {geom_type}")
 
 
 __all__ = [

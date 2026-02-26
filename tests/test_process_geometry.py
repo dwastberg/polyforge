@@ -12,6 +12,7 @@ from shapely.geometry import (
 )
 
 from polyforge.process import process_geometry
+from polyforge.core.errors import ValidationError
 
 
 # Helper functions for testing
@@ -339,7 +340,7 @@ class TestProcessGeometryMultiPoint:
         """Test that MultiPoint raises an error (not in supported list)."""
         multi_point = MultiPoint([(0, 0), (1, 1), (2, 2)])
 
-        with pytest.raises(ValueError, match="Unsupported geometry type"):
+        with pytest.raises(ValidationError, match="Unsupported geometry type"):
             process_geometry(multi_point, scale_vertices, scale_factor=2.0)
 
 
@@ -448,10 +449,10 @@ class TestProcessGeometryEdgeCases:
         assert coords[0][1] == pytest.approx(5.0)
 
     def test_unsupported_geometry_type(self):
-        """Test that unsupported geometry types raise ValueError."""
+        """Test that unsupported geometry types raise ValidationError."""
         multi_point = MultiPoint([(0, 0), (1, 1)])
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             process_geometry(multi_point, scale_vertices, scale_factor=2.0)
 
         assert "Unsupported geometry type" in str(exc_info.value)
@@ -771,3 +772,34 @@ class TestProcessGeometryZComponents:
         # All should be 2D (Nx2)
         for shape in received_shapes:
             assert shape[1] == 2, f"Expected Nx2 array, got {shape}"
+
+
+class TestProcessGeometryOutputValidation:
+    """Tests for output validation in _process_coords."""
+
+    def test_non_array_output_raises_validation_error(self):
+        """ValidationError raised when process_function returns non-array."""
+        def bad_function(coords, **kwargs):
+            return [[1, 2], [3, 4]]  # list, not ndarray
+
+        poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        with pytest.raises(ValidationError, match="numpy array"):
+            process_geometry(poly, bad_function)
+
+    def test_wrong_ndim_output_raises_validation_error(self):
+        """ValidationError raised when process_function returns 1D array."""
+        def bad_function(coords, **kwargs):
+            return np.array([1.0, 2.0, 3.0])  # 1D, not 2D
+
+        line = LineString([(0, 0), (1, 1)])
+        with pytest.raises(ValidationError, match="2D array"):
+            process_geometry(line, bad_function)
+
+    def test_valid_output_passes_validation(self):
+        """Valid 2D array output passes validation without error."""
+        def identity(coords, **kwargs):
+            return coords.copy()
+
+        poly = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        result = process_geometry(poly, identity)
+        assert result.is_valid

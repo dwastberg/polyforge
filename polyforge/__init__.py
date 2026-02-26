@@ -67,7 +67,6 @@ from .repair.robust import (
 from .core import (
     OverlapStrategy,
     MergeStrategy,
-    RepairStrategy,
     CollapseMode,
 )
 
@@ -136,7 +135,6 @@ __all__ = [
     # Core types (enums)
     "OverlapStrategy",
     "MergeStrategy",
-    "RepairStrategy",
     "CollapseMode",
     # Core exceptions
     "PolyforgeError",

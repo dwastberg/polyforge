@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-from shapely.geometry.base import BaseGeometry
-from shapely.validation import explain_validity
-
 from shapely import make_valid
+from shapely.errors import GEOSException, TopologicalError
+from shapely.geometry.base import BaseGeometry
 
-from ..core.types import RepairStrategy
-
-from .strategies.auto import auto_fix_geometry
-from .strategies.buffer import fix_with_buffer
-from .strategies.simplify import fix_with_simplify
-from .strategies.reconstruct import fix_with_reconstruct
-from .strategies.strict import fix_strict
-
-from polyforge.core.errors import RepairError
+from polyforge.core.errors import PolyforgeError, RepairError
 
 
 def repair_geometry(
@@ -34,7 +25,6 @@ def repair_geometry(
 
 def batch_repair_geometries(
     geometries: list[BaseGeometry],
-    repair_strategy: RepairStrategy = RepairStrategy.AUTO,
     on_error: str = "keep",
     verbose: bool = False,
 ) -> tuple[list[BaseGeometry | None], list[int]]:
@@ -42,7 +32,6 @@ def batch_repair_geometries(
 
     Args:
         geometries: List of Shapely geometries to repair.
-        repair_strategy: Repair strategy to use (default: AUTO).
         on_error: How to handle failures - "keep" (keep original), "skip" (omit),
             or "raise" (raise exception).
         verbose: If True, print progress information.
@@ -58,7 +47,7 @@ def batch_repair_geometries(
             repaired_geom = repair_geometry(geom)
             repaired.append(repaired_geom)
 
-        except Exception as e:
+        except (GEOSException, TopologicalError, ValueError, PolyforgeError) as e:
             if on_error == "raise":
                 raise RepairError(f"Failed to repair geometry at index {i}: {e}")
             elif on_error == "skip":

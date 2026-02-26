@@ -5,6 +5,7 @@ from shapely.strtree import STRtree
 from shapely.ops import unary_union
 from shapely.errors import GEOSException, TopologicalError
 
+from ..core.errors import ConfigurationError
 from ..core.types import MergeStrategy, coerce_enum
 from ..core.spatial_utils import build_adjacency_graph, find_connected_components
 from ..core.geometry_utils import remove_holes, to_single_polygon
@@ -45,8 +46,12 @@ def merge_close_polygons(
     if not polygons:
         return ([], []) if return_mapping else []
 
+    if margin < 0:
+        raise ConfigurationError(f"margin must be >= 0, got {margin}")
+
     # Fast path for margin=0: just merge overlapping/touching polygons
-    if margin <= 0:
+    # Note: merge_strategy is ignored when margin=0 (unary_union handles it directly).
+    if margin == 0:
         merged = unary_union(polygons)
         if not preserve_holes:
             merged = remove_holes(merged, preserve_holes=False)
@@ -186,7 +191,7 @@ def _merge_group_polygons(
     }
 
     if strategy not in strategy_map:
-        raise ValueError(f"Unknown merge_strategy: {strategy}")
+        raise ConfigurationError(f"Unknown merge_strategy: {strategy}")
 
     merge_func = strategy_map[strategy]
     return merge_func(group_polygons, margin, preserve_holes)

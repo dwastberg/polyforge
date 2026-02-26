@@ -7,6 +7,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import split as shapely_split, unary_union
 from shapely.strtree import STRtree
 
+from .core.errors import OverlapResolutionError
 from .core.geometry_utils import to_single_polygon
 from .core.spatial_utils import build_adjacency_graph, find_connected_components
 from .core.types import OverlapStrategy, coerce_enum
@@ -129,6 +130,14 @@ def remove_overlaps(
             break
 
         iteration += 1
+
+    remaining = count_overlaps(result)
+    if remaining > 0:
+        raise OverlapResolutionError(
+            f"Could not resolve all overlaps: {remaining} pair(s) remain after {iteration} iteration(s)",
+            iterations=iteration,
+            remaining_overlaps=remaining,
+        )
 
     return result
 

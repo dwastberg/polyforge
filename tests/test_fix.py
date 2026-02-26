@@ -10,7 +10,6 @@ from polyforge.repair import (
     batch_repair_geometries,
 )
 from polyforge.core.errors import RepairError
-from polyforge.core.types import RepairStrategy
 
 
 class TestDiagnoseGeometry:
@@ -108,10 +107,7 @@ class TestBatchFixGeometries:
             Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
-        # Use strict strategy which might fail
-        fixed, failed = batch_repair_geometries(
-            polys, repair_strategy=RepairStrategy.STRICT, on_error="skip"
-        )
+        fixed, failed = batch_repair_geometries(polys, on_error="skip")
 
         # Should skip unfixable ones
         assert len(fixed) <= len(polys)
@@ -123,9 +119,7 @@ class TestBatchFixGeometries:
             Polygon([(0, 0), (2, 2), (2, 0), (0, 2)]),
         ]
 
-        fixed, failed = batch_repair_geometries(
-            polys, repair_strategy=RepairStrategy.STRICT, on_error="keep"
-        )
+        fixed, failed = batch_repair_geometries(polys, on_error="keep")
 
         # Should keep all, even if invalid
         assert len(fixed) == len(polys)

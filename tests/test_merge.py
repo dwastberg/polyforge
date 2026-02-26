@@ -650,3 +650,22 @@ class TestValidation:
             )
             assert all(not p.is_empty for p in result), f"Empty result for {strategy}"
             assert all(p.area > 0 for p in result), f"Zero area for {strategy}"
+
+
+class TestMergeValidation:
+    """Tests for input validation in merge_close_polygons."""
+
+    def test_negative_margin_raises_configuration_error(self):
+        """ConfigurationError raised for negative margin."""
+        from polyforge.core.errors import ConfigurationError
+
+        poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        with pytest.raises(ConfigurationError, match="margin must be >= 0"):
+            merge_close_polygons([poly], margin=-1.0)
+
+    def test_zero_margin_is_allowed(self):
+        """margin=0 is the default fast-path and must not raise."""
+        poly1 = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)])
+        poly2 = Polygon([(10, 0), (20, 0), (20, 10), (10, 10)])
+        result = merge_close_polygons([poly1, poly2], margin=0)
+        assert len(result) >= 1

@@ -7,7 +7,6 @@ used throughout the library.
 from .types import (
     OverlapStrategy,
     MergeStrategy,
-    RepairStrategy,
     CollapseMode,
     coerce_enum,
 )
@@ -35,7 +34,6 @@ __all__ = [
     # Strategy enums (public)
     "OverlapStrategy",
     "MergeStrategy",
-    "RepairStrategy",
     "CollapseMode",
     "coerce_enum",
     # Exceptions

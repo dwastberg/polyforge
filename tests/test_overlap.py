@@ -5,6 +5,7 @@ import numpy as np
 from shapely.geometry import Polygon
 from polyforge.overlap import remove_overlaps, count_overlaps, find_overlapping_groups
 from polyforge.core.types import OverlapStrategy
+from polyforge.core.errors import OverlapResolutionError
 
 
 class TestRemoveOverlaps:
@@ -359,3 +360,40 @@ class TestPerformance:
         # Should complete very quickly - spatial index finds no candidates
         count = count_overlaps(polygons)
         assert count == 0
+
+
+class TestOverlapResolutionError:
+    """Tests for OverlapResolutionError being raised on iteration cap."""
+
+    def test_resolved_cleanly_no_error(self):
+        """No error when overlaps resolve within iteration cap."""
+        poly1 = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        poly2 = Polygon([(1, 1), (3, 1), (3, 3), (1, 3)])
+        result = remove_overlaps([poly1, poly2])
+        assert count_overlaps(result) == 0
+
+    def test_raises_when_stalled_with_overlaps(self):
+        """OverlapResolutionError raised when resolution stalls with overlaps remaining."""
+        # Create a case where we cap at max_iterations=1 but the polygon pair
+        # might not resolve in a single pass (overlapping chain that needs 2 passes)
+        poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
+        poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
+        poly3 = Polygon([(4, 0), (7, 0), (7, 3), (4, 3)])
+
+        # With max_iterations=0, the loop doesn't run at all, so overlaps remain
+        with pytest.raises(OverlapResolutionError) as exc_info:
+            remove_overlaps([poly1, poly2, poly3], max_iterations=0)
+
+        assert exc_info.value.remaining_overlaps > 0
+
+    def test_error_carries_iteration_count(self):
+        """OverlapResolutionError carries the number of iterations attempted."""
+        poly1 = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
+        poly2 = Polygon([(2, 0), (5, 0), (5, 3), (2, 3)])
+
+        try:
+            remove_overlaps([poly1, poly2], max_iterations=0)
+        except OverlapResolutionError as e:
+            assert isinstance(e.iterations, int)
+            assert isinstance(e.remaining_overlaps, int)
+            assert e.remaining_overlaps > 0

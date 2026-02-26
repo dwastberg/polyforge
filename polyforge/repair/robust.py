@@ -13,7 +13,7 @@ from ..ops.cleanup_ops import CleanupConfig, cleanup_polygon
 from ..core.constraints import ConstraintStatus, GeometryConstraints, MergeConstraints
 from ..core.errors import FixWarning, PolyforgeError
 from ..core.geometry_utils import safe_buffer_fix
-from ..core.types import OverlapStrategy, RepairStrategy
+from ..core.types import OverlapStrategy
 from ..metrics import _safe_clearance, overlap_area_by_geometry, total_overlap_area
 from ..clearance.fix_clearance import fix_clearance
 from ..merge import merge_close_polygons
@@ -320,7 +320,7 @@ def _validity_step(geometry: BaseGeometry, ctx: PipelineContext) -> StepResult:
     if not ctx.config.must_be_valid or geometry.is_valid:
         return StepResult("validity", geometry, False, "already valid")
 
-    repaired = repair_geometry(geometry, repair_strategy=RepairStrategy.AUTO)
+    repaired = repair_geometry(geometry)
     return _maybe_accept(
         "validity", geometry, repaired, ctx, "repaired invalid geometry"
     )
