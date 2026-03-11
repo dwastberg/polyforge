@@ -179,6 +179,11 @@ def _merge_group_polygons(
         # This shouldn't happen, but handle it safely
         group_polygons = [base_union]
 
+    # Pre-processing: absorb polygons sitting inside another polygon's hole
+    group_polygons = _absorb_hole_polygons(group_polygons, margin)
+    if len(group_polygons) == 1:
+        return remove_holes(group_polygons[0], preserve_holes)
+
     if insert_vertices:
         group_polygons = insert_connection_vertices(group_polygons, margin)
 
@@ -195,6 +200,111 @@ def _merge_group_polygons(
 
     merge_func = strategy_map[strategy]
     return merge_func(group_polygons, margin, preserve_holes)
+
+
+def _absorb_hole_polygons(
+    polygons: list[Polygon], margin: float
+) -> list[Polygon]:
+    """Absorb polygons that sit inside another polygon's hole.
+
+    When polygon B is inside a hole of polygon A and within margin distance
+    of the hole boundary, remove the hole from A and union A with B.
+    """
+    if len(polygons) < 2:
+        return polygons
+
+    changed = True
+    while changed:
+        changed = False
+        tree = STRtree(polygons)
+        absorbed: set[int] = set()
+        processed: set[int] = set()
+        new_polygons: list[Polygon] = []
+
+        for i, outer in enumerate(polygons):
+            if i in absorbed:
+                continue
+            processed.add(i)
+            if not outer.interiors:
+                new_polygons.append(outer)
+                continue
+
+            # Check which other polygons sit inside a hole of outer
+            # A polygon is in a hole if it's inside the exterior ring but not
+            # inside the polygon itself (meaning it falls in a hole).
+            outer_no_holes = Polygon(outer.exterior)
+            candidates = tree.query(outer_no_holes)
+            merged_outer = outer
+            for j in candidates:
+                if j == i or j in absorbed:
+                    continue
+                inner = polygons[j]
+                # inner must be inside exterior but not inside the polygon
+                # (i.e. it sits in a hole)
+                if not outer_no_holes.contains(inner.representative_point()):
+                    continue
+                if merged_outer.contains(inner.representative_point()):
+                    continue
+
+                # Find which hole contains the inner polygon
+                hole_idx = None
+                for hi, hole in enumerate(merged_outer.interiors):
+                    hole_poly = Polygon(hole)
+                    if hole_poly.contains(inner.representative_point()):
+                        hole_idx = hi
+                        break
+                if hole_idx is None:
+                    continue
+
+                # Check distance to hole boundary
+                hole_boundary = Polygon(merged_outer.interiors[hole_idx]).boundary
+                if inner.distance(hole_boundary) > margin:
+                    continue
+
+                # Absorb: merge inner into outer through the hole.
+                # 1. Remove the hole from outer (fills it completely)
+                # 2. Subtract remaining hole area (hole - inner) to preserve
+                #    the part of the hole not covered by inner.
+                hole_poly = Polygon(merged_outer.interiors[hole_idx])
+
+                # Build outer without this hole
+                remaining_holes = [
+                    h
+                    for hi, h in enumerate(merged_outer.interiors)
+                    if hi != hole_idx
+                ]
+                outer_filled = Polygon(merged_outer.exterior, remaining_holes)
+
+                # Remaining hole area = hole minus inner (with small buffer
+                # to bridge the gap and ensure a clean connection)
+                gap = inner.distance(hole_boundary)
+                if gap > 0:
+                    bridged = inner.buffer(gap + 1e-6, join_style='mitre')
+                else:
+                    bridged = inner.buffer(1e-6, join_style='mitre')
+                remaining_hole = hole_poly.difference(bridged)
+
+                # Subtract remaining hole area from the filled outer
+                if not remaining_hole.is_empty and remaining_hole.area > 0:
+                    merged_outer = outer_filled.difference(remaining_hole)
+                else:
+                    merged_outer = outer_filled
+
+                if isinstance(merged_outer, MultiPolygon):
+                    merged_outer = max(merged_outer.geoms, key=lambda g: g.area)
+                absorbed.add(j)
+                changed = True
+
+            new_polygons.append(merged_outer)
+
+        # Add any polygons that weren't processed or absorbed
+        for j in range(len(polygons)):
+            if j not in processed and j not in absorbed:
+                new_polygons.append(polygons[j])
+
+        polygons = new_polygons
+
+    return polygons
 
 
 def _map_components_to_inputs(
