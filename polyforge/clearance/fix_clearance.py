@@ -72,6 +72,11 @@ _CLEARANCE_TOLERANCE = 1e-9
 # expanding the exterior).
 _AREA_GROWTH_TOLERANCE = 1.02
 
+# Minimum ratio of enclosed courtyard area to min_clearance² for courtyard
+# passage detection.  A courtyard must be at least this many times larger than
+# a min_clearance-sided square to be worth preserving as a hole.
+_COURTYARD_AREA_THRESHOLD = 10.0
+
 
 class ClearanceIssue(Enum):
     """Enumerates the types of clearance problems we can detect."""
@@ -242,6 +247,40 @@ def fix_clearance(
             )
             return (region_candidate, summary) if return_diagnosis else region_candidate
 
+    # --- Phase 1.5: Courtyard passage detection ---
+    # If the exterior ring has a narrow passage enclosing a significant area,
+    # close the passage and convert the courtyard to a hole.  This must run
+    # before the iterative improve() loop because creating a hole legitimately
+    # changes exterior area and polygon area, which would be rejected by the
+    # area guards in improve().
+    courtyard_candidate = _try_close_passage_to_hole(geometry, min_clearance)
+    if courtyard_candidate is not None and courtyard_candidate.is_valid:
+        courtyard_clearance = _safe_clearance(courtyard_candidate) or 0.0
+        if courtyard_clearance >= min_clearance:
+            issue_history.append(ClearanceIssue.NEAR_SELF_INTERSECTION)
+            final_area_ratio = (
+                courtyard_candidate.area / original_area
+                if original_area > 0
+                else float("inf")
+            )
+            summary = ClearanceFixSummary(
+                initial_clearance=initial_clearance,
+                final_clearance=courtyard_clearance,
+                area_ratio=final_area_ratio,
+                iterations=1,
+                issue=ClearanceIssue.NONE,
+                fixed=True,
+                valid=courtyard_candidate.is_valid,
+                history=issue_history,
+            )
+            return (courtyard_candidate, summary) if return_diagnosis else courtyard_candidate
+        # Courtyard created but clearance not yet met — continue with it
+        # as starting point for Phase 2 (remaining clearance at pinch point).
+        if courtyard_clearance > initial_clearance:
+            geometry = courtyard_candidate
+            original_exterior_area = Polygon(geometry.exterior).area
+            issue_history.append(ClearanceIssue.NEAR_SELF_INTERSECTION)
+
     # --- Phase 2: Point-based fixes (diagnosis-driven iteration) ---
     # For cases where erosion-dilation is too aggressive (would lose too much area)
     # or doesn't fully solve the problem (e.g., holes, single protrusions).
@@ -264,6 +303,12 @@ def fix_clearance(
         # legitimately increase polygon area by shrinking holes—are not blocked.
         if Polygon(candidate.exterior).area > original_exterior_area * _AREA_GROWTH_TOLERANCE:
             return None
+        # Clean up near-duplicate vertices that may have become the new bottleneck.
+        # Uses a larger tolerance than Phase 0 dedup to catch vertices exposed by
+        # the fix (e.g., near-collinear seam vertices unmasked after a hole fix).
+        dedup_candidate = _dedup_ring_vertices(candidate, target * 0.5)
+        if dedup_candidate is not None and dedup_candidate.is_valid and not dedup_candidate.is_empty:
+            candidate = dedup_candidate
         return candidate
 
     metric = lambda poly: _safe_clearance(poly) or 0.0  # noqa: E731
@@ -471,8 +516,28 @@ def _strategy_narrow_passage(
 def _strategy_near_self_intersection(
     geometry: Polygon,
     min_clearance: float,
-    _: ClearanceDiagnosis,
+    diagnosis: ClearanceDiagnosis,
 ) -> Polygon | None:
+    # Try closing narrow passage to courtyard hole first
+    courtyard_result = _try_close_passage_to_hole(geometry, min_clearance)
+    if courtyard_result is not None:
+        return courtyard_result
+    context = diagnosis.context
+    if context is not None and context.separation <= 2:
+        # Try targeted dedup for near-collinear vertices
+        dedup_result = _dedup_ring_vertices(geometry, min_clearance * 0.5)
+        if dedup_result is not None and dedup_result.is_valid:
+            dedup_clearance = _safe_clearance(dedup_result) or 0.0
+            if dedup_clearance > diagnosis.current_clearance:
+                return dedup_result
+        # Try targeted vertex removal at the bottleneck edge
+        targeted = _try_remove_bottleneck_edge_vertex(geometry, min_clearance)
+        if (
+            targeted is not None
+            and targeted.is_valid
+            and (_safe_clearance(targeted) or 0.0) > diagnosis.current_clearance
+        ):
+            return targeted
     return fix_near_self_intersection(
         geometry,
         min_clearance,
@@ -486,6 +551,10 @@ def _strategy_parallel_edges(
     min_clearance: float,
     _: ClearanceDiagnosis,
 ) -> Polygon | None:
+    # Try closing narrow passage to courtyard hole first
+    courtyard_result = _try_close_passage_to_hole(geometry, min_clearance)
+    if courtyard_result is not None:
+        return courtyard_result
     return fix_parallel_close_edges(
         geometry,
         min_clearance,
@@ -571,10 +640,13 @@ def _try_hole_ring_fix(
     min_clearance: float,
     context: ClearanceContext | None = None,
 ) -> Polygon | None:
-    """Try to fix clearance by simplifying the offending hole ring.
+    """Try to fix clearance by reshaping the offending hole ring.
 
     Checks if the minimum_clearance bottleneck is on a single hole ring.
-    If so, simplifies that hole to resolve the issue.
+    Tries multiple strategies in order:
+    1. Erosion-dilation on the hole ring (handles spikes and close passages)
+    2. Spike removal (targeted fix for long narrow spikes)
+    3. Simplification (general fallback)
     """
     if context is None:
         context = _build_clearance_context(geometry, min_clearance)
@@ -589,12 +661,225 @@ def _try_hole_ring_fix(
         return None
 
     current_clearance = _safe_clearance(geometry) or 0.0
-    candidate = _simplify_hole_ring(geometry, context.hole_indices[0], min_clearance)
-    if candidate is not None and candidate.is_valid:
-        new_clearance = _safe_clearance(candidate) or 0.0
-        if new_clearance > current_clearance:
+    hole_index = context.hole_indices[0]
+
+    # Try all strategies and pick the best result.
+    best_candidate = None
+    best_clearance = current_clearance
+
+    # Erosion-dilation on the hole ring — handles both spikes and
+    # self-proximity in a single operation.
+    erode_candidate = _erode_dilate_hole_ring(
+        geometry, hole_index, min_clearance
+    )
+    if erode_candidate is not None and erode_candidate.is_valid:
+        erode_clearance = _safe_clearance(erode_candidate) or 0.0
+        if erode_clearance > best_clearance:
+            best_clearance = erode_clearance
+            best_candidate = erode_candidate
+
+    # Spike removal — handles long, narrow spikes that erosion-dilation
+    # might not fix (e.g., when area loss is too large).
+    spike_candidate = _remove_hole_ring_spike(geometry, hole_index, min_clearance)
+    if spike_candidate is not None and spike_candidate.is_valid:
+        spike_clearance = _safe_clearance(spike_candidate) or 0.0
+        if spike_clearance > best_clearance:
+            best_clearance = spike_clearance
+            best_candidate = spike_candidate
+
+    # Simplification
+    simp_candidate = _simplify_hole_ring(geometry, hole_index, min_clearance)
+    if simp_candidate is not None and simp_candidate.is_valid:
+        simp_clearance = _safe_clearance(simp_candidate) or 0.0
+        if simp_clearance > best_clearance:
+            best_clearance = simp_clearance
+            best_candidate = simp_candidate
+
+    return best_candidate
+
+
+def _erode_dilate_hole_ring(
+    geometry: Polygon,
+    hole_index: int,
+    min_clearance: float,
+    min_area_ratio: float = 0.8,
+) -> Polygon | None:
+    """Apply erosion-dilation to a specific hole ring to fix self-clearance.
+
+    Buffers the hole polygon inward (erode) then outward (dilate) to remove
+    narrow features like spikes and near-self-intersections. The result is
+    simplified to avoid vertex explosion from buffering.
+
+    Args:
+        geometry: Input polygon.
+        hole_index: Index of the hole to fix.
+        min_clearance: Target minimum clearance.
+        min_area_ratio: Minimum ratio of fixed hole area to original (default 0.8).
+
+    Returns:
+        Fixed polygon or None if the fix fails or loses too much hole area.
+    """
+    holes = list(geometry.interiors)
+    if hole_index < 0 or hole_index >= len(holes):
+        return None
+
+    hole_ring = holes[hole_index]
+    hole_poly = Polygon(hole_ring)
+    original_hole_area = hole_poly.area
+    if original_hole_area <= 0:
+        return None
+
+    # Try increasing buffer distances until clearance is resolved
+    for scale in (1.0, 2.0, 4.0):
+        d = min_clearance * scale
+        half_d = d / 2
+
+        try:
+            smoothed = hole_poly.buffer(-half_d).buffer(half_d)
+        except (GEOSException, ValueError):
+            continue
+
+        if smoothed.is_empty or not smoothed.is_valid:
+            continue
+
+        # Take the largest polygon if buffer split the hole
+        if isinstance(smoothed, MultiPolygon):
+            smoothed = max(smoothed.geoms, key=lambda p: p.area)
+
+        # Check hole area preservation
+        if smoothed.area < original_hole_area * min_area_ratio:
+            continue
+
+        # Simplify to reduce vertex count from buffering
+        smoothed = smoothed.simplify(d * 0.25)
+        if smoothed.is_empty or not smoothed.is_valid:
+            continue
+
+        # Reconstruct polygon with the smoothed hole
+        new_holes = list(holes)
+        new_holes[hole_index] = smoothed.exterior
+
+        try:
+            candidate = Polygon(geometry.exterior, new_holes)
+        except (GEOSException, ValueError):
+            continue
+
+        if candidate.is_valid and not candidate.is_empty:
             return candidate
+
     return None
+
+
+def _remove_hole_ring_spike(
+    geometry: Polygon, hole_index: int, min_clearance: float
+) -> Polygon | None:
+    """Remove spike features from a hole ring that cause near-self-intersection.
+
+    A spike is a pattern where the ring goes from vertex A to a distant vertex B
+    and then back to vertex C near A, creating a long narrow protrusion.
+    The fix removes the spike vertex B and merges A and C into their midpoint.
+
+    This handles cases that simplification cannot fix: when the spike tip
+    deviates far from the baseline (e.g., 10 units) but the base width is
+    tiny (e.g., 0.15 units), RDP/VW won't remove the tip vertex.
+    """
+    holes = list(geometry.interiors)
+    if hole_index < 0 or hole_index >= len(holes):
+        return None
+
+    hole_coords = np.array(holes[hole_index].coords)
+    n = len(hole_coords) - 1  # exclude closing vertex
+    if n < 5:  # need at least 4 vertices after spike removal
+        return None
+
+    # Find the clearance bottleneck location on this hole ring
+    try:
+        clearance_line = shapely.minimum_clearance_line(geometry)
+    except (GEOSException, ValueError):
+        return None
+    if clearance_line.is_empty:
+        return None
+
+    cl_pts = np.array(clearance_line.coords)
+    if len(cl_pts) < 2:
+        return None
+
+    # Find the nearest vertex on the hole ring to each clearance endpoint
+    idx1 = _find_nearest_vertex_index(hole_coords, cl_pts[0])
+    idx2 = _find_nearest_vertex_index(hole_coords, cl_pts[1])
+
+    # Look for spike patterns around the clearance bottleneck.
+    # A spike has two close base vertices with a far tip vertex between them.
+    best_candidate = None
+    best_clearance = _safe_clearance(geometry) or 0.0
+
+    # Search vertices near the clearance endpoints for spike patterns
+    search_indices = set()
+    for idx in (idx1, idx2):
+        for offset in range(-2, 3):
+            search_indices.add((idx + offset) % n)
+
+    for vi in search_indices:
+        prev_i = (vi - 1) % n
+        next_i = (vi + 1) % n
+
+        base_dist = float(np.linalg.norm(
+            hole_coords[prev_i][:2] - hole_coords[next_i][:2]
+        ))
+        tip_dist_prev = float(np.linalg.norm(
+            hole_coords[vi][:2] - hole_coords[prev_i][:2]
+        ))
+        tip_dist_next = float(np.linalg.norm(
+            hole_coords[vi][:2] - hole_coords[next_i][:2]
+        ))
+
+        # Spike pattern: base is narrow, both arms are much longer than base
+        if base_dist >= min_clearance:
+            continue
+        min_arm = min(tip_dist_prev, tip_dist_next)
+        if min_arm < base_dist * 3:
+            continue
+
+        # Remove the spike: delete tip vertex, merge base vertices to midpoint
+        midpoint = (hole_coords[prev_i][:2] + hole_coords[next_i][:2]) / 2
+        new_coords = []
+        merged = False
+        for j in range(n):
+            if j == vi:
+                continue  # skip spike tip
+            if j == prev_i and not merged:
+                new_coords.append(midpoint)
+                merged = True
+            elif j == next_i and merged:
+                continue  # skip second base vertex (already merged)
+            else:
+                new_coords.append(hole_coords[j][:2])
+
+        if len(new_coords) < 3:
+            continue
+
+        # Close the ring
+        new_coords.append(new_coords[0].copy())
+        new_ring_coords = np.array(new_coords)
+
+        # Reconstruct polygon with modified hole
+        new_holes = list(holes)
+        try:
+            new_hole_ring = LinearRing(new_ring_coords)
+            new_holes[hole_index] = new_hole_ring
+            candidate = Polygon(geometry.exterior, new_holes)
+        except (GEOSException, ValueError):
+            continue
+
+        if not candidate.is_valid or candidate.is_empty:
+            continue
+
+        cand_clearance = _safe_clearance(candidate) or 0.0
+        if cand_clearance > best_clearance:
+            best_clearance = cand_clearance
+            best_candidate = candidate
+
+    return best_candidate
 
 
 def _simplify_hole_ring(
@@ -682,6 +967,237 @@ def _try_remove_bottleneck_edge_vertex(
                 best_candidate = candidate
 
     return best_candidate
+
+
+def _try_close_passage_to_hole(
+    geometry: Polygon, min_clearance: float
+) -> Polygon | None:
+    """Close a narrow exterior passage and convert the enclosed area to a hole.
+
+    Detects when two nearby points on the exterior ring enclose a significant
+    courtyard area behind a narrow passage.  Snaps the passage vertices together
+    and uses make_valid() to split the polygon into exterior + hole.
+
+    Args:
+        geometry: Input polygon.
+        min_clearance: Target minimum clearance.
+
+    Returns:
+        Polygon with courtyard as hole, or None if pattern not detected.
+    """
+    try:
+        clearance_line = shapely.minimum_clearance_line(geometry)
+    except (GEOSException, ValueError):
+        return None
+    if clearance_line.is_empty:
+        return None
+
+    cl_pts = np.array(clearance_line.coords)
+    if len(cl_pts) < 2:
+        return None
+
+    ext_coords = np.array(geometry.exterior.coords[:-1])  # open ring
+    n = len(ext_coords)
+    if n < 6:
+        # Need at least 6 vertices: 2 for passage + 3 for courtyard + 1 for exterior
+        return None
+
+    # Both endpoints must be on the exterior ring
+    (rt1, _), (rt2, _) = _classify_ring_types(geometry, cl_pts[0], cl_pts[1])
+    if rt1 != "exterior" or rt2 != "exterior":
+        return None
+
+    # Find nearest exterior vertices to each clearance endpoint
+    raw_idx1 = _find_nearest_vertex_index(ext_coords, cl_pts[0])
+    raw_idx2 = _find_nearest_vertex_index(ext_coords, cl_pts[1])
+    if raw_idx1 == raw_idx2:
+        # Both endpoints map to same vertex — use the nearest edge's closer endpoint
+        edge_idx = _find_nearest_edge_index(ext_coords, cl_pts[1])
+        cand_a, cand_b = edge_idx, (edge_idx + 1) % n
+        # Pick the candidate that is different from raw_idx1; if both differ, pick closer
+        if cand_a == raw_idx1:
+            raw_idx2 = cand_b
+        elif cand_b == raw_idx1:
+            raw_idx2 = cand_a
+        else:
+            d_a = float(np.linalg.norm(ext_coords[cand_a] - cl_pts[1]))
+            d_b = float(np.linalg.norm(ext_coords[cand_b] - cl_pts[1]))
+            raw_idx2 = cand_a if d_a <= d_b else cand_b
+    if raw_idx1 == raw_idx2:
+        return None
+
+    # Ensure idx1 < idx2
+    idx1, idx2 = (raw_idx1, raw_idx2) if raw_idx1 < raw_idx2 else (raw_idx2, raw_idx1)
+
+    # Two paths along the ring between idx1 and idx2
+    path_a_indices = list(range(idx1, idx2 + 1))  # idx1 -> idx2 (forward)
+    path_b_indices = list(range(idx2, n)) + list(range(0, idx1 + 1))  # idx2 -> idx1 (wrap)
+
+    # Compute enclosed area of each path (closed with straight line between endpoints)
+    area_a = _path_enclosed_area(ext_coords, path_a_indices)
+    area_b = _path_enclosed_area(ext_coords, path_b_indices)
+
+    # Courtyard is the smaller enclosed area
+    if area_a <= area_b:
+        courtyard_area = area_a
+    else:
+        courtyard_area = area_b
+
+    # Check courtyard is significant
+    if courtyard_area < _COURTYARD_AREA_THRESHOLD * min_clearance * min_clearance:
+        return None
+
+    # Need at least 4 vertices in courtyard path (to form a valid ring)
+    courtyard_indices = path_a_indices if area_a <= area_b else path_b_indices
+    if len(courtyard_indices) < 4:
+        return None
+
+    # --- Find passage mouth ---
+    mouth = _find_passage_mouth(
+        ext_coords, idx1, idx2, courtyard_indices, threshold=min_clearance * 2
+    )
+
+    if mouth is None:
+        # Passage is only one vertex pair wide — use snap+make_valid fallback
+        midpoint = (ext_coords[idx1] + ext_coords[idx2]) / 2
+        new_coords = ext_coords.copy()
+        new_coords[idx1] = midpoint
+        new_coords[idx2] = midpoint
+        ring = np.vstack([new_coords, [new_coords[0]]])
+        holes = [list(h.coords) for h in geometry.interiors]
+        try:
+            self_touching = Polygon(ring, holes) if holes else Polygon(ring)
+            candidate = shapely.make_valid(self_touching)
+        except (GEOSException, ValueError):
+            return None
+        result = _normalize_polygon(candidate)
+        if result is None or len(result.interiors) <= len(geometry.interiors):
+            return None
+        return result
+
+    mouth1, mouth2 = mouth
+    midpoint = (ext_coords[mouth1] + ext_coords[mouth2]) / 2
+
+    # Identify arc to remove: mouth1 through passage+courtyard to mouth2
+    path_fwd = list(range(mouth1, mouth2 + 1))
+    path_bck = list(range(mouth2, n)) + list(range(0, mouth1 + 1))
+    courtyard_set = set(courtyard_indices)
+    if courtyard_set.issubset(set(path_fwd)):
+        arc_to_remove = set(path_fwd)
+    else:
+        arc_to_remove = set(path_bck)
+
+    # Build exterior ring: main body vertices in order, midpoint replaces arc
+    ext_ring_coords = []
+    midpoint_inserted = False
+    for i in range(n):
+        if i in arc_to_remove:
+            if not midpoint_inserted:
+                ext_ring_coords.append(midpoint)
+                midpoint_inserted = True
+        else:
+            ext_ring_coords.append(ext_coords[i])
+
+    if len(ext_ring_coords) < 3:
+        return None
+    ext_ring_coords.append(ext_ring_coords[0])  # close ring
+
+    # Build hole ring from courtyard vertices
+    hole_coords = [ext_coords[i].tolist() for i in courtyard_indices]
+    if len(hole_coords) < 3:
+        return None
+    hole_coords.append(hole_coords[0])  # close ring
+
+    # Preserve existing holes
+    existing_holes = [list(h.coords) for h in geometry.interiors]
+    all_holes = existing_holes + [hole_coords]
+
+    try:
+        result = Polygon(ext_ring_coords, all_holes)
+    except (GEOSException, ValueError):
+        return None
+
+    if not result.is_valid or result.is_empty:
+        try:
+            result = _normalize_polygon(shapely.make_valid(result))
+        except (GEOSException, ValueError):
+            return None
+        if result is None:
+            return None
+
+    # Must have gained at least one hole
+    if len(result.interiors) <= len(geometry.interiors):
+        return None
+
+    return result
+
+
+def _path_enclosed_area(coords: np.ndarray, indices: list[int]) -> float:
+    """Compute the area enclosed by a path along the ring, closed by a straight line.
+
+    Takes vertex indices along the ring and computes the area of the polygon
+    formed by connecting them in order plus closing back to the first vertex.
+    """
+    if len(indices) < 3:
+        return 0.0
+    path_coords = coords[indices]
+    # Close the ring
+    closed = np.vstack([path_coords, [path_coords[0]]])
+    try:
+        return abs(Polygon(closed).area)
+    except (GEOSException, ValueError):
+        return 0.0
+
+
+def _find_passage_mouth(
+    ext_coords: np.ndarray,
+    idx1: int,
+    idx2: int,
+    courtyard_indices: list[int],
+    threshold: float,
+) -> tuple[int, int] | None:
+    """Walk outward from bottleneck to find passage mouth vertices.
+
+    Starting from (idx1, idx2), walks along both passage walls away from
+    the courtyard. Returns outermost pair still within threshold distance.
+
+    Returns:
+        (mouth_idx1, mouth_idx2) with mouth_idx1 < mouth_idx2, or None.
+    """
+    n = len(ext_coords)
+    courtyard_set = set(courtyard_indices)
+
+    # Determine walk direction: away from courtyard
+    # From idx1, step to (idx1-1)%n; if that's in courtyard, reverse direction
+    test_step = (idx1 - 1) % n
+    if test_step in courtyard_set:
+        dir1, dir2 = +1, -1
+    else:
+        dir1, dir2 = -1, +1
+
+    mouth1, mouth2 = idx1, idx2
+    max_steps = n // 2
+
+    for _ in range(max_steps):
+        next1 = (mouth1 + dir1) % n
+        next2 = (mouth2 + dir2) % n
+
+        if next1 in courtyard_set or next2 in courtyard_set:
+            break
+        if next1 == next2:
+            break
+
+        dist = float(np.linalg.norm(ext_coords[next1] - ext_coords[next2]))
+        if dist > threshold:
+            break
+
+        mouth1, mouth2 = next1, next2
+
+    if mouth1 == idx1 and mouth2 == idx2:
+        return None  # No outward walk — passage is only at bottleneck
+
+    m1, m2 = min(mouth1, mouth2), max(mouth1, mouth2)
+    return (m1, m2)
 
 
 def _normalize_polygon(candidate: BaseGeometry | None) -> Polygon | None:
