@@ -1629,3 +1629,71 @@ class TestRemoveNarrowWedges:
             f"Clearance not improved enough: {original_clearance:.4f} -> "
             f"{result.minimum_clearance:.4f}"
         )
+
+
+class TestFixClearanceSameHoleVertexMovement:
+    """Test that same-hole pinch points are fixed by moving vertices apart."""
+
+    BUG8_WKT = (
+        "Polygon ((673335.80400000000372529 6581843.54899999964982271, "
+        "673369.62800000002607703 6581783.49799999967217445, "
+        "673444.54200000001583248 6581825.22800000011920929, "
+        "673431.32999999995809048 6581848.51499999966472387, "
+        "673423.81999999994877726 6581861.89599999971687794, "
+        "673410.63800000003539026 6581885.22699999995529652, "
+        "673335.80400000000372529 6581843.54899999964982271),"
+        "(673391.14200096565764397 6581859.27400053385645151, "
+        "673406.46100000001024455 6581867.74399999994784594, "
+        "673427.4719999999506399 6581830.69299999997019768, "
+        "673373.30200000002514571 6581800.72800000011920929, "
+        "673352.90399999998044223 6581838.13300000037997961, "
+        "673391.14199912489857525 6581859.27399951592087746, "
+        "673397.77299863495863974 6581847.50800038501620293, "
+        "673369.96599863702431321 6581831.99300038442015648, "
+        "673377.50499961513560265 6581818.55999864172190428, "
+        "673382.60000063525512815 6581821.39399920962750912, "
+        "673405.15900135319679976 6581834.03799961134791374, "
+        "673397.77300135686527938 6581847.50799960549920797, "
+        "673402.14900137565564364 6581849.92499961704015732, "
+        "673400.81600075995083898 6581852.23300068359822035, "
+        "673391.14200096565764397 6581859.27400053385645151))"
+    )
+
+    def test_same_hole_pinch_clearance_improved(self):
+        """Clearance should improve significantly for same-hole pinch points."""
+        import shapely as _shapely
+        from polyforge import fix_clearance
+
+        poly = _shapely.from_wkt(self.BUG8_WKT)
+        assert poly.minimum_clearance < 0.001, "Precondition: low clearance"
+
+        result = fix_clearance(poly, min_clearance=1.0)
+        assert result.is_valid
+        assert result.minimum_clearance > 0.3, (
+            f"Clearance should improve significantly, got {result.minimum_clearance:.6f}"
+        )
+
+    def test_same_hole_pinch_area_preserved(self):
+        """Area should be well preserved (< 1% change)."""
+        import shapely as _shapely
+        from polyforge import fix_clearance
+
+        poly = _shapely.from_wkt(self.BUG8_WKT)
+        result = fix_clearance(poly, min_clearance=1.0)
+        area_ratio = result.area / poly.area
+        assert 0.99 < area_ratio < 1.01, (
+            f"Area ratio should be near 1.0, got {area_ratio:.4f}"
+        )
+
+    def test_same_hole_pinch_no_self_intersection(self):
+        """Moving vertices apart should not create self-intersections."""
+        import shapely as _shapely
+        from polyforge import fix_clearance
+
+        poly = _shapely.from_wkt(self.BUG8_WKT)
+        result = fix_clearance(poly, min_clearance=1.0)
+        assert result.is_valid
+        # Check that hole ring is simple (no crossings)
+        for hole in result.interiors:
+            ring = _shapely.LinearRing(hole.coords)
+            assert ring.is_simple
