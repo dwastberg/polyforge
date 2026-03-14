@@ -248,23 +248,33 @@ def _move_hole_pinch_vertices(
         return None
 
     candidate = geometry
+    best_candidate = geometry
+    best_clearance = clearance_or_zero(geometry)
     # Small tolerance to avoid extra passes from floating-point near-misses
     target_with_tolerance = min_clearance * (1 - 1e-4)
     for _ in range(max_passes):
         result = _move_single_hole_pinch(candidate, min_clearance, hole_index)
         if result is None:
             break
-        candidate = result
-        # Check if clearance target (approximately) met
         try:
-            if candidate.minimum_clearance >= target_with_tolerance:
-                return candidate
+            new_clearance = result.minimum_clearance
         except (GEOSException, ValueError):
             break
 
+        # Regression guard: stop if this pass made things worse
+        if new_clearance <= best_clearance:
+            break
+
+        best_candidate = result
+        best_clearance = new_clearance
+        candidate = result
+
+        if new_clearance >= target_with_tolerance:
+            return result
+
     # Return improved geometry even if target not fully met
-    if candidate is not geometry:
-        return candidate
+    if best_candidate is not geometry:
+        return best_candidate
     return None
 
 
@@ -364,20 +374,31 @@ def _move_inter_hole_pinch(
         return None
 
     candidate = geometry
+    best_candidate = geometry
+    best_clearance = clearance_or_zero(geometry)
     target_with_tolerance = min_clearance * (1 - 1e-4)
     for _ in range(max_passes):
         result = _move_single_inter_hole_pinch(candidate, min_clearance, hole_idx_a, hole_idx_b)
         if result is None:
             break
-        candidate = result
         try:
-            if candidate.minimum_clearance >= target_with_tolerance:
-                return candidate
+            new_clearance = result.minimum_clearance
         except (GEOSException, ValueError):
             break
 
-    if candidate is not geometry:
-        return candidate
+        # Regression guard: stop if this pass made things worse
+        if new_clearance <= best_clearance:
+            break
+
+        best_candidate = result
+        best_clearance = new_clearance
+        candidate = result
+
+        if new_clearance >= target_with_tolerance:
+            return result
+
+    if best_candidate is not geometry:
+        return best_candidate
     return None
 
 

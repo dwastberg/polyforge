@@ -1806,12 +1806,25 @@ class TestFixClearanceInterHoleVertexMovement:
         )
 
     def test_inter_hole_pinch_most_holes_preserved(self):
-        """Most holes should be preserved — at most 1 may be merged with its neighbor."""
+        """All holes should be preserved with regression guard preventing degradation."""
         import shapely as _shapely
         from polyforge import fix_clearance
 
         poly = _shapely.from_wkt(self.BUG9_WKT)
         result = fix_clearance(poly, min_clearance=1.0)
-        assert len(result.interiors) >= len(poly.interiors) - 1, (
-            f"Expected at least {len(poly.interiors) - 1} holes, got {len(result.interiors)}"
+        assert len(result.interiors) == len(poly.interiors), (
+            f"Expected {len(poly.interiors)} holes, got {len(result.interiors)}"
+        )
+
+    def test_higher_target_not_worse_than_lower(self):
+        """Requesting higher clearance should not produce worse results."""
+        import shapely as _shapely
+        from polyforge import fix_clearance
+
+        poly = _shapely.from_wkt(self.BUG9_WKT)
+        r05 = fix_clearance(poly, min_clearance=0.5)
+        r10 = fix_clearance(poly, min_clearance=1.0)
+        assert r10.minimum_clearance >= r05.minimum_clearance * 0.9, (
+            f"min_clearance=1.0 gave {r10.minimum_clearance:.4f} but "
+            f"min_clearance=0.5 gave {r05.minimum_clearance:.4f}"
         )
