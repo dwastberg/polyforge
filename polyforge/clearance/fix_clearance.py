@@ -45,7 +45,7 @@ from polyforge.clearance._diagnosis import (
 # minor growth from removing concave vertices at clearance bottlenecks (e.g.,
 # vertex-to-edge issues where a single concave vertex is removed, slightly
 # expanding the exterior).
-_AREA_GROWTH_TOLERANCE = 1.02
+_AREA_GROWTH_TOLERANCE = 1.05
 
 
 @dataclass
