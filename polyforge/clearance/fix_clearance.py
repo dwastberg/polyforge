@@ -217,6 +217,18 @@ def _is_same_hole_issue(context: ClearanceContext | None) -> bool:
     )
 
 
+def _is_inter_hole_pinch_issue(context: ClearanceContext | None) -> bool:
+    """Check if the clearance bottleneck is between vertices on two different holes."""
+    if context is None:
+        return False
+    return (
+        context.ring_types == ("hole", "hole")
+        and context.hole_indices[0] is not None
+        and context.hole_indices[1] is not None
+        and context.hole_indices[0] != context.hole_indices[1]
+    )
+
+
 def _move_hole_pinch_vertices(
     geometry: Polygon,
     min_clearance: float,
@@ -336,6 +348,139 @@ def _move_single_hole_pinch(
     return candidate
 
 
+def _move_inter_hole_pinch(
+    geometry: Polygon,
+    min_clearance: float,
+    context: ClearanceContext,
+    max_passes: int = 5,
+) -> Polygon | None:
+    """Move near-coincident vertices on two different hole rings apart.
+
+    Iterates like _move_hole_pinch_vertices but for the inter-hole case.
+    """
+    hole_idx_a = context.hole_indices[0]
+    hole_idx_b = context.hole_indices[1]
+    if hole_idx_a is None or hole_idx_b is None:
+        return None
+
+    candidate = geometry
+    target_with_tolerance = min_clearance * (1 - 1e-4)
+    for _ in range(max_passes):
+        result = _move_single_inter_hole_pinch(candidate, min_clearance, hole_idx_a, hole_idx_b)
+        if result is None:
+            break
+        candidate = result
+        try:
+            if candidate.minimum_clearance >= target_with_tolerance:
+                return candidate
+        except (GEOSException, ValueError):
+            break
+
+    if candidate is not geometry:
+        return candidate
+    return None
+
+
+def _move_single_inter_hole_pinch(
+    geometry: Polygon,
+    min_clearance: float,
+    hole_idx_a: int,
+    hole_idx_b: int,
+) -> Polygon | None:
+    """Move a single pair of near-coincident vertices apart on two different hole rings."""
+    holes = list(geometry.interiors)
+    if hole_idx_a >= len(holes) or hole_idx_b >= len(holes):
+        return None
+
+    try:
+        clearance_line = shapely.minimum_clearance_line(geometry)
+    except (GEOSException, ValueError):
+        return None
+    if clearance_line.is_empty:
+        return None
+
+    cl_pts = np.array(clearance_line.coords)
+    if len(cl_pts) < 2:
+        return None
+
+    coords_a = np.array(holes[hole_idx_a].coords)
+    coords_b = np.array(holes[hole_idx_b].coords)
+
+    # Find nearest vertex on each hole to each clearance endpoint,
+    # and pick the assignment that minimizes total snap distance.
+    idx_a0 = _find_nearest_vertex_index(coords_a, cl_pts[0])
+    idx_b0 = _find_nearest_vertex_index(coords_b, cl_pts[0])
+    idx_a1 = _find_nearest_vertex_index(coords_a, cl_pts[1])
+    idx_b1 = _find_nearest_vertex_index(coords_b, cl_pts[1])
+
+    # Option 1: endpoint 0 → hole A, endpoint 1 → hole B
+    snap_1 = float(np.linalg.norm(coords_a[idx_a0][:2] - cl_pts[0][:2])) + \
+             float(np.linalg.norm(coords_b[idx_b1][:2] - cl_pts[1][:2]))
+    # Option 2: endpoint 0 → hole B, endpoint 1 → hole A
+    snap_2 = float(np.linalg.norm(coords_b[idx_b0][:2] - cl_pts[0][:2])) + \
+             float(np.linalg.norm(coords_a[idx_a1][:2] - cl_pts[1][:2]))
+
+    if snap_1 <= snap_2:
+        va_idx, vb_idx = idx_a0, idx_b1
+    else:
+        va_idx, vb_idx = idx_a1, idx_b0
+
+    direction = cl_pts[1] - cl_pts[0]
+    dist = float(np.linalg.norm(direction))
+    if dist >= min_clearance:
+        return None
+
+    if dist < 1e-10:
+        # Compute direction from vertex positions directly
+        v_direction = coords_b[vb_idx][:2] - coords_a[va_idx][:2]
+        v_dist = float(np.linalg.norm(v_direction))
+        if v_dist < 1e-10:
+            return None
+        direction_norm = v_direction / v_dist
+    else:
+        direction_norm = direction / dist
+
+    # Validate snap distances
+    snap_a = float(np.linalg.norm(coords_a[va_idx][:2] - cl_pts[0 if snap_1 <= snap_2 else 1][:2]))
+    snap_b = float(np.linalg.norm(coords_b[vb_idx][:2] - cl_pts[1 if snap_1 <= snap_2 else 0][:2]))
+    if dist > 1e-10 and (snap_a > dist * 10 or snap_b > dist * 10):
+        return None
+
+    move_dist = (min_clearance - dist) / 2
+
+    # Move vertex on hole A away from hole B
+    new_coords_a = coords_a.copy()
+    new_coords_a[va_idx][:2] = coords_a[va_idx][:2] - direction_norm[:2] * move_dist
+    if va_idx == 0:
+        new_coords_a[-1] = new_coords_a[0]
+
+    # Move vertex on hole B away from hole A
+    new_coords_b = coords_b.copy()
+    new_coords_b[vb_idx][:2] = coords_b[vb_idx][:2] + direction_norm[:2] * move_dist
+    if vb_idx == 0:
+        new_coords_b[-1] = new_coords_b[0]
+
+    # Reconstruct polygon with both modified holes
+    new_holes = []
+    for i, h in enumerate(holes):
+        if i == hole_idx_a:
+            new_holes.append(new_coords_a)
+        elif i == hole_idx_b:
+            new_holes.append(new_coords_b)
+        else:
+            new_holes.append(list(h.coords))
+
+    try:
+        candidate = Polygon(geometry.exterior, new_holes)
+    except (GEOSException, ValueError):
+        return None
+
+    if not candidate.is_valid or candidate.is_empty:
+        return None
+
+    return candidate
+
+
 def _phase_iterative(
     geometry: Polygon,
     min_clearance: float,
@@ -359,6 +504,10 @@ def _phase_iterative(
         # This is a surgical fix that only touches the 2 bottleneck vertices.
         if _is_same_hole_issue(diagnosis.context):
             candidate = _move_hole_pinch_vertices(poly, target, diagnosis.context)
+
+        # For inter-hole pinch points (different holes with near-coincident vertices)
+        if not is_usable(candidate) and _is_inter_hole_pinch_issue(diagnosis.context):
+            candidate = _move_inter_hole_pinch(poly, target, diagnosis.context)
 
         # Fall back to strategy chain if vertex movement didn't work
         if not is_usable(candidate):
