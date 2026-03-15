@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import shapely
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, LinearRing
 from shapely.errors import GEOSException
 
 from polyforge.ops.clearance import (
@@ -733,14 +733,33 @@ def _strategy_dense_vertices(
     min_clearance: float,
     diagnosis: ClearanceDiagnosis,
 ) -> Polygon | None:
-    """Strategy for over-dense vertex arcs: simplify with RDP at increasing epsilon.
+    """Strategy for over-dense vertex arcs: resample then fall back to RDP.
 
-    Tries RDP simplification with epsilon values scaled from the current clearance
-    gap up to min_clearance. Returns the first candidate that improves clearance.
+    For smooth curves (near-circles, arcs), boundary resampling at spacing
+    ≈ min_clearance gives optimal area preservation. For non-convex shapes
+    where non-adjacent features cause the bottleneck, RDP is still needed.
     """
     baseline = diagnosis.current_clearance
-    # Try increasing epsilon values — start small to preserve shape
-    for factor in (0.3, 0.5, 0.7, 1.0):
+    best: Polygon | None = None
+    best_clearance = baseline
+
+    # --- Phase 1: Try boundary resampling ---
+    resampled = _try_resample_polygon(geometry, min_clearance)
+    if resampled is not None:
+        try:
+            rc = resampled.minimum_clearance
+        except (GEOSException, ValueError):
+            rc = 0.0
+        if rc > best_clearance:
+            best = resampled
+            best_clearance = rc
+
+    # Early exit if resampling already meets target
+    if best_clearance >= min_clearance:
+        return best
+
+    # --- Phase 2: RDP with finer epsilon grid ---
+    for factor in (0.1, 0.2, 0.3, 0.5, 0.7, 1.0):
         eps = min_clearance * factor
         candidate = simplify_rdp(geometry, epsilon=eps)
         if not isinstance(candidate, Polygon) or not candidate.is_valid or candidate.is_empty:
@@ -749,9 +768,97 @@ def _strategy_dense_vertices(
             new_clearance = candidate.minimum_clearance
         except (GEOSException, ValueError):
             continue
-        if new_clearance > baseline:
-            return candidate
-    return None
+        if new_clearance > best_clearance:
+            best = candidate
+            best_clearance = new_clearance
+            if best_clearance >= min_clearance:
+                return best
+
+    return best
+
+
+def _resample_ring(ring_coords: np.ndarray, target_spacing: float) -> tuple[list[tuple[float, float]], int]:
+    """Resample a ring with vertices at equal arc-length intervals.
+
+    Returns (new_coords, n_vertices) where new_coords is a closed ring.
+    """
+    ring = LinearRing(ring_coords)
+    perimeter = ring.length
+    n = max(4, int(perimeter / target_spacing))
+    new_coords = []
+    for i in range(n):
+        pt = ring.interpolate(i / n, normalized=True)
+        new_coords.append((pt.x, pt.y))
+    new_coords.append(new_coords[0])
+    return new_coords, n
+
+
+def _try_resample_polygon(
+    geometry: Polygon,
+    min_clearance: float,
+) -> Polygon | None:
+    """Try resampling all rings at spacing ≈ min_clearance.
+
+    Tries vertex counts from n down to n*0.8 to find the maximum vertex
+    count that achieves clearance ≥ the current baseline.
+    """
+    ext_coords = np.array(geometry.exterior.coords)
+    ext_ring = LinearRing(ext_coords)
+    ext_perimeter = ext_ring.length
+    n_max = max(4, int(ext_perimeter / min_clearance))
+    n_min = max(4, int(n_max * 0.8))
+
+    # Don't resample if it would add vertices (resampling is for reducing density)
+    n_original = len(ext_coords) - 1  # exclude closing vertex
+    if n_max >= n_original:
+        return None
+
+    baseline = clearance_or_zero(geometry)
+    best: Polygon | None = None
+    best_clearance = baseline
+
+    # Resample holes once (they typically have fewer vertices)
+    hole_rings: list[list[tuple[float, float]]] = []
+    for hole in geometry.interiors:
+        hole_coords = np.array(hole.coords)
+        hole_ring = LinearRing(hole_coords)
+        hole_perimeter = hole_ring.length
+        hole_n = max(4, int(hole_perimeter / min_clearance))
+        n_hole_original = len(hole_coords) - 1
+        if hole_n < n_hole_original:
+            resampled_hole, _ = _resample_ring(hole_coords, min_clearance)
+            hole_rings.append(resampled_hole)
+        else:
+            hole_rings.append(list(hole.coords))
+
+    # Try decreasing vertex counts — prefer more vertices (better shape fidelity)
+    for n in range(n_max, n_min - 1, -1):
+        spacing = ext_perimeter / n
+        new_ext = []
+        for i in range(n):
+            pt = ext_ring.interpolate(i / n, normalized=True)
+            new_ext.append((pt.x, pt.y))
+        new_ext.append(new_ext[0])
+
+        try:
+            candidate = Polygon(new_ext, hole_rings if hole_rings else None)
+        except (GEOSException, ValueError):
+            continue
+        if not candidate.is_valid or candidate.is_empty:
+            continue
+
+        try:
+            c = candidate.minimum_clearance
+        except (GEOSException, ValueError):
+            continue
+
+        if c > best_clearance:
+            best = candidate
+            best_clearance = c
+            if best_clearance >= min_clearance:
+                return best
+
+    return best
 
 
 @_register_strategy(ClearanceIssue.NARROW_WEDGE)
