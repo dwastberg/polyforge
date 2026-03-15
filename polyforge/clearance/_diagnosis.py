@@ -54,12 +54,18 @@ _CLEARANCE_TOLERANCE = 1e-9
 # for a feature to be classified as a wedge rather than a simple spike.
 _NARROW_WEDGE_MIN_EXTENT = 2
 
+# Minimum number of short edges (< min_clearance) in a local window around the
+# bottleneck for a separation<=1 issue to be classified as dense vertices rather
+# than a wedge or protrusion.
+_DENSE_VERTICES_MIN_SHORT_EDGES = 3
+
 
 class ClearanceIssue(Enum):
     """Enumerates the types of clearance problems we can detect."""
 
     NONE = "none"
     HOLE_TOO_CLOSE = "hole_too_close"
+    DENSE_VERTICES = "dense_vertices"
     NARROW_PROTRUSION = "narrow_protrusion"
     NARROW_WEDGE = "narrow_wedge"
     NARROW_PASSAGE = "narrow_passage"
@@ -80,6 +86,7 @@ class ClearanceContext:
     narrow_extent: int = 0
     tip_angle: float | None = None
     hole_indices: tuple[int | None, int | None] = (None, None)
+    short_edge_count: int = 0
 
 
 @dataclass
@@ -113,6 +120,7 @@ class ClearanceDiagnosis:
 RECOMMENDED_FIXES: dict[ClearanceIssue, str] = {
     ClearanceIssue.NONE: "none",
     ClearanceIssue.HOLE_TOO_CLOSE: "fix_hole_too_close",
+    ClearanceIssue.DENSE_VERTICES: "simplify_dense_vertices",
     ClearanceIssue.NARROW_PROTRUSION: "fix_narrow_protrusion",
     ClearanceIssue.NARROW_WEDGE: "fill_narrow_wedge",
     ClearanceIssue.NARROW_PASSAGE: "fix_narrow_passage",
@@ -208,6 +216,7 @@ def _diagnose_clearance_issue(
             return ClearanceIssue.HOLE_TOO_CLOSE, context
 
     for heuristic in (
+        _looks_like_dense_vertices,
         _looks_like_narrow_wedge,
         _looks_like_protrusion,
         _looks_like_near_self_intersection,
@@ -384,6 +393,12 @@ def _build_clearance_context(
     if same_ring and shared_ring_coords is not None and separation >= 2:
         tip_angle = _compute_wedge_tip_angle(shared_ring_coords, ring_idx1, ring_idx2, separation)
 
+    short_edge_count = 0
+    if same_ring and shared_ring_coords is not None and min_clearance > 0 and separation <= 1:
+        short_edge_count = _count_short_edges(
+            shared_ring_coords, ring_idx1, min_clearance
+        )
+
     return ClearanceContext(
         curvature=(curvature1, curvature2),
         separation=separation,
@@ -393,6 +408,7 @@ def _build_clearance_context(
         narrow_extent=narrow_extent,
         tip_angle=tip_angle,
         hole_indices=(hole_idx1, hole_idx2),
+        short_edge_count=short_edge_count,
     )
 
 
@@ -456,6 +472,51 @@ def _compute_narrow_extent(
         extent += 1
 
     return extent
+
+
+def _count_short_edges(
+    coords: np.ndarray,
+    center_idx: int,
+    min_clearance: float,
+    window: int = 5,
+) -> int:
+    """Count edges shorter than min_clearance in a window around center_idx.
+
+    Looks at up to *window* edges on each side of center_idx (2*window + 1
+    edges total). Returns the count of edges whose length is below
+    min_clearance.
+    """
+    n = len(coords) - 1  # closed ring
+    if n < 3:
+        return 0
+
+    count = 0
+    for offset in range(-window, window + 1):
+        i = (center_idx + offset) % n
+        j = (i + 1) % n
+        edge_len = float(np.linalg.norm(coords[i][:2] - coords[j][:2]))
+        if edge_len < min_clearance:
+            count += 1
+    return count
+
+
+def _looks_like_dense_vertices(
+    context: ClearanceContext, _: float
+) -> ClearanceIssue | None:
+    """Detect over-dense vertex sampling where short edges cause the clearance bottleneck.
+
+    When the clearance bottleneck is between adjacent vertices (separation <= 1)
+    and multiple neighboring edges are also shorter than min_clearance, the
+    problem is vertex density — not a geometric feature like a wedge or spike.
+    Simplification (e.g. RDP) resolves this better than geometric fixes.
+    """
+    if _is_cross_ring(context):
+        return None
+    if context.separation > 1:
+        return None
+    if context.short_edge_count >= _DENSE_VERTICES_MIN_SHORT_EDGES:
+        return ClearanceIssue.DENSE_VERTICES
+    return None
 
 
 def _looks_like_narrow_wedge(

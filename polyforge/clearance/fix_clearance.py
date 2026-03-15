@@ -24,6 +24,7 @@ from polyforge.ops.clearance.courtyard import try_close_passage_to_hole
 from polyforge.core.types import HoleStrategy, PassageStrategy, IntersectionStrategy
 from polyforge.core.iterative_utils import iterative_improve
 from polyforge.metrics import _safe_clearance
+from polyforge.simplify import simplify_rdp
 
 from polyforge.clearance._helpers import (
     clearance_or_zero,
@@ -723,6 +724,33 @@ def _strategy_narrow_protrusion(
         and clearance_or_zero(fallback) > baseline
     ):
         return fallback
+    return None
+
+
+@_register_strategy(ClearanceIssue.DENSE_VERTICES)
+def _strategy_dense_vertices(
+    geometry: Polygon,
+    min_clearance: float,
+    diagnosis: ClearanceDiagnosis,
+) -> Polygon | None:
+    """Strategy for over-dense vertex arcs: simplify with RDP at increasing epsilon.
+
+    Tries RDP simplification with epsilon values scaled from the current clearance
+    gap up to min_clearance. Returns the first candidate that improves clearance.
+    """
+    baseline = diagnosis.current_clearance
+    # Try increasing epsilon values — start small to preserve shape
+    for factor in (0.3, 0.5, 0.7, 1.0):
+        eps = min_clearance * factor
+        candidate = simplify_rdp(geometry, epsilon=eps)
+        if not isinstance(candidate, Polygon) or not candidate.is_valid or candidate.is_empty:
+            continue
+        try:
+            new_clearance = candidate.minimum_clearance
+        except (GEOSException, ValueError):
+            continue
+        if new_clearance > baseline:
+            return candidate
     return None
 
 
