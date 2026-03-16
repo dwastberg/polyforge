@@ -514,6 +514,32 @@ def _phase_iterative(
 ) -> Polygon:
     """Phase 2: Diagnosis-driven iterative fixes."""
 
+    # Track the best guard-rejected candidate as a fallback when all strategies
+    # produce valid fixes that slightly exceed the soft area guards.
+    # Format: [(candidate, area_distortion)]
+    best_rejected: list[tuple[Polygon, float]] = []
+
+    def _track_best_rejected(
+        candidate: Polygon,
+        cand_clearance: float,
+        current_clearance: float,
+        orig_area: float,
+        orig_ext_area: float,
+    ) -> None:
+        """Track guard-rejected candidates that still improve clearance."""
+        if cand_clearance <= current_clearance:
+            return
+        # Hard limits — wider than soft guards, prevent extreme violations
+        if candidate.area < min_area_ratio * 0.9 * orig_area:
+            return
+        if Polygon(candidate.exterior).area > orig_ext_area * _AREA_GROWTH_TOLERANCE * 1.05:
+            return
+        area_ratio = candidate.area / orig_area if orig_area > 0 else float("inf")
+        area_distortion = abs(1.0 - area_ratio)
+        if not best_rejected or area_distortion < best_rejected[0][1]:
+            best_rejected.clear()
+            best_rejected.append((candidate, area_distortion))
+
     def improve(poly: Polygon, target: float) -> Polygon | None:
         diagnosis = diagnose_clearance(poly, target)
         issue_history.append(diagnosis.issue)
@@ -540,16 +566,31 @@ def _phase_iterative(
             candidate = try_hole_ring_fix(poly, target, context=diagnosis.context)
         if not is_usable(candidate):
             return None
+
+        current_clearance = clearance_or_zero(poly)
+        candidate_clearance = clearance_or_zero(candidate)
+        passes_guards = True
+
         if candidate.area < min_area_ratio * original_area:
-            return None
+            passes_guards = False
         # Reject candidates that grow the exterior ring beyond a small tolerance.
         if Polygon(candidate.exterior).area > original_exterior_area * _AREA_GROWTH_TOLERANCE:
-            return None
-        # Clean up near-duplicate vertices that may have become the new bottleneck.
-        dedup_candidate = _dedup_ring_vertices(candidate, target * 0.5)
-        if is_usable(dedup_candidate):
-            candidate = dedup_candidate
-        return candidate
+            passes_guards = False
+
+        if passes_guards:
+            # Clean up near-duplicate vertices that may have become the new bottleneck.
+            dedup_candidate = _dedup_ring_vertices(candidate, target * 0.5)
+            if is_usable(dedup_candidate):
+                candidate = dedup_candidate
+            return candidate
+
+        # Candidate failed soft guards — track as best-rejected if it improves
+        # clearance and doesn't exceed hard limits
+        _track_best_rejected(
+            candidate, candidate_clearance, current_clearance,
+            original_area, original_exterior_area,
+        )
+        return None
 
     metric = lambda poly: clearance_or_zero(poly)  # noqa: E731
     improved = iterative_improve(
@@ -559,6 +600,13 @@ def _phase_iterative(
         metric_func=metric,
         max_iterations=max_iterations,
     )
+
+    # If iterative_improve made no progress and we have a rejected candidate, use it
+    if not is_usable(improved) or clearance_or_zero(improved) <= clearance_or_zero(geometry):
+        if best_rejected:
+            rejected_candidate, _distortion = best_rejected[0]
+            if clearance_or_zero(rejected_candidate) > clearance_or_zero(geometry):
+                improved = rejected_candidate
 
     if not is_usable(improved):
         improved = geometry
@@ -759,6 +807,9 @@ def _strategy_dense_vertices(
         return best
 
     # --- Phase 2: RDP with finer epsilon grid ---
+    # Try from least aggressive to most aggressive. Return the first candidate
+    # that meets the target (least simplification). If none meets the target,
+    # return the best improvement found so far (from resampling or smallest RDP).
     for factor in (0.1, 0.2, 0.3, 0.5, 0.7, 1.0):
         eps = min_clearance * factor
         candidate = simplify_rdp(geometry, epsilon=eps)
@@ -768,11 +819,12 @@ def _strategy_dense_vertices(
             new_clearance = candidate.minimum_clearance
         except (GEOSException, ValueError):
             continue
+        if new_clearance >= min_clearance:
+            # First candidate that meets target — least aggressive, return it
+            return candidate
         if new_clearance > best_clearance:
             best = candidate
             best_clearance = new_clearance
-            if best_clearance >= min_clearance:
-                return best
 
     return best
 
